@@ -1016,6 +1016,7 @@ function GalleryPanel({
   recentStoryboards,
   recentParlorBooks,
   onRenameParlorBook,
+  onDescribeImage,
 }: {
   authHeaders: Record<string, string>;
   onLoadStoryboard: (page: { type: 'html'; html: string; title: string }) => void;
@@ -1023,6 +1024,7 @@ function GalleryPanel({
   recentStoryboards: GalleryStoryboard[];
   recentParlorBooks: GalleryCanvasPage[];
   onRenameParlorBook: (page: GalleryCanvasPage, title: string) => Promise<void>;
+  onDescribeImage: (item: { key: string; name: string; url: string }) => Promise<void>;
 }) {
   const [storyboards, setStoryboards] = useState<GalleryStoryboard[]>([]);
   const [canvasPages, setCanvasPages] = useState<GalleryCanvasPage[]>([]);
@@ -1036,6 +1038,10 @@ function GalleryPanel({
   const fileInputRef  = useRef<HTMLInputElement>(null);
   const assetInputRef = useRef<HTMLInputElement>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [talkingKey, setTalkingKey] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<{ title: string; url: string } | null>(null);
+  const [dragData, setDragData] = useState<{ kind: 'character' | 'canvasAsset'; key: string; title: string } | null>(null);
+  const [movingImage, setMovingImage] = useState(false);
 
   const fetchGallery = useCallback(async () => {
     setLoading(true);
@@ -1150,6 +1156,9 @@ function GalleryPanel({
     );
   }, [mergedCanvasAssets, term]);
 
+  const allowDropToCharacters = dragData?.kind === 'canvasAsset';
+  const allowDropToAssets = dragData?.kind === 'character';
+
   const loadStoryboard = useCallback(async (key: string, title: string) => {
     try {
       const res = await fetch(`${API_BASE}/api/storyboard/fetch?key=${encodeURIComponent(key)}`, {
@@ -1246,6 +1255,91 @@ function GalleryPanel({
     [handleAssetUpload]
   );
 
+  const handleDelete = useCallback(
+    async (key: string, type: 'storyboard' | 'character' | 'canvasPage' | 'canvasAsset') => {
+      if (!window.confirm('Delete this item from the gallery?')) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/gallery`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ key, type }),
+        });
+        if (!res.ok) throw new Error('delete failed');
+        await fetchGallery();
+      } catch (err) {
+        console.warn('[gallery delete]', err);
+        alert('Could not delete that item.');
+      }
+    },
+    [authHeaders, fetchGallery]
+  );
+
+  const handleMove = useCallback(
+    async (payload: { key: string; from: 'character' | 'canvasAsset'; to: 'character' | 'canvasAsset'; title: string }) => {
+      setMovingImage(true);
+      try {
+        const res = await fetch(`${API_BASE}/api/gallery/move`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error('move failed');
+        await fetchGallery();
+      } catch (err) {
+        console.warn('[gallery move]', err);
+        alert('Could not move that image.');
+      } finally {
+        setMovingImage(false);
+      }
+    },
+    [authHeaders, fetchGallery]
+  );
+
+  const describeImage = useCallback(
+    async (item: { key: string; name: string; url: string }) => {
+      setTalkingKey(item.key);
+      try {
+        await onDescribeImage(item);
+      } catch (err) {
+        console.warn('[gallery describe]', err);
+        alert('BotButt could not talk about that one.');
+      } finally {
+        setTalkingKey((prev) => (prev === item.key ? null : prev));
+      }
+    },
+    [onDescribeImage]
+  );
+
+  const handleDragStart = useCallback(
+    (kind: 'character' | 'canvasAsset', item: { key: string; title: string }) => (e: React.DragEvent) => {
+      e.dataTransfer.effectAllowed = 'move';
+      setDragData({ kind, key: item.key, title: item.title });
+    },
+    []
+  );
+
+  const handleDragEnd = useCallback(() => setDragData(null), []);
+
+  const handleDropOnCharacters = useCallback(
+    (e: React.DragEvent) => {
+      if (dragData?.kind !== 'canvasAsset') return;
+      e.preventDefault();
+      handleMove({ key: dragData.key, from: 'canvasAsset', to: 'character', title: dragData.title });
+      setDragData(null);
+    },
+    [dragData, handleMove]
+  );
+
+  const handleDropOnAssets = useCallback(
+    (e: React.DragEvent) => {
+      if (dragData?.kind !== 'character') return;
+      e.preventDefault();
+      handleMove({ key: dragData.key, from: 'character', to: 'canvasAsset', title: dragData.title });
+      setDragData(null);
+    },
+    [dragData, handleMove]
+  );
+
   const handleRename = useCallback(
     async (page: GalleryCanvasPage) => {
       const next = prompt('Parlor Book title?', page.title) ?? '';
@@ -1293,14 +1387,17 @@ function GalleryPanel({
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {filteredStoryboards.map(sb => (
-            <div key={sb.key} style={{ border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div key={sb.key} style={{ border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
               <div>
                 <div style={{ fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }}>{sb.title}</div>
                 <div style={{ fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }}>
                   {new Date(sb.savedAt).toLocaleString()} &bull; {sb.conversationId}
                 </div>
               </div>
-              <button style={gBtn} onClick={() => loadStoryboard(sb.key, sb.title)}>Load</button>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button style={gBtn} onClick={() => loadStoryboard(sb.key, sb.title)}>Load</button>
+                <button style={gBtn} onClick={() => handleDelete(sb.key, 'storyboard')}>Delete</button>
+              </div>
             </div>
           ))}
         </div>
@@ -1322,12 +1419,39 @@ function GalleryPanel({
         {!loading && filteredImages.length === 0 && (
           <p style={{ color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }}>No character images yet.</p>
         )}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 10 }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
+            gap: 10,
+            border: allowDropToCharacters ? '1px dashed rgba(57,255,20,.6)' : undefined,
+            padding: allowDropToCharacters ? 8 : 0,
+            borderRadius: allowDropToCharacters ? 8 : 0
+          }}
+          onDragOver={allowDropToCharacters ? (e) => e.preventDefault() : undefined}
+          onDrop={allowDropToCharacters ? handleDropOnCharacters : undefined}
+        >
           {filteredImages.map(img => (
-            <div key={img.key} style={{ border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', overflow: 'hidden', textAlign: 'center' }}>
+            <div
+              key={img.key}
+              draggable
+              onDragStart={handleDragStart('character', { key: img.key, title: img.name || 'Character' })}
+              onDragEnd={handleDragEnd}
+              style={{ border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', overflow: 'hidden', textAlign: 'center', display: 'flex', flexDirection: 'column' }}
+            >
               <img src={img.url} alt={img.name} style={{ width: '100%', height: 90, objectFit: 'cover', display: 'block' }} />
               <div style={{ padding: '4px 6px', fontSize: '.68rem', color: 'rgba(240,230,255,.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {img.name}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', padding: '6px 4px' }}>
+                <button style={gBtn} onClick={() => describeImage({ key: img.key, name: img.name || 'Character', url: img.url })} disabled={talkingKey === img.key}>
+                  {talkingKey === img.key ? 'Talking…' : 'Talk'}
+                </button>
+                <button style={gBtn} onClick={() => setPreviewImage({ title: img.name || 'Character', url: img.url })}>View</button>
+                <a style={{ ...gBtn, textDecoration: 'none' }} href={img.url} target="_blank" rel="noopener noreferrer" download={img.name || 'character.png'}>
+                  Download
+                </a>
+                <button style={gBtn} onClick={() => handleDelete(img.key, 'character')}>Delete</button>
               </div>
             </div>
           ))}
@@ -1350,22 +1474,49 @@ function GalleryPanel({
           <p style={{ color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }}>No canvas image uploads yet.</p>
         )}
         {filteredAssets.length > 0 && (
-          <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div
+            style={{
+              marginBottom: 12,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              border: allowDropToAssets ? '1px dashed rgba(255,20,147,.6)' : undefined,
+              padding: allowDropToAssets ? 8 : 0,
+              borderRadius: allowDropToAssets ? 8 : 0
+            }}
+            onDragOver={allowDropToAssets ? (e) => e.preventDefault() : undefined}
+            onDrop={allowDropToAssets ? handleDropOnAssets : undefined}
+          >
             {filteredAssets.map((asset) => (
-              <div key={asset.key} style={{ border: '1px solid rgba(57,255,20,.45)', borderRadius: 6, background: '#0f0920', padding: '6px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+              <div
+                key={asset.key}
+                draggable
+                onDragStart={handleDragStart('canvasAsset', { key: asset.key, title: asset.title })}
+                onDragEnd={handleDragEnd}
+                style={{ border: '1px solid rgba(57,255,20,.45)', borderRadius: 6, background: '#0f0920', padding: '6px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}
+              >
                 <div>
                   <div style={{ fontWeight: 600, fontSize: '.78rem', color: '#39ff14' }}>{asset.title}</div>
                   <div style={{ fontSize: '.65rem', color: 'rgba(240,230,255,.55)' }}>{new Date(asset.savedAt).toLocaleString()}</div>
                   <img src={asset.url} alt={asset.title} style={{ width: 160, height: 90, objectFit: 'cover', borderRadius: 4, marginTop: 6, border: '1px solid rgba(57,255,20,.35)' }} />
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button style={gBtn} onClick={() => describeImage({ key: asset.key, name: asset.title, url: asset.url })} disabled={talkingKey === asset.key}>
+                    {talkingKey === asset.key ? 'Talking…' : 'Talk'}
+                  </button>
+                  <button style={gBtn} onClick={() => setPreviewImage({ title: asset.title, url: asset.url })}>View</button>
+                  <a style={{ ...gBtn, textDecoration: 'none' }} href={asset.url} target="_blank" rel="noopener noreferrer" download={`${(asset.title || 'canvas').replace(/\s+/g, '-')}.png`}>
+                    Download
+                  </a>
                   <button style={gBtn} onClick={() => copyUrl(asset.url)}>Copy URL</button>
                   <a style={{ ...gBtn, textDecoration: 'none' }} href={asset.url} target="_blank" rel="noopener noreferrer">Open</a>
+                  <button style={gBtn} onClick={() => handleDelete(asset.key, 'canvasAsset')}>Delete</button>
                 </div>
               </div>
             ))}
           </div>
         )}
+        {movingImage && <p style={{ color: 'rgba(240,230,255,.7)', fontSize: '.72rem' }}>Moving image…</p>}
       </div>
 
       {/* ── Parlor Books ── */}
@@ -1416,11 +1567,25 @@ function GalleryPanel({
                   href={page.url} target="_blank" rel="noopener noreferrer">
                   Open
                 </a>
+                <button style={gBtn} onClick={() => handleDelete(page.key, 'canvasPage')}>Delete</button>
               </div>
             </div>
           ))}
         </div>
       </div>
+
+      {previewImage && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20 }}
+          onClick={() => setPreviewImage(null)}
+        >
+          <div style={{ background: '#0d001a', padding: 16, borderRadius: 8, maxWidth: '90%', maxHeight: '90%', display: 'flex', flexDirection: 'column', gap: 10 }} onClick={(e) => e.stopPropagation()}>
+            <strong style={{ color: '#f0e6ff' }}>{previewImage.title}</strong>
+            <img src={previewImage.url} alt={previewImage.title} style={{ maxWidth: '80vw', maxHeight: '70vh', objectFit: 'contain', border: '1px solid rgba(255,20,147,.6)', borderRadius: 8 }} />
+            <button style={gBtn} onClick={() => setPreviewImage(null)}>Close</button>
+          </div>
+        </div>
+      )}
 
     </div>
   );
@@ -1636,7 +1801,7 @@ export default function App() {
   );
 
   const canvasBase = useMemo(
-    () => `${API_BASE}/api/song-canvas?conversationId=${encodeURIComponent(conversationId)}`,
+    () => `${API_BASE}/api/song-canvas?conversationId=${encodeURIComponent(conversationId)}&devEmail=${encodeURIComponent(userEmail)}`,
     [conversationId, userEmail]
   );
 
@@ -1835,41 +2000,47 @@ export default function App() {
   }, [messages]);
 
   // ── Send message ─────────────────────────────────────────────────────────
-  async function sendMessage(
-    e?: FormEvent,
-    extraText?: string,
-    attachments?: { name: string; contentType: string; data: string }[]
-  ) {
-    e?.preventDefault();
-    const text = (input.trim() + (extraText ? '\n' + extraText : '')).trim();
-    if (!text && !attachments?.length) return;
+async function sendMessage(
+  e?: FormEvent,
+  extraText?: string,
+  attachments?: { name: string; contentType: string; data: string }[],
+  options?: { ignoreDraft?: boolean }
+) {
+  e?.preventDefault();
+  const useDraft = !options?.ignoreDraft;
+  const draft = useDraft ? input.trim() : '';
+  const extra = extraText?.trim() || '';
+  const segments = [draft, extra].filter(Boolean);
+  const text = segments.join('\n').trim();
+  if (!text && !attachments?.length) return;
+  const clearDraft = () => { if (useDraft) setInput(''); };
 
-    // ── Slash commands ──
-    if (/^\/laserbra\b/i.test(text)) {
-      setInput('');
-      postToAvatar({ type: 'bb-emotion', state: 'punk' });
-      postToAvatar({ type: 'laser-blast' });
-      addMessage({ id: uuid(), author: 'bot', text: '⚡ laser bra activated ⚡', createdAt: new Date().toISOString() });
-      setTimeout(() => postToAvatar({ type: 'bb-emotion', state: 'idle' }), 4000);
-      return;
-    }
-    if (/^\/micdrop\b/i.test(text)) {
-      setInput('');
-      postToAvatar({ type: 'mic-drop' });
-      addMessage({ id: uuid(), author: 'bot', text: '🎤 *drops the mic*', createdAt: new Date().toISOString() });
-      return;
-    }
-    if (/^\/hotdogs\b/i.test(text)) {
-      setInput('');
-      setHotdogsOn(true);
-      addMessage({ id: uuid(), author: 'bot', text: '🌭🌭🌭', createdAt: new Date().toISOString() });
-      return;
-    }
+  // ── Slash commands ──
+  if (/^\/laserbra\b/i.test(text)) {
+    clearDraft();
+    postToAvatar({ type: 'bb-emotion', state: 'punk' });
+    postToAvatar({ type: 'laser-blast' });
+    addMessage({ id: uuid(), author: 'bot', text: '⚡ laser bra activated ⚡', createdAt: new Date().toISOString() });
+    setTimeout(() => postToAvatar({ type: 'bb-emotion', state: 'idle' }), 4000);
+    return;
+  }
+  if (/^\/micdrop\b/i.test(text)) {
+    clearDraft();
+    postToAvatar({ type: 'mic-drop' });
+    addMessage({ id: uuid(), author: 'bot', text: '🎤 *drops the mic*', createdAt: new Date().toISOString() });
+    return;
+  }
+  if (/^\/hotdogs\b/i.test(text)) {
+    clearDraft();
+    setHotdogsOn(true);
+    addMessage({ id: uuid(), author: 'bot', text: '🌭🌭🌭', createdAt: new Date().toISOString() });
+    return;
+  }
 
-    const displayText = text || (attachments?.map(a => `[${a.name}]`).join(' ') ?? '');
-    const userMsg: ChatMessage = { id: uuid(), author: 'butt', text: displayText, createdAt: new Date().toISOString(), userEmail: userEmail || undefined };
-    addMessage(userMsg);
-    setInput('');
+  const displayText = text || (attachments?.map(a => `[${a.name}]`).join(' ') ?? '');
+  const userMsg: ChatMessage = { id: uuid(), author: 'butt', text: displayText, createdAt: new Date().toISOString(), userEmail: userEmail || undefined };
+  addMessage(userMsg);
+  clearDraft();
     setBotStatus('thinking');
     postToAvatar({ type: 'bb-emotion', state: 'thinking' });
     try {
@@ -1917,9 +2088,22 @@ export default function App() {
       addMessage({ id: uuid(), author: 'bot', text: 'BotButt hit a snag. Check the backend logs.', createdAt: new Date().toISOString() });
     } finally {
       setBotStatus('idle');
-    }
   }
+}
 
+  const describeGalleryImage = useCallback(async (item: { key: string; name: string; url: string }) => {
+    const res = await fetch(`${API_BASE}/api/gallery/image-data`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify({ key: item.key }),
+    });
+    if (!res.ok) throw new Error('image fetch failed');
+    const data = await res.json();
+    const attachmentName = `${(item.name || 'gallery-image').replace(/\s+/g, '-')}.png`;
+    await sendMessage(undefined, `[Image: ${item.name || 'gallery image'}]`, [
+      { name: attachmentName, contentType: data.contentType || 'image/png', data: data.data }
+    ], { ignoreDraft: true });
+  }, [authHeaders, sendMessage]);
   // ── File drop ─────────────────────────────────────────────────────────────
   async function handleDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -2277,6 +2461,7 @@ export default function App() {
                   recentStoryboards={recentStoryboards}
                   recentParlorBooks={recentCanvasPages}
                   onRenameParlorBook={renameParlorBook}
+                  onDescribeImage={describeGalleryImage}
                 />
               )}
             </div>

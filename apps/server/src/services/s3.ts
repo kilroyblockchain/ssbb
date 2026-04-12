@@ -1,4 +1,4 @@
-import { S3Client, GetObjectCommand, PutObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, PutObjectCommand, ListObjectsV2Command, DeleteObjectCommand, CopyObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { config } from '../config.js';
 
@@ -68,4 +68,45 @@ export async function listObjects(bucket: string, prefix: string): Promise<{ key
 
 export async function getPresignedUrl(bucket: string, key: string, expiresIn = 3600): Promise<string> {
   return getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn });
+}
+
+export async function deleteObject(bucket: string, key: string) {
+  await s3.send(
+    new DeleteObjectCommand({
+      Bucket: bucket,
+      Key: key
+    })
+  );
+}
+
+export async function copyObject(bucket: string, sourceKey: string, targetKey: string) {
+  await s3.send(
+    new CopyObjectCommand({
+      Bucket: bucket,
+      CopySource: `${bucket}/${sourceKey}`,
+      Key: targetKey,
+      MetadataDirective: 'COPY'
+    })
+  );
+}
+
+async function getBodyAsBuffer(body: any): Promise<Buffer> {
+  if (!body) return Buffer.alloc(0);
+  if (Buffer.isBuffer(body)) return body;
+  if (body instanceof Uint8Array) return Buffer.from(body);
+  if (typeof body.arrayBuffer === 'function') {
+    const arr = await body.arrayBuffer();
+    return Buffer.from(arr);
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of body as AsyncIterable<Uint8Array>) {
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+export async function readBuffer(bucket: string, key: string): Promise<{ buffer: Buffer; contentType: string | undefined }> {
+  const res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  const buffer = await getBodyAsBuffer(res.Body);
+  return { buffer, contentType: res.ContentType };
 }

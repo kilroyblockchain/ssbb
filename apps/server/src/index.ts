@@ -23,7 +23,7 @@ import { config, ensureAwsConfig } from './config.js';
 import { appendToConversation, fetchConversation } from './services/conversations.js';
 import { runHarvest } from './services/harvest.js';
 import { synthesizeSpeech } from './services/tts.js';
-import { readObject, writeObject, writeBuffer, listObjects, getPresignedUrl } from './services/s3.js';
+import { readObject, writeObject, writeBuffer, listObjects, getPresignedUrl, deleteObject, copyObject, readBuffer } from './services/s3.js';
 
 dotenv.config();
 
@@ -494,6 +494,88 @@ app.post('/api/canvas/assets/upload', upload.single('file'), async (req: any, re
   } catch (err: any) {
     console.error('[canvas/assets/upload]', err);
     res.status(500).json({ error: err.message || 'Upload failed' });
+  }
+});
+
+app.delete('/api/gallery', async (req, res) => {
+  const key = typeof req.body?.key === 'string' ? req.body.key : '';
+  const type = typeof req.body?.type === 'string' ? req.body.type : '';
+  if (!key || !type) return res.status(400).json({ error: 'key and type required' });
+  if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
+  const bucket = config.mediaBucket;
+  try {
+    if (type === 'storyboard') {
+      await deleteObject(bucket, key);
+    } else if (type === 'character') {
+      await deleteObject(bucket, key);
+    } else if (type === 'canvasPage') {
+      await deleteObject(bucket, key);
+      const metaKey = `canvas-meta/${key.replace('canvas/', '')}.json`;
+      try { await deleteObject(bucket, metaKey); } catch { /* ignore */ }
+    } else if (type === 'canvasAsset') {
+      await deleteObject(bucket, key);
+      const metaKey = `canvas-assets-meta/${key.replace('canvas-assets/', '')}.json`;
+      try { await deleteObject(bucket, metaKey); } catch { /* ignore */ }
+    } else {
+      return res.status(400).json({ error: 'unsupported type' });
+    }
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error('[gallery/delete]', err);
+    res.status(500).json({ error: err.message || 'Delete failed' });
+  }
+});
+
+app.post('/api/gallery/move', async (req, res) => {
+  const key = typeof req.body?.key === 'string' ? req.body.key : '';
+  const from = req.body?.from === 'canvasAsset' ? 'canvasAsset' : req.body?.from === 'character' ? 'character' : null;
+  const to = req.body?.to === 'canvasAsset' ? 'canvasAsset' : req.body?.to === 'character' ? 'character' : null;
+  const titleRaw = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+  if (!key || !from || !to || from === to) return res.status(400).json({ error: 'invalid move' });
+  if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
+  const bucket = config.mediaBucket;
+  const safeTitle = titleRaw || 'Gallery Image';
+  const now = new Date().toISOString();
+  try {
+    if (from === 'character' && to === 'canvasAsset') {
+      const base = key.split('/').pop()?.replace(/[^a-zA-Z0-9._-]/g, '_') || 'image.png';
+      const newKey = `canvas-assets/${Date.now()}-${base}`;
+      await copyObject(bucket, key, newKey);
+      await deleteObject(bucket, key);
+      const metaKey = `canvas-assets-meta/${newKey.replace('canvas-assets/', '')}.json`;
+      await writeObject(bucket, metaKey, JSON.stringify({ name: safeTitle, savedAt: now }));
+      const url = await getPresignedUrl(bucket, newKey, 3600);
+      return res.json({ type: 'canvasAsset', key: newKey, title: safeTitle, url, savedAt: now });
+    }
+    if (from === 'canvasAsset' && to === 'character') {
+      const base = key.split('/').pop()?.replace(/^\d+-/, '').replace(/[^a-zA-Z0-9._-]/g, '_') || 'image.png';
+      const slug = safeTitle.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'gallery-move';
+      const newKey = `dolls/${slug}/${Date.now()}-${base}`;
+      await copyObject(bucket, key, newKey);
+      await deleteObject(bucket, key);
+      const metaKey = `canvas-assets-meta/${key.replace('canvas-assets/', '')}.json`;
+      try { await deleteObject(bucket, metaKey); } catch { /* ignore */ }
+      const url = await getPresignedUrl(bucket, newKey, 3600);
+      return res.json({ type: 'character', key: newKey, name: safeTitle, url });
+    }
+    return res.status(400).json({ error: 'move not supported' });
+  } catch (err: any) {
+    console.error('[gallery/move]', err);
+    res.status(500).json({ error: err.message || 'Move failed' });
+  }
+});
+
+app.post('/api/gallery/image-data', async (req, res) => {
+  const key = typeof req.body?.key === 'string' ? req.body.key : '';
+  if (!key) return res.status(400).json({ error: 'key required' });
+  if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
+  try {
+    const { buffer, contentType } = await readBuffer(config.mediaBucket, key);
+    const base64 = buffer.toString('base64');
+    res.json({ data: base64, contentType: contentType ?? 'application/octet-stream' });
+  } catch (err: any) {
+    console.error('[gallery/image-data]', err);
+    res.status(500).json({ error: err.message || 'Image fetch failed' });
   }
 });
 

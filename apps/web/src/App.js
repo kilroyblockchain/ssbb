@@ -901,7 +901,7 @@ function CanvasHtmlFrame({ html, title }) {
 function BotButtBear({ state }) {
     return (_jsxs("svg", { className: `bear-svg bear-wrap--${state}`, viewBox: "0 0 100 100", fill: "none", xmlns: "http://www.w3.org/2000/svg", "aria-label": "BotButt", children: [_jsx("circle", { cx: "22", cy: "24", r: "14", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("circle", { cx: "78", cy: "24", r: "14", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("circle", { cx: "22", cy: "24", r: "7", fill: "#4a0066" }), _jsx("circle", { cx: "78", cy: "24", r: "7", fill: "#4a0066" }), _jsx("ellipse", { cx: "50", cy: "60", rx: "34", ry: "32", className: "bear-head-fill", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("line", { x1: "30", y1: "47", x2: "40", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "40", y1: "47", x2: "30", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "60", y1: "47", x2: "70", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "70", y1: "47", x2: "60", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("ellipse", { cx: "50", cy: "66", rx: "5", ry: "3.5", fill: "#ff1493" }), _jsx("path", { className: "bear-mouth", d: "M36 75 Q50 83 64 75", stroke: "#ff1493", strokeWidth: "2.5", strokeLinecap: "round", fill: "none" }), _jsx("path", { d: "M38 12 Q50 6 62 12 Q50 18 38 12Z", fill: "#ff1493" }), _jsx("circle", { cx: "50", cy: "12", r: "3.5", fill: "#fff" }), state === 'speaking' && _jsxs(_Fragment, { children: [_jsx("line", { x1: "50", y1: "28", x2: "50", y2: "10", stroke: "#39ff14", strokeWidth: "1.5", strokeLinecap: "round" }), _jsx("circle", { cx: "50", cy: "8", r: "3", fill: "#39ff14", opacity: "0.9" })] })] }));
 }
-function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryboards, recentParlorBooks, onRenameParlorBook, }) {
+function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryboards, recentParlorBooks, onRenameParlorBook, onDescribeImage, }) {
     const [storyboards, setStoryboards] = useState([]);
     const [canvasPages, setCanvasPages] = useState([]);
     const [canvasAssets, setCanvasAssets] = useState([]);
@@ -914,6 +914,10 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
     const fileInputRef = useRef(null);
     const assetInputRef = useRef(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [talkingKey, setTalkingKey] = useState(null);
+    const [previewImage, setPreviewImage] = useState(null);
+    const [dragData, setDragData] = useState(null);
+    const [movingImage, setMovingImage] = useState(false);
     const fetchGallery = useCallback(async () => {
         setLoading(true);
         setError(null);
@@ -1011,6 +1015,8 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
         return mergedCanvasAssets.filter(asset => asset.title.toLowerCase().includes(term) ||
             asset.url.toLowerCase().includes(term));
     }, [mergedCanvasAssets, term]);
+    const allowDropToCharacters = dragData?.kind === 'canvasAsset';
+    const allowDropToAssets = dragData?.kind === 'character';
     const loadStoryboard = useCallback(async (key, title) => {
         try {
             const res = await fetch(`${API_BASE}/api/storyboard/fetch?key=${encodeURIComponent(key)}`, {
@@ -1108,6 +1114,76 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
         if (file)
             handleAssetUpload(file);
     }, [handleAssetUpload]);
+    const handleDelete = useCallback(async (key, type) => {
+        if (!window.confirm('Delete this item from the gallery?'))
+            return;
+        try {
+            const res = await fetch(`${API_BASE}/api/gallery`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json', ...authHeaders },
+                body: JSON.stringify({ key, type }),
+            });
+            if (!res.ok)
+                throw new Error('delete failed');
+            await fetchGallery();
+        }
+        catch (err) {
+            console.warn('[gallery delete]', err);
+            alert('Could not delete that item.');
+        }
+    }, [authHeaders, fetchGallery]);
+    const handleMove = useCallback(async (payload) => {
+        setMovingImage(true);
+        try {
+            const res = await fetch(`${API_BASE}/api/gallery/move`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders },
+                body: JSON.stringify(payload),
+            });
+            if (!res.ok)
+                throw new Error('move failed');
+            await fetchGallery();
+        }
+        catch (err) {
+            console.warn('[gallery move]', err);
+            alert('Could not move that image.');
+        }
+        finally {
+            setMovingImage(false);
+        }
+    }, [authHeaders, fetchGallery]);
+    const describeImage = useCallback(async (item) => {
+        setTalkingKey(item.key);
+        try {
+            await onDescribeImage(item);
+        }
+        catch (err) {
+            console.warn('[gallery describe]', err);
+            alert('BotButt could not talk about that one.');
+        }
+        finally {
+            setTalkingKey((prev) => (prev === item.key ? null : prev));
+        }
+    }, [onDescribeImage]);
+    const handleDragStart = useCallback((kind, item) => (e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        setDragData({ kind, key: item.key, title: item.title });
+    }, []);
+    const handleDragEnd = useCallback(() => setDragData(null), []);
+    const handleDropOnCharacters = useCallback((e) => {
+        if (dragData?.kind !== 'canvasAsset')
+            return;
+        e.preventDefault();
+        handleMove({ key: dragData.key, from: 'canvasAsset', to: 'character', title: dragData.title });
+        setDragData(null);
+    }, [dragData, handleMove]);
+    const handleDropOnAssets = useCallback((e) => {
+        if (dragData?.kind !== 'character')
+            return;
+        e.preventDefault();
+        handleMove({ key: dragData.key, from: 'character', to: 'canvasAsset', title: dragData.title });
+        setDragData(null);
+    }, [dragData, handleMove]);
     const handleRename = useCallback(async (page) => {
         const next = prompt('Parlor Book title?', page.title) ?? '';
         const trimmed = next.trim();
@@ -1122,7 +1198,22 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
                         border: '1px solid rgba(255,20,147,.4)',
                         background: '#02000a',
                         color: '#f0e6ff'
-                    } }) }), loading && _jsx("p", { style: { color: '#ff1493', fontSize: '.8rem' }, children: "Loading..." }), error && _jsxs("p", { style: { color: '#ffe66d', fontSize: '.8rem' }, children: ["Error: ", error] }), _jsxs("div", { style: { marginBottom: 20 }, children: [_jsxs("h3", { style: { color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Saved Storyboards (", filteredStoryboards.length, ")"] }), !loading && filteredStoryboards.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No saved storyboards yet." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: filteredStoryboards.map(sb => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }, children: sb.title }), _jsxs("div", { style: { fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: [new Date(sb.savedAt).toLocaleString(), " \u2022 ", sb.conversationId] })] }), _jsx("button", { style: gBtn, onClick: () => loadStoryboard(sb.key, sb.title), children: "Load" })] }, sb.key))) })] }), _jsxs("div", { children: [_jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }, children: [_jsxs("h3", { style: { color: '#39ff14', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', margin: 0 }, children: ["Characters (", filteredImages.length, ")"] }), _jsx("button", { style: { ...gBtn, color: '#39ff14', borderColor: '#39ff14' }, onClick: () => fileInputRef.current?.click(), disabled: uploading, children: uploading ? 'Uploading...' : '+ Upload' }), _jsx("input", { ref: fileInputRef, type: "file", accept: "image/*", style: { display: 'none' }, onChange: handleUpload })] }), !loading && filteredImages.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No character images yet." })), _jsx("div", { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 10 }, children: filteredImages.map(img => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', overflow: 'hidden', textAlign: 'center' }, children: [_jsx("img", { src: img.url, alt: img.name, style: { width: '100%', height: 90, objectFit: 'cover', display: 'block' } }), _jsx("div", { style: { padding: '4px 6px', fontSize: '.68rem', color: 'rgba(240,230,255,.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: img.name })] }, img.key))) })] }), _jsxs("div", { style: { margin: '20px 0' }, children: [_jsxs("h3", { style: { color: '#7df9ff', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Canvas Images (", filteredAssets.length, ")"] }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }, children: [_jsx("button", { style: { ...gBtn, color: '#39ff14', borderColor: '#39ff14' }, onClick: () => assetInputRef.current?.click(), disabled: assetUploading, children: assetUploading ? 'Uploading image...' : '+ Upload image' }), _jsx("input", { ref: assetInputRef, type: "file", accept: "image/*", style: { display: 'none' }, onChange: handleAssetInput }), _jsx("small", { style: { color: 'rgba(240,230,255,.7)' }, children: "Uploads return shareable URLs for your Parlor Book cards." })] }), filteredAssets.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No canvas image uploads yet." })), filteredAssets.length > 0 && (_jsx("div", { style: { marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }, children: filteredAssets.map((asset) => (_jsxs("div", { style: { border: '1px solid rgba(57,255,20,.45)', borderRadius: 6, background: '#0f0920', padding: '6px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.78rem', color: '#39ff14' }, children: asset.title }), _jsx("div", { style: { fontSize: '.65rem', color: 'rgba(240,230,255,.55)' }, children: new Date(asset.savedAt).toLocaleString() }), _jsx("img", { src: asset.url, alt: asset.title, style: { width: 160, height: 90, objectFit: 'cover', borderRadius: 4, marginTop: 6, border: '1px solid rgba(57,255,20,.35)' } })] }), _jsxs("div", { style: { display: 'flex', gap: 6, flexWrap: 'wrap' }, children: [_jsx("button", { style: gBtn, onClick: () => copyUrl(asset.url), children: "Copy URL" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: asset.url, target: "_blank", rel: "noopener noreferrer", children: "Open" })] })] }, asset.key))) }))] }), _jsxs("div", { style: { marginBottom: 20 }, children: [_jsxs("h3", { style: { color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Saved Parlor Books (", filteredParlorBooks.length, ")"] }), filteredParlorBooks.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No saved Parlor Books yet." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: filteredParlorBooks.map(page => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }, children: page.title }), _jsx("div", { style: { fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: new Date(page.savedAt).toLocaleString() }), _jsx("div", { style: {
+                    } }) }), loading && _jsx("p", { style: { color: '#ff1493', fontSize: '.8rem' }, children: "Loading..." }), error && _jsxs("p", { style: { color: '#ffe66d', fontSize: '.8rem' }, children: ["Error: ", error] }), _jsxs("div", { style: { marginBottom: 20 }, children: [_jsxs("h3", { style: { color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Saved Storyboards (", filteredStoryboards.length, ")"] }), !loading && filteredStoryboards.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No saved storyboards yet." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: filteredStoryboards.map(sb => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }, children: sb.title }), _jsxs("div", { style: { fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: [new Date(sb.savedAt).toLocaleString(), " \u2022 ", sb.conversationId] })] }), _jsxs("div", { style: { display: 'flex', gap: 6 }, children: [_jsx("button", { style: gBtn, onClick: () => loadStoryboard(sb.key, sb.title), children: "Load" }), _jsx("button", { style: gBtn, onClick: () => handleDelete(sb.key, 'storyboard'), children: "Delete" })] })] }, sb.key))) })] }), _jsxs("div", { children: [_jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }, children: [_jsxs("h3", { style: { color: '#39ff14', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', margin: 0 }, children: ["Characters (", filteredImages.length, ")"] }), _jsx("button", { style: { ...gBtn, color: '#39ff14', borderColor: '#39ff14' }, onClick: () => fileInputRef.current?.click(), disabled: uploading, children: uploading ? 'Uploading...' : '+ Upload' }), _jsx("input", { ref: fileInputRef, type: "file", accept: "image/*", style: { display: 'none' }, onChange: handleUpload })] }), !loading && filteredImages.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No character images yet." })), _jsx("div", { style: {
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
+                            gap: 10,
+                            border: allowDropToCharacters ? '1px dashed rgba(57,255,20,.6)' : undefined,
+                            padding: allowDropToCharacters ? 8 : 0,
+                            borderRadius: allowDropToCharacters ? 8 : 0
+                        }, onDragOver: allowDropToCharacters ? (e) => e.preventDefault() : undefined, onDrop: allowDropToCharacters ? handleDropOnCharacters : undefined, children: filteredImages.map(img => (_jsxs("div", { draggable: true, onDragStart: handleDragStart('character', { key: img.key, title: img.name || 'Character' }), onDragEnd: handleDragEnd, style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', overflow: 'hidden', textAlign: 'center', display: 'flex', flexDirection: 'column' }, children: [_jsx("img", { src: img.url, alt: img.name, style: { width: '100%', height: 90, objectFit: 'cover', display: 'block' } }), _jsx("div", { style: { padding: '4px 6px', fontSize: '.68rem', color: 'rgba(240,230,255,.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: img.name }), _jsxs("div", { style: { display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', padding: '6px 4px' }, children: [_jsx("button", { style: gBtn, onClick: () => describeImage({ key: img.key, name: img.name || 'Character', url: img.url }), disabled: talkingKey === img.key, children: talkingKey === img.key ? 'Talking…' : 'Talk' }), _jsx("button", { style: gBtn, onClick: () => setPreviewImage({ title: img.name || 'Character', url: img.url }), children: "View" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: img.url, target: "_blank", rel: "noopener noreferrer", download: img.name || 'character.png', children: "Download" }), _jsx("button", { style: gBtn, onClick: () => handleDelete(img.key, 'character'), children: "Delete" })] })] }, img.key))) })] }), _jsxs("div", { style: { margin: '20px 0' }, children: [_jsxs("h3", { style: { color: '#7df9ff', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Canvas Images (", filteredAssets.length, ")"] }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }, children: [_jsx("button", { style: { ...gBtn, color: '#39ff14', borderColor: '#39ff14' }, onClick: () => assetInputRef.current?.click(), disabled: assetUploading, children: assetUploading ? 'Uploading image...' : '+ Upload image' }), _jsx("input", { ref: assetInputRef, type: "file", accept: "image/*", style: { display: 'none' }, onChange: handleAssetInput }), _jsx("small", { style: { color: 'rgba(240,230,255,.7)' }, children: "Uploads return shareable URLs for your Parlor Book cards." })] }), filteredAssets.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No canvas image uploads yet." })), filteredAssets.length > 0 && (_jsx("div", { style: {
+                            marginBottom: 12,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 6,
+                            border: allowDropToAssets ? '1px dashed rgba(255,20,147,.6)' : undefined,
+                            padding: allowDropToAssets ? 8 : 0,
+                            borderRadius: allowDropToAssets ? 8 : 0
+                        }, onDragOver: allowDropToAssets ? (e) => e.preventDefault() : undefined, onDrop: allowDropToAssets ? handleDropOnAssets : undefined, children: filteredAssets.map((asset) => (_jsxs("div", { draggable: true, onDragStart: handleDragStart('canvasAsset', { key: asset.key, title: asset.title }), onDragEnd: handleDragEnd, style: { border: '1px solid rgba(57,255,20,.45)', borderRadius: 6, background: '#0f0920', padding: '6px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.78rem', color: '#39ff14' }, children: asset.title }), _jsx("div", { style: { fontSize: '.65rem', color: 'rgba(240,230,255,.55)' }, children: new Date(asset.savedAt).toLocaleString() }), _jsx("img", { src: asset.url, alt: asset.title, style: { width: 160, height: 90, objectFit: 'cover', borderRadius: 4, marginTop: 6, border: '1px solid rgba(57,255,20,.35)' } })] }), _jsxs("div", { style: { display: 'flex', gap: 6, flexWrap: 'wrap' }, children: [_jsx("button", { style: gBtn, onClick: () => describeImage({ key: asset.key, name: asset.title, url: asset.url }), disabled: talkingKey === asset.key, children: talkingKey === asset.key ? 'Talking…' : 'Talk' }), _jsx("button", { style: gBtn, onClick: () => setPreviewImage({ title: asset.title, url: asset.url }), children: "View" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: asset.url, target: "_blank", rel: "noopener noreferrer", download: `${(asset.title || 'canvas').replace(/\s+/g, '-')}.png`, children: "Download" }), _jsx("button", { style: gBtn, onClick: () => copyUrl(asset.url), children: "Copy URL" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: asset.url, target: "_blank", rel: "noopener noreferrer", children: "Open" }), _jsx("button", { style: gBtn, onClick: () => handleDelete(asset.key, 'canvasAsset'), children: "Delete" })] })] }, asset.key))) })), movingImage && _jsx("p", { style: { color: 'rgba(240,230,255,.7)', fontSize: '.72rem' }, children: "Moving image\u2026" })] }), _jsxs("div", { style: { marginBottom: 20 }, children: [_jsxs("h3", { style: { color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Saved Parlor Books (", filteredParlorBooks.length, ")"] }), filteredParlorBooks.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No saved Parlor Books yet." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: filteredParlorBooks.map(page => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }, children: page.title }), _jsx("div", { style: { fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: new Date(page.savedAt).toLocaleString() }), _jsx("div", { style: {
                                                 width: 420 * 0.45,
                                                 height: 260 * 0.45,
                                                 overflow: 'hidden',
@@ -1136,7 +1227,7 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
                                                     border: 'none',
                                                     transform: 'scale(0.45)',
                                                     transformOrigin: 'top left'
-                                                }, sandbox: "allow-same-origin allow-scripts" }) })] }), _jsxs("div", { style: { display: 'flex', gap: 8 }, children: [_jsx("button", { style: gBtn, onClick: () => handleRename(page), children: "Rename" }), _jsx("button", { style: gBtn, onClick: () => copyUrl(page.url), children: "Copy URL" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }, href: page.url, target: "_blank", rel: "noopener noreferrer", children: "Open" })] })] }, page.key))) })] })] }));
+                                                }, sandbox: "allow-same-origin allow-scripts" }) })] }), _jsxs("div", { style: { display: 'flex', gap: 8 }, children: [_jsx("button", { style: gBtn, onClick: () => handleRename(page), children: "Rename" }), _jsx("button", { style: gBtn, onClick: () => copyUrl(page.url), children: "Copy URL" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }, href: page.url, target: "_blank", rel: "noopener noreferrer", children: "Open" }), _jsx("button", { style: gBtn, onClick: () => handleDelete(page.key, 'canvasPage'), children: "Delete" })] })] }, page.key))) })] }), previewImage && (_jsx("div", { style: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20 }, onClick: () => setPreviewImage(null), children: _jsxs("div", { style: { background: '#0d001a', padding: 16, borderRadius: 8, maxWidth: '90%', maxHeight: '90%', display: 'flex', flexDirection: 'column', gap: 10 }, onClick: (e) => e.stopPropagation(), children: [_jsx("strong", { style: { color: '#f0e6ff' }, children: previewImage.title }), _jsx("img", { src: previewImage.url, alt: previewImage.title, style: { maxWidth: '80vw', maxHeight: '70vh', objectFit: 'contain', border: '1px solid rgba(255,20,147,.6)', borderRadius: 8 } }), _jsx("button", { style: gBtn, onClick: () => setPreviewImage(null), children: "Close" })] }) }))] }));
 }
 // ── Reactions ─────────────────────────────────────────────────────────────────
 const QUICK_EMOJIS = [
@@ -1251,7 +1342,7 @@ export default function App() {
     const canvasIframeRef = useRef(null);
     const currentAudioRef = useRef(null);
     const conversationId = useMemo(() => mode === 'shared' ? 'butt-bitch-hang' : `private-${(userEmail || 'anon').replace(/[^a-z0-9@._-]/gi, '')}`, [mode, userEmail]);
-    const canvasBase = useMemo(() => `${API_BASE}/api/song-canvas?conversationId=${encodeURIComponent(conversationId)}`, [conversationId, userEmail]);
+    const canvasBase = useMemo(() => `${API_BASE}/api/song-canvas?conversationId=${encodeURIComponent(conversationId)}&devEmail=${encodeURIComponent(userEmail)}`, [conversationId, userEmail]);
     // ── postMessage to avatar iframe ─────────────────────────────────────────
     const postToAvatar = useCallback((msg) => {
         canvasIframeRef.current?.contentWindow?.postMessage(msg, '*');
@@ -1440,14 +1531,20 @@ export default function App() {
             chatFeedRef.current.scrollTop = chatFeedRef.current.scrollHeight;
     }, [messages]);
     // ── Send message ─────────────────────────────────────────────────────────
-    async function sendMessage(e, extraText, attachments) {
+    async function sendMessage(e, extraText, attachments, options) {
         e?.preventDefault();
-        const text = (input.trim() + (extraText ? '\n' + extraText : '')).trim();
+        const useDraft = !options?.ignoreDraft;
+        const draft = useDraft ? input.trim() : '';
+        const extra = extraText?.trim() || '';
+        const segments = [draft, extra].filter(Boolean);
+        const text = segments.join('\n').trim();
         if (!text && !attachments?.length)
             return;
+        const clearDraft = () => { if (useDraft)
+            setInput(''); };
         // ── Slash commands ──
         if (/^\/laserbra\b/i.test(text)) {
-            setInput('');
+            clearDraft();
             postToAvatar({ type: 'bb-emotion', state: 'punk' });
             postToAvatar({ type: 'laser-blast' });
             addMessage({ id: uuid(), author: 'bot', text: '⚡ laser bra activated ⚡', createdAt: new Date().toISOString() });
@@ -1455,13 +1552,13 @@ export default function App() {
             return;
         }
         if (/^\/micdrop\b/i.test(text)) {
-            setInput('');
+            clearDraft();
             postToAvatar({ type: 'mic-drop' });
             addMessage({ id: uuid(), author: 'bot', text: '🎤 *drops the mic*', createdAt: new Date().toISOString() });
             return;
         }
         if (/^\/hotdogs\b/i.test(text)) {
-            setInput('');
+            clearDraft();
             setHotdogsOn(true);
             addMessage({ id: uuid(), author: 'bot', text: '🌭🌭🌭', createdAt: new Date().toISOString() });
             return;
@@ -1469,7 +1566,7 @@ export default function App() {
         const displayText = text || (attachments?.map(a => `[${a.name}]`).join(' ') ?? '');
         const userMsg = { id: uuid(), author: 'butt', text: displayText, createdAt: new Date().toISOString(), userEmail: userEmail || undefined };
         addMessage(userMsg);
-        setInput('');
+        clearDraft();
         setBotStatus('thinking');
         postToAvatar({ type: 'bb-emotion', state: 'thinking' });
         try {
@@ -1520,6 +1617,20 @@ export default function App() {
             setBotStatus('idle');
         }
     }
+    const describeGalleryImage = useCallback(async (item) => {
+        const res = await fetch(`${API_BASE}/api/gallery/image-data`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders },
+            body: JSON.stringify({ key: item.key }),
+        });
+        if (!res.ok)
+            throw new Error('image fetch failed');
+        const data = await res.json();
+        const attachmentName = `${(item.name || 'gallery-image').replace(/\s+/g, '-')}.png`;
+        await sendMessage(undefined, `[Image: ${item.name || 'gallery image'}]`, [
+            { name: attachmentName, contentType: data.contentType || 'image/png', data: data.data }
+        ], { ignoreDraft: true });
+    }, [authHeaders, sendMessage]);
     // ── File drop ─────────────────────────────────────────────────────────────
     async function handleDrop(e) {
         e.preventDefault();
@@ -1725,5 +1836,5 @@ export default function App() {
                                                             return ai >= 0 ? { ...s, idx: ai } : s;
                                                         });
                                                         postToAvatar({ type: 'clear-canvas-html' });
-                                                    }, children: "BotButt" }), _jsx("button", { className: `book-tab${currentPage.type === 'edit' ? ' book-tab--active' : ''}`, onClick: openEdit, children: "Editor" }), _jsx("button", { className: `book-tab${currentPage.type === 'gallery' ? ' book-tab--active' : ''}`, onClick: () => pushPage({ type: 'gallery' }), children: "Gallery" })] }), _jsxs("div", { className: "book-nav", children: [_jsx("button", { className: "book-nav-btn", onClick: goBack, disabled: session.idx === 0, title: "Previous", children: "\u25C0" }), _jsxs("span", { className: "book-nav-pos", children: [session.idx + 1, "/", session.pages.length] }), _jsx("button", { className: "book-nav-btn", onClick: goForward, disabled: session.idx === session.pages.length - 1, title: "Next", children: "\u25B6" })] }), currentPage.type === 'html' && (currentPage.s3Url ? (_jsx("a", { className: "book-dl", href: currentPage.s3Url, target: "_blank", rel: "noopener noreferrer", title: "Open S3 share link", children: "\uD83D\uDD17 S3" })) : (_jsx("button", { className: "book-dl", onClick: uploadToS3, disabled: s3Uploading, title: "Upload page to S3 for sharing", children: s3Uploading ? '↑…' : '↑ Share' }))), currentPage.type === 'html' && currentPage.s3Url && (_jsx("button", { className: "book-dl", onClick: () => showQR(currentPage.s3Url), title: "Generate QR code", children: "QR" })), currentPage.type === 'html' && (/storyboard|episode/i.test(currentPage.title) || /<table/i.test(currentPage.html)) && (_jsx("button", { className: "book-dl", onClick: saveStoryboard, disabled: sbSaving, title: "Save storyboard to gallery", children: sbSaving ? 'Saving...' : 'Save' })), _jsx("button", { className: "book-dl", onClick: downloadCanvas, title: "Download current page", children: "\u2913 Download" })] }), _jsxs("div", { className: "book-frame", children: [_jsx("iframe", { ref: canvasIframeRef, title: "BotButt avatar", srcDoc: BOTBUTT_SRCDOC, sandbox: "allow-scripts", style: { display: currentPage.type === 'avatar' ? 'block' : 'none', width: '100%', height: '100%', border: 'none' } }), currentPage.type === 'edit' && (_jsx("iframe", { title: "Parlor Book editor", src: currentPage.src, sandbox: "allow-scripts allow-same-origin allow-forms", style: { width: '100%', height: '100%', border: 'none' } })), currentPage.type === 'html' && (_jsx(CanvasHtmlFrame, { html: currentPage.html, title: currentPage.title }, session.idx)), currentPage.type === 'gallery' && (_jsx(GalleryPanel, { authHeaders: authHeaders, onLoadStoryboard: pushPage, refreshTick: galleryRefreshTick, recentStoryboards: recentStoryboards, recentParlorBooks: recentCanvasPages, onRenameParlorBook: renameParlorBook }))] })] }) })] }), _jsx("div", { className: "parlor-basement", children: _jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('memory'), children: [_jsx("span", { children: "Memory & Threads" }), _jsx("span", { className: "basement-chevron", children: basement.memory ? '▲' : '▼' })] }), basement.memory && (_jsxs("div", { className: "basement-body", children: [projectMemory ? (_jsxs(_Fragment, { children: [_jsxs("p", { className: "mem-focus", children: [_jsx("strong", { children: "Episode:" }), " ", projectMemory.episodeFocus] }), _jsx("ul", { className: "mem-threads", children: projectMemory.openThreads.map((t) => _jsx("li", { children: t }, t)) })] })) : _jsx("p", { style: { color: 'var(--muted)', fontSize: '.82rem' }, children: "Loading\u2026" }), _jsx("button", { className: "kg-button kg-button--harvest", onClick: runHarvest, disabled: harvesting, style: { marginTop: '10px' }, children: harvesting ? 'Scouring...' : 'Harvest SSBB from the web' }), lastHarvest && _jsxs("p", { style: { fontSize: '.72rem', color: 'var(--teal)', marginTop: '4px' }, children: [lastHarvest.count, " results via ", lastHarvest.backend] })] }))] }) }), qrModal && (_jsx("div", { className: "qr-backdrop", onClick: () => setQrModal(null), children: _jsxs("div", { className: "qr-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("img", { src: qrModal.dataUrl, alt: "QR Code", width: 220, height: 220 }), _jsxs("p", { className: "qr-url", children: [qrModal.url.slice(0, 72), qrModal.url.length > 72 ? '…' : ''] }), _jsx("button", { className: "qr-close", onClick: () => setQrModal(null), children: "\u2715 Close" })] }) }))] }));
+                                                    }, children: "BotButt" }), _jsx("button", { className: `book-tab${currentPage.type === 'edit' ? ' book-tab--active' : ''}`, onClick: openEdit, children: "Editor" }), _jsx("button", { className: `book-tab${currentPage.type === 'gallery' ? ' book-tab--active' : ''}`, onClick: () => pushPage({ type: 'gallery' }), children: "Gallery" })] }), _jsxs("div", { className: "book-nav", children: [_jsx("button", { className: "book-nav-btn", onClick: goBack, disabled: session.idx === 0, title: "Previous", children: "\u25C0" }), _jsxs("span", { className: "book-nav-pos", children: [session.idx + 1, "/", session.pages.length] }), _jsx("button", { className: "book-nav-btn", onClick: goForward, disabled: session.idx === session.pages.length - 1, title: "Next", children: "\u25B6" })] }), currentPage.type === 'html' && (currentPage.s3Url ? (_jsx("a", { className: "book-dl", href: currentPage.s3Url, target: "_blank", rel: "noopener noreferrer", title: "Open S3 share link", children: "\uD83D\uDD17 S3" })) : (_jsx("button", { className: "book-dl", onClick: uploadToS3, disabled: s3Uploading, title: "Upload page to S3 for sharing", children: s3Uploading ? '↑…' : '↑ Share' }))), currentPage.type === 'html' && currentPage.s3Url && (_jsx("button", { className: "book-dl", onClick: () => showQR(currentPage.s3Url), title: "Generate QR code", children: "QR" })), currentPage.type === 'html' && (/storyboard|episode/i.test(currentPage.title) || /<table/i.test(currentPage.html)) && (_jsx("button", { className: "book-dl", onClick: saveStoryboard, disabled: sbSaving, title: "Save storyboard to gallery", children: sbSaving ? 'Saving...' : 'Save' })), _jsx("button", { className: "book-dl", onClick: downloadCanvas, title: "Download current page", children: "\u2913 Download" })] }), _jsxs("div", { className: "book-frame", children: [_jsx("iframe", { ref: canvasIframeRef, title: "BotButt avatar", srcDoc: BOTBUTT_SRCDOC, sandbox: "allow-scripts", style: { display: currentPage.type === 'avatar' ? 'block' : 'none', width: '100%', height: '100%', border: 'none' } }), currentPage.type === 'edit' && (_jsx("iframe", { title: "Parlor Book editor", src: currentPage.src, sandbox: "allow-scripts allow-same-origin allow-forms", style: { width: '100%', height: '100%', border: 'none' } })), currentPage.type === 'html' && (_jsx(CanvasHtmlFrame, { html: currentPage.html, title: currentPage.title }, session.idx)), currentPage.type === 'gallery' && (_jsx(GalleryPanel, { authHeaders: authHeaders, onLoadStoryboard: pushPage, refreshTick: galleryRefreshTick, recentStoryboards: recentStoryboards, recentParlorBooks: recentCanvasPages, onRenameParlorBook: renameParlorBook, onDescribeImage: describeGalleryImage }))] })] }) })] }), _jsx("div", { className: "parlor-basement", children: _jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('memory'), children: [_jsx("span", { children: "Memory & Threads" }), _jsx("span", { className: "basement-chevron", children: basement.memory ? '▲' : '▼' })] }), basement.memory && (_jsxs("div", { className: "basement-body", children: [projectMemory ? (_jsxs(_Fragment, { children: [_jsxs("p", { className: "mem-focus", children: [_jsx("strong", { children: "Episode:" }), " ", projectMemory.episodeFocus] }), _jsx("ul", { className: "mem-threads", children: projectMemory.openThreads.map((t) => _jsx("li", { children: t }, t)) })] })) : _jsx("p", { style: { color: 'var(--muted)', fontSize: '.82rem' }, children: "Loading\u2026" }), _jsx("button", { className: "kg-button kg-button--harvest", onClick: runHarvest, disabled: harvesting, style: { marginTop: '10px' }, children: harvesting ? 'Scouring...' : 'Harvest SSBB from the web' }), lastHarvest && _jsxs("p", { style: { fontSize: '.72rem', color: 'var(--teal)', marginTop: '4px' }, children: [lastHarvest.count, " results via ", lastHarvest.backend] })] }))] }) }), qrModal && (_jsx("div", { className: "qr-backdrop", onClick: () => setQrModal(null), children: _jsxs("div", { className: "qr-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("img", { src: qrModal.dataUrl, alt: "QR Code", width: 220, height: 220 }), _jsxs("p", { className: "qr-url", children: [qrModal.url.slice(0, 72), qrModal.url.length > 72 ? '…' : ''] }), _jsx("button", { className: "qr-close", onClick: () => setQrModal(null), children: "\u2715 Close" })] }) }))] }));
 }
