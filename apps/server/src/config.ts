@@ -4,7 +4,7 @@ import { config as dotenvConfig } from 'dotenv';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 const _envPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../../.env');
-dotenvConfig({ path: _envPath, override: false });
+dotenvConfig({ path: _envPath, override: true });
 
 export const config = {
   port: Number(process.env.PORT || 4000),
@@ -15,7 +15,22 @@ export const config = {
   conversationPrefix: process.env.SSBB_CONVERSATIONS_PREFIX || 'conversations',
   bedrockModelId: process.env.BEDROCK_MODEL_ID || '',
   bedrockSecretArn: process.env.BEDROCK_SECRET_ARN || '',
-  devBypassEmail: process.env.DEV_BYPASS_EMAIL || ''
+  devBypassEmail: process.env.DEV_BYPASS_EMAIL || '',
+  sora: {
+    apiKey:
+      process.env.REACT_APP_SORA_API_KEY ||
+      process.env.SORA_API_KEY ||
+      '',
+    endpointUrl:
+      process.env.REACT_APP_SORA_API_URL ||
+      process.env.SORA_API_URL ||
+      '',
+    baseUrl:
+      process.env.REACT_APP_SORA_API_BASE_URL ||
+      process.env.SORA_API_BASE_URL ||
+      '',
+    secretName: process.env.SORA_SECRET_NAME || ''
+  }
 };
 
 export function ensureAwsConfig() {

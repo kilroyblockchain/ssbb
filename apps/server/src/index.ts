@@ -24,6 +24,8 @@ import { appendToConversation, fetchConversation } from './services/conversation
 import { runHarvest } from './services/harvest.js';
 import { synthesizeSpeech } from './services/tts.js';
 import { readObject, writeObject, writeBuffer, listObjects, getPresignedUrl, deleteObject, copyObject, readBuffer } from './services/s3.js';
+import { launchSoraJob } from './services/sora.js';
+import { hydrateSoraConfig } from './services/secrets.js';
 
 dotenv.config();
 
@@ -36,6 +38,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
 app.use(express.json({ limit: '20mb' }));  // large enough for base64 images
+
+hydrateSoraConfig().catch((err) => {
+  console.warn('[sora] initial hydrate failed:', err instanceof Error ? err.message : err);
+});
 
 const server = createServer(app);
 const io = new SocketIOServer(server, {
@@ -76,6 +82,14 @@ const chatSchema = z.object({
   mode: z.enum(['shared', 'private']).default('shared'),
   attachments: z.array(imageAttachmentSchema).max(5).optional(),
   clientMessageId: z.string().uuid().optional()
+});
+
+const soraJobSchema = z.object({
+  prompt: z.string().min(20, 'Prompt too short').max(4000),
+  size: z.string().min(3).max(20).default('1280x720'),
+  seconds: z.coerce.number().min(1).max(12).default(4),
+  sourceImageKey: z.string().optional(),
+  sourceImageName: z.string().optional()
 });
 
 // ── Reactions: in-memory store ────────────────────────────────────────────────
@@ -238,6 +252,54 @@ app.post('/api/chat/greeting', async (req, res) => {
   }
 });
 
+app.post('/api/sora/movie', async (req, res) => {
+  await hydrateSoraConfig();
+  const parsed = soraJobSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  if (!config.sora.apiKey || !config.sora.endpointUrl || !config.sora.baseUrl) {
+    return res.status(503).json({ error: 'Sora not configured' });
+  }
+  if (!config.mediaBucket) {
+    return res.status(503).json({ error: 'Media bucket missing' });
+  }
+
+  const data = parsed.data;
+  try {
+    const { jobId } = await launchSoraJob(
+      {
+        prompt: data.prompt,
+        size: data.size,
+        seconds: data.seconds,
+        userEmail: req.user?.email,
+        sourceImageKey: data.sourceImageKey,
+        sourceImageName: data.sourceImageName
+      },
+      {
+        onStatus: ({ jobId: sJobId, status }) => {
+          io.emit('sora:status', {
+            jobId: sJobId,
+            status,
+            prompt: data.prompt,
+            startedBy: req.user?.email ?? null
+          });
+        },
+        onComplete: (video) => {
+          io.emit('gallery:video-added', video);
+        },
+        onError: ({ jobId: sJobId, error }) => {
+          io.emit('sora:status', { jobId: sJobId, status: 'failed', error });
+        }
+      }
+    );
+    res.json({ jobId });
+  } catch (err: any) {
+    console.error('[sora/movie]', err);
+    res.status(500).json({ error: err.message || 'Sora job failed' });
+  }
+});
+
 // ── TTS: Polly Olivia (en-AU neural) ─────────────────────────────────────────
 app.post('/api/tts', async (req, res) => {
   const text = typeof req.body?.text === 'string' ? req.body.text : '';
@@ -334,11 +396,12 @@ app.get('/api/storyboard/fetch', async (req, res) => {
 app.get('/api/gallery', async (req, res) => {
   if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
   try {
-    const [sbObjects, dollObjects, canvasObjects, canvasAssetObjects] = await Promise.all([
+    const [sbObjects, dollObjects, canvasObjects, canvasAssetObjects, videoObjects] = await Promise.all([
       listObjects(config.mediaBucket, 'storyboards/'),
       listObjects(config.mediaBucket, 'dolls/'),
       listObjects(config.mediaBucket, 'canvas/'),
       listObjects(config.mediaBucket, 'canvas-assets/'),
+      listObjects(config.mediaBucket, 'videos/'),
     ]);
 
     // For storyboards, read the JSON metadata (title, savedAt)
@@ -422,7 +485,44 @@ app.get('/api/gallery', async (req, res) => {
       })
     ).then((items) => items.filter((x): x is NonNullable<typeof x> => Boolean(x)));
 
-    res.json({ storyboards, images, canvasPages, canvasAssets });
+    const videos = await Promise.all(
+      videoObjects.map(async ({ key, lastModified }) => {
+        try {
+          const url = await getPresignedUrl(config.mediaBucket, key, 3600);
+          const metaKey = `videos-meta/${key.replace('videos/', '')}.json`;
+          let savedAt = lastModified.toISOString();
+          let prompt = '';
+          let startedBy: string | null = null;
+          let size = '1280x720';
+          let seconds = 4;
+          let name = key.split('/').pop()?.replace(/\.mp4$/i, '') ?? 'Sora movie';
+          let sourceImageKey: string | null = null;
+          let sourceImageName: string | null = null;
+          try {
+            const rawMeta = await readObject(config.mediaBucket, metaKey);
+            if (rawMeta) {
+              const parsed = JSON.parse(rawMeta);
+              prompt = parsed.prompt ?? prompt;
+              savedAt = parsed.savedAt ?? savedAt;
+              startedBy = parsed.startedBy ?? startedBy;
+              size = parsed.size ?? size;
+              seconds = parsed.seconds ?? seconds;
+              sourceImageKey = parsed.sourceImageKey ?? null;
+              sourceImageName = parsed.sourceImageName ?? null;
+              name = sourceImageName || name;
+            }
+          } catch {
+            // ignore missing metadata
+          }
+          return { key, url, savedAt, prompt, startedBy, size, seconds, name, sourceImageKey, sourceImageName };
+        } catch (err) {
+          console.warn('[gallery] video read failed', err);
+          return null;
+        }
+      })
+    ).then((items) => items.filter((x): x is NonNullable<typeof x> => Boolean(x)));
+
+    res.json({ storyboards, images, canvasPages, canvasAssets, videos });
   } catch (err: any) {
     console.error('[gallery]', err);
     res.status(500).json({ error: err.message || 'Gallery fetch failed' });
@@ -515,6 +615,10 @@ app.delete('/api/gallery', async (req, res) => {
     } else if (type === 'canvasAsset') {
       await deleteObject(bucket, key);
       const metaKey = `canvas-assets-meta/${key.replace('canvas-assets/', '')}.json`;
+      try { await deleteObject(bucket, metaKey); } catch { /* ignore */ }
+    } else if (type === 'video') {
+      await deleteObject(bucket, key);
+      const metaKey = `videos-meta/${key.replace('videos/', '')}.json`;
       try { await deleteObject(bucket, metaKey); } catch { /* ignore */ }
     } else {
       return res.status(400).json({ error: 'unsupported type' });

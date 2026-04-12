@@ -37,7 +37,8 @@ function LoginScreen({ onLogin }) {
             onLogin(idToken);
         }
         catch (err) {
-            setError(err.message || 'Login failed.');
+            const message = err instanceof Error ? err.message : 'Login failed.';
+            setError(message || 'Login failed.');
         }
         finally {
             setLoading(false);
@@ -872,21 +873,31 @@ svg{width:100%;height:100%;display:block;}
 </body>
 </html>`;
 // ── Small bear for header ─────────────────────────────────────────────────────
+const seededRandom = (seed) => {
+    const x = Math.sin(seed) * 10000;
+    return x - Math.floor(x);
+};
 function HotdogRain({ onDone }) {
     const [fading, setFading] = useState(false);
-    const handleDone = useCallback(onDone, []); // stable ref so effect doesn't re-fire
+    const handleDone = useCallback(() => { onDone(); }, [onDone]);
     useEffect(() => {
         const fadeTimer = setTimeout(() => setFading(true), 55000);
         const doneTimer = setTimeout(handleDone, 60000);
         return () => { clearTimeout(fadeTimer); clearTimeout(doneTimer); };
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
-    const dogs = useMemo(() => Array.from({ length: 45 }, (_, i) => ({
-        id: i,
-        left: `${(Math.random() * 96).toFixed(1)}vw`,
-        duration: `${(3 + Math.random() * 5).toFixed(2)}s`,
-        delay: `${(Math.random() * 14).toFixed(2)}s`,
-        size: `${(1.4 + Math.random() * 1.6).toFixed(2)}rem`,
-    })), []);
+    }, [handleDone]);
+    const dogs = useMemo(() => Array.from({ length: 45 }, (_, i) => {
+        const left = (seededRandom(i + 1) * 96).toFixed(1);
+        const duration = (3 + seededRandom(i + 101) * 5).toFixed(2);
+        const delay = (seededRandom(i + 401) * 14).toFixed(2);
+        const size = (1.4 + seededRandom(i + 701) * 1.6).toFixed(2);
+        return {
+            id: i,
+            left: `${left}vw`,
+            duration: `${duration}s`,
+            delay: `${delay}s`,
+            size: `${size}rem`,
+        };
+    }), []);
     return (_jsx("div", { className: "hotdog-rain", style: { opacity: fading ? 0 : 1 }, children: dogs.map((d, i) => (_jsx("div", { className: "hotdog-rain__dog", style: {
                 left: d.left,
                 fontSize: d.size,
@@ -901,11 +912,12 @@ function CanvasHtmlFrame({ html, title }) {
 function BotButtBear({ state }) {
     return (_jsxs("svg", { className: `bear-svg bear-wrap--${state}`, viewBox: "0 0 100 100", fill: "none", xmlns: "http://www.w3.org/2000/svg", "aria-label": "BotButt", children: [_jsx("circle", { cx: "22", cy: "24", r: "14", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("circle", { cx: "78", cy: "24", r: "14", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("circle", { cx: "22", cy: "24", r: "7", fill: "#4a0066" }), _jsx("circle", { cx: "78", cy: "24", r: "7", fill: "#4a0066" }), _jsx("ellipse", { cx: "50", cy: "60", rx: "34", ry: "32", className: "bear-head-fill", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("line", { x1: "30", y1: "47", x2: "40", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "40", y1: "47", x2: "30", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "60", y1: "47", x2: "70", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "70", y1: "47", x2: "60", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("ellipse", { cx: "50", cy: "66", rx: "5", ry: "3.5", fill: "#ff1493" }), _jsx("path", { className: "bear-mouth", d: "M36 75 Q50 83 64 75", stroke: "#ff1493", strokeWidth: "2.5", strokeLinecap: "round", fill: "none" }), _jsx("path", { d: "M38 12 Q50 6 62 12 Q50 18 38 12Z", fill: "#ff1493" }), _jsx("circle", { cx: "50", cy: "12", r: "3.5", fill: "#fff" }), state === 'speaking' && _jsxs(_Fragment, { children: [_jsx("line", { x1: "50", y1: "28", x2: "50", y2: "10", stroke: "#39ff14", strokeWidth: "1.5", strokeLinecap: "round" }), _jsx("circle", { cx: "50", cy: "8", r: "3", fill: "#39ff14", opacity: "0.9" })] })] }));
 }
-function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryboards, recentParlorBooks, onRenameParlorBook, onDescribeImage, }) {
+function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryboards, recentParlorBooks, onRenameParlorBook, onDescribeImage, onRequestMoviePrompt, onRequestMultiMoviePrompt, }) {
     const [storyboards, setStoryboards] = useState([]);
     const [canvasPages, setCanvasPages] = useState([]);
     const [canvasAssets, setCanvasAssets] = useState([]);
     const [images, setImages] = useState([]);
+    const [videos, setVideos] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [uploading, setUploading] = useState(false);
@@ -918,6 +930,37 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
     const [previewImage, setPreviewImage] = useState(null);
     const [dragData, setDragData] = useState(null);
     const [movingImage, setMovingImage] = useState(false);
+    const [moviePromptKey, setMoviePromptKey] = useState(null);
+    const [movieSel, setMovieSel] = useState(new Map());
+    const [combiningMovie, setCombiningMovie] = useState(false);
+    const toggleMovieSel = useCallback((item) => {
+        setMovieSel(prev => {
+            const next = new Map(prev);
+            if (next.has(item.key)) {
+                next.delete(item.key);
+            }
+            else if (next.size < 5) {
+                next.set(item.key, item);
+            }
+            return next;
+        });
+    }, []);
+    const handleCombineMovie = useCallback(async () => {
+        if (movieSel.size < 2)
+            return;
+        setCombiningMovie(true);
+        try {
+            await onRequestMultiMoviePrompt(Array.from(movieSel.values()));
+            setMovieSel(new Map());
+        }
+        catch (err) {
+            const msg = err instanceof Error ? err.message : 'Multi-movie prompt failed';
+            alert(msg);
+        }
+        finally {
+            setCombiningMovie(false);
+        }
+    }, [movieSel, onRequestMultiMoviePrompt]);
     const fetchGallery = useCallback(async () => {
         setLoading(true);
         setError(null);
@@ -930,9 +973,11 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
             setCanvasPages((data.canvasPages ?? []).sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()));
             setCanvasAssets((data.canvasAssets ?? []).sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()));
             setImages(data.images ?? []);
+            setVideos((data.videos ?? []).sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()));
         }
-        catch (e) {
-            setError(e.message || 'Failed to load gallery');
+        catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to load gallery';
+            setError(message);
         }
         finally {
             setLoading(false);
@@ -1015,6 +1060,12 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
         return mergedCanvasAssets.filter(asset => asset.title.toLowerCase().includes(term) ||
             asset.url.toLowerCase().includes(term));
     }, [mergedCanvasAssets, term]);
+    const filteredVideos = useMemo(() => {
+        if (!term)
+            return videos;
+        return videos.filter(video => (video.name ?? '').toLowerCase().includes(term) ||
+            (video.prompt ?? '').toLowerCase().includes(term));
+    }, [videos, term]);
     const allowDropToCharacters = dragData?.kind === 'canvasAsset';
     const allowDropToAssets = dragData?.kind === 'character';
     const loadStoryboard = useCallback(async (key, title) => {
@@ -1027,8 +1078,9 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
             const data = await res.json();
             onLoadStoryboard({ type: 'html', html: data.html, title: data.title ?? title });
         }
-        catch (e) {
-            alert(`Could not load storyboard: ${e.message}`);
+        catch (err) {
+            const message = err instanceof Error ? err.message : 'Unknown error';
+            alert(`Could not load storyboard: ${message}`);
         }
     }, [authHeaders, onLoadStoryboard]);
     const handleUpload = useCallback(async (e) => {
@@ -1050,8 +1102,9 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
                 throw new Error(`Upload ${res.status}`);
             await fetchGallery();
         }
-        catch (e) {
-            alert(`Upload failed: ${e.message}`);
+        catch (err) {
+            const message = err instanceof Error ? err.message : 'Unknown error';
+            alert(`Upload failed: ${message}`);
         }
         finally {
             setUploading(false);
@@ -1114,6 +1167,20 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
         if (file)
             handleAssetUpload(file);
     }, [handleAssetUpload]);
+    const handleMoviePrompt = useCallback(async (item) => {
+        setMoviePromptKey(item.key);
+        try {
+            await onRequestMoviePrompt(item);
+        }
+        catch (err) {
+            console.warn('[movie prompt]', err);
+            const message = err instanceof Error ? err.message : '';
+            alert(message ? `Movie prompt failed: ${message}` : 'Movie prompt failed.');
+        }
+        finally {
+            setMoviePromptKey(null);
+        }
+    }, [onRequestMoviePrompt]);
     const handleDelete = useCallback(async (key, type) => {
         if (!window.confirm('Delete this item from the gallery?'))
             return;
@@ -1198,14 +1265,14 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
                         border: '1px solid rgba(255,20,147,.4)',
                         background: '#02000a',
                         color: '#f0e6ff'
-                    } }) }), loading && _jsx("p", { style: { color: '#ff1493', fontSize: '.8rem' }, children: "Loading..." }), error && _jsxs("p", { style: { color: '#ffe66d', fontSize: '.8rem' }, children: ["Error: ", error] }), _jsxs("div", { style: { marginBottom: 20 }, children: [_jsxs("h3", { style: { color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Saved Storyboards (", filteredStoryboards.length, ")"] }), !loading && filteredStoryboards.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No saved storyboards yet." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: filteredStoryboards.map(sb => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }, children: sb.title }), _jsxs("div", { style: { fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: [new Date(sb.savedAt).toLocaleString(), " \u2022 ", sb.conversationId] })] }), _jsxs("div", { style: { display: 'flex', gap: 6 }, children: [_jsx("button", { style: gBtn, onClick: () => loadStoryboard(sb.key, sb.title), children: "Load" }), _jsx("button", { style: gBtn, onClick: () => handleDelete(sb.key, 'storyboard'), children: "Delete" })] })] }, sb.key))) })] }), _jsxs("div", { children: [_jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }, children: [_jsxs("h3", { style: { color: '#39ff14', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', margin: 0 }, children: ["Characters (", filteredImages.length, ")"] }), _jsx("button", { style: { ...gBtn, color: '#39ff14', borderColor: '#39ff14' }, onClick: () => fileInputRef.current?.click(), disabled: uploading, children: uploading ? 'Uploading...' : '+ Upload' }), _jsx("input", { ref: fileInputRef, type: "file", accept: "image/*", style: { display: 'none' }, onChange: handleUpload })] }), !loading && filteredImages.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No character images yet." })), _jsx("div", { style: {
+                    } }) }), loading && _jsx("p", { style: { color: '#ff1493', fontSize: '.8rem' }, children: "Loading..." }), error && _jsxs("p", { style: { color: '#ffe66d', fontSize: '.8rem' }, children: ["Error: ", error] }), movieSel.size > 0 && (_jsxs("div", { style: { background: 'rgba(255,140,251,.12)', border: '1px solid #ff8cfb', borderRadius: 8, padding: '8px 12px', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }, children: [_jsxs("span", { style: { fontSize: '.78rem', color: '#ff8cfb' }, children: ["\uD83C\uDFAC ", movieSel.size, " selected", movieSel.size < 2 ? ' — pick at least 2 to combine' : '', movieSel.size >= 5 ? ' (max)' : ''] }), _jsxs("div", { style: { display: 'flex', gap: 6 }, children: [movieSel.size >= 2 && (_jsx("button", { style: { ...gBtn, color: '#ff8cfb', borderColor: '#ff8cfb' }, onClick: handleCombineMovie, disabled: combiningMovie, children: combiningMovie ? 'Prompting…' : `Combine ${movieSel.size} into movie` })), _jsx("button", { style: gBtn, onClick: () => setMovieSel(new Map()), children: "Clear" })] })] })), _jsxs("div", { style: { marginBottom: 20 }, children: [_jsxs("h3", { style: { color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Saved Storyboards (", filteredStoryboards.length, ")"] }), !loading && filteredStoryboards.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No saved storyboards yet." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: filteredStoryboards.map(sb => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }, children: sb.title }), _jsxs("div", { style: { fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: [new Date(sb.savedAt).toLocaleString(), " \u2022 ", sb.conversationId] })] }), _jsxs("div", { style: { display: 'flex', gap: 6 }, children: [_jsx("button", { style: gBtn, onClick: () => loadStoryboard(sb.key, sb.title), children: "Load" }), _jsx("button", { style: gBtn, onClick: () => handleDelete(sb.key, 'storyboard'), children: "Delete" })] })] }, sb.key))) })] }), _jsxs("div", { children: [_jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }, children: [_jsxs("h3", { style: { color: '#39ff14', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', margin: 0 }, children: ["Characters (", filteredImages.length, ")"] }), _jsx("button", { style: { ...gBtn, color: '#39ff14', borderColor: '#39ff14' }, onClick: () => fileInputRef.current?.click(), disabled: uploading, children: uploading ? 'Uploading...' : '+ Upload' }), _jsx("input", { ref: fileInputRef, type: "file", accept: "image/*", style: { display: 'none' }, onChange: handleUpload })] }), !loading && filteredImages.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No character images yet." })), _jsx("div", { style: {
                             display: 'grid',
                             gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
                             gap: 10,
                             border: allowDropToCharacters ? '1px dashed rgba(57,255,20,.6)' : undefined,
                             padding: allowDropToCharacters ? 8 : 0,
                             borderRadius: allowDropToCharacters ? 8 : 0
-                        }, onDragOver: allowDropToCharacters ? (e) => e.preventDefault() : undefined, onDrop: allowDropToCharacters ? handleDropOnCharacters : undefined, children: filteredImages.map(img => (_jsxs("div", { draggable: true, onDragStart: handleDragStart('character', { key: img.key, title: img.name || 'Character' }), onDragEnd: handleDragEnd, style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', overflow: 'hidden', textAlign: 'center', display: 'flex', flexDirection: 'column' }, children: [_jsx("img", { src: img.url, alt: img.name, style: { width: '100%', height: 90, objectFit: 'cover', display: 'block' } }), _jsx("div", { style: { padding: '4px 6px', fontSize: '.68rem', color: 'rgba(240,230,255,.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: img.name }), _jsxs("div", { style: { display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', padding: '6px 4px' }, children: [_jsx("button", { style: gBtn, onClick: () => describeImage({ key: img.key, name: img.name || 'Character', url: img.url }), disabled: talkingKey === img.key, children: talkingKey === img.key ? 'Talking…' : 'Talk' }), _jsx("button", { style: gBtn, onClick: () => setPreviewImage({ title: img.name || 'Character', url: img.url }), children: "View" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: img.url, target: "_blank", rel: "noopener noreferrer", download: img.name || 'character.png', children: "Download" }), _jsx("button", { style: gBtn, onClick: () => handleDelete(img.key, 'character'), children: "Delete" })] })] }, img.key))) })] }), _jsxs("div", { style: { margin: '20px 0' }, children: [_jsxs("h3", { style: { color: '#7df9ff', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Canvas Images (", filteredAssets.length, ")"] }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }, children: [_jsx("button", { style: { ...gBtn, color: '#39ff14', borderColor: '#39ff14' }, onClick: () => assetInputRef.current?.click(), disabled: assetUploading, children: assetUploading ? 'Uploading image...' : '+ Upload image' }), _jsx("input", { ref: assetInputRef, type: "file", accept: "image/*", style: { display: 'none' }, onChange: handleAssetInput }), _jsx("small", { style: { color: 'rgba(240,230,255,.7)' }, children: "Uploads return shareable URLs for your Parlor Book cards." })] }), filteredAssets.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No canvas image uploads yet." })), filteredAssets.length > 0 && (_jsx("div", { style: {
+                        }, onDragOver: allowDropToCharacters ? (e) => e.preventDefault() : undefined, onDrop: allowDropToCharacters ? handleDropOnCharacters : undefined, children: filteredImages.map(img => (_jsxs("div", { draggable: true, onDragStart: handleDragStart('character', { key: img.key, title: img.name || 'Character' }), onDragEnd: handleDragEnd, style: { border: movieSel.has(img.key) ? '2px solid #ff8cfb' : '1px solid #ff1493', borderRadius: 6, background: '#0d001a', overflow: 'hidden', textAlign: 'center', display: 'flex', flexDirection: 'column' }, children: [_jsx("img", { src: img.url, alt: img.name, style: { width: '100%', height: 90, objectFit: 'cover', display: 'block' } }), _jsx("div", { style: { padding: '4px 6px', fontSize: '.68rem', color: 'rgba(240,230,255,.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: img.name }), _jsxs("div", { style: { display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', padding: '6px 4px' }, children: [_jsx("button", { style: gBtn, onClick: () => describeImage({ key: img.key, name: img.name || 'Character', url: img.url }), disabled: talkingKey === img.key, children: talkingKey === img.key ? 'Talking…' : 'Talk' }), _jsx("button", { style: gBtn, onClick: () => handleMoviePrompt({ key: img.key, name: img.name || 'Character' }), disabled: moviePromptKey === img.key, children: moviePromptKey === img.key ? 'Prompting…' : 'Movie prompt' }), _jsx("button", { style: { ...gBtn, ...(movieSel.has(img.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }, onClick: () => toggleMovieSel({ key: img.key, name: img.name || 'Character', type: 'image' }), title: movieSel.has(img.key) ? 'Remove from movie selection' : 'Add to movie selection', children: movieSel.has(img.key) ? '🎬✓' : '🎬+' }), _jsx("button", { style: gBtn, onClick: () => setPreviewImage({ title: img.name || 'Character', url: img.url }), children: "View" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: img.url, target: "_blank", rel: "noopener noreferrer", download: img.name || 'character.png', children: "Download" }), _jsx("button", { style: gBtn, onClick: () => handleDelete(img.key, 'character'), children: "Delete" })] })] }, img.key))) })] }), _jsxs("div", { style: { margin: '20px 0' }, children: [_jsxs("h3", { style: { color: '#7df9ff', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Canvas Images (", filteredAssets.length, ")"] }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }, children: [_jsx("button", { style: { ...gBtn, color: '#39ff14', borderColor: '#39ff14' }, onClick: () => assetInputRef.current?.click(), disabled: assetUploading, children: assetUploading ? 'Uploading image...' : '+ Upload image' }), _jsx("input", { ref: assetInputRef, type: "file", accept: "image/*", style: { display: 'none' }, onChange: handleAssetInput }), _jsx("small", { style: { color: 'rgba(240,230,255,.7)' }, children: "Uploads return shareable URLs for your Parlor Book cards." })] }), filteredAssets.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No canvas image uploads yet." })), filteredAssets.length > 0 && (_jsx("div", { style: {
                             marginBottom: 12,
                             display: 'flex',
                             flexDirection: 'column',
@@ -1213,7 +1280,16 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
                             border: allowDropToAssets ? '1px dashed rgba(255,20,147,.6)' : undefined,
                             padding: allowDropToAssets ? 8 : 0,
                             borderRadius: allowDropToAssets ? 8 : 0
-                        }, onDragOver: allowDropToAssets ? (e) => e.preventDefault() : undefined, onDrop: allowDropToAssets ? handleDropOnAssets : undefined, children: filteredAssets.map((asset) => (_jsxs("div", { draggable: true, onDragStart: handleDragStart('canvasAsset', { key: asset.key, title: asset.title }), onDragEnd: handleDragEnd, style: { border: '1px solid rgba(57,255,20,.45)', borderRadius: 6, background: '#0f0920', padding: '6px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.78rem', color: '#39ff14' }, children: asset.title }), _jsx("div", { style: { fontSize: '.65rem', color: 'rgba(240,230,255,.55)' }, children: new Date(asset.savedAt).toLocaleString() }), _jsx("img", { src: asset.url, alt: asset.title, style: { width: 160, height: 90, objectFit: 'cover', borderRadius: 4, marginTop: 6, border: '1px solid rgba(57,255,20,.35)' } })] }), _jsxs("div", { style: { display: 'flex', gap: 6, flexWrap: 'wrap' }, children: [_jsx("button", { style: gBtn, onClick: () => describeImage({ key: asset.key, name: asset.title, url: asset.url }), disabled: talkingKey === asset.key, children: talkingKey === asset.key ? 'Talking…' : 'Talk' }), _jsx("button", { style: gBtn, onClick: () => setPreviewImage({ title: asset.title, url: asset.url }), children: "View" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: asset.url, target: "_blank", rel: "noopener noreferrer", download: `${(asset.title || 'canvas').replace(/\s+/g, '-')}.png`, children: "Download" }), _jsx("button", { style: gBtn, onClick: () => copyUrl(asset.url), children: "Copy URL" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: asset.url, target: "_blank", rel: "noopener noreferrer", children: "Open" }), _jsx("button", { style: gBtn, onClick: () => handleDelete(asset.key, 'canvasAsset'), children: "Delete" })] })] }, asset.key))) })), movingImage && _jsx("p", { style: { color: 'rgba(240,230,255,.7)', fontSize: '.72rem' }, children: "Moving image\u2026" })] }), _jsxs("div", { style: { marginBottom: 20 }, children: [_jsxs("h3", { style: { color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Saved Parlor Books (", filteredParlorBooks.length, ")"] }), filteredParlorBooks.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No saved Parlor Books yet." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: filteredParlorBooks.map(page => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }, children: page.title }), _jsx("div", { style: { fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: new Date(page.savedAt).toLocaleString() }), _jsx("div", { style: {
+                        }, onDragOver: allowDropToAssets ? (e) => e.preventDefault() : undefined, onDrop: allowDropToAssets ? handleDropOnAssets : undefined, children: filteredAssets.map((asset) => (_jsxs("div", { draggable: true, onDragStart: handleDragStart('canvasAsset', { key: asset.key, title: asset.title }), onDragEnd: handleDragEnd, style: { border: movieSel.has(asset.key) ? '2px solid #ff8cfb' : '1px solid rgba(57,255,20,.45)', borderRadius: 6, background: '#0f0920', padding: '6px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.78rem', color: '#39ff14' }, children: asset.title }), _jsx("div", { style: { fontSize: '.65rem', color: 'rgba(240,230,255,.55)' }, children: new Date(asset.savedAt).toLocaleString() }), _jsx("img", { src: asset.url, alt: asset.title, style: { width: 160, height: 90, objectFit: 'cover', borderRadius: 4, marginTop: 6, border: '1px solid rgba(57,255,20,.35)' } })] }), _jsxs("div", { style: { display: 'flex', gap: 6, flexWrap: 'wrap' }, children: [_jsx("button", { style: gBtn, onClick: () => describeImage({ key: asset.key, name: asset.title, url: asset.url }), disabled: talkingKey === asset.key, children: talkingKey === asset.key ? 'Talking…' : 'Talk' }), _jsx("button", { style: gBtn, onClick: () => handleMoviePrompt({ key: asset.key, name: asset.title }), disabled: moviePromptKey === asset.key, children: moviePromptKey === asset.key ? 'Prompting…' : 'Movie prompt' }), _jsx("button", { style: { ...gBtn, ...(movieSel.has(asset.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }, onClick: () => toggleMovieSel({ key: asset.key, name: asset.title, type: 'image' }), title: movieSel.has(asset.key) ? 'Remove from movie selection' : 'Add to movie selection', children: movieSel.has(asset.key) ? '🎬✓' : '🎬+' }), _jsx("button", { style: gBtn, onClick: () => setPreviewImage({ title: asset.title, url: asset.url }), children: "View" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: asset.url, target: "_blank", rel: "noopener noreferrer", download: `${(asset.title || 'canvas').replace(/\s+/g, '-')}.png`, children: "Download" }), _jsx("button", { style: gBtn, onClick: () => copyUrl(asset.url), children: "Copy URL" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: asset.url, target: "_blank", rel: "noopener noreferrer", children: "Open" }), _jsx("button", { style: gBtn, onClick: () => handleDelete(asset.key, 'canvasAsset'), children: "Delete" })] })] }, asset.key))) })), movingImage && _jsx("p", { style: { color: 'rgba(240,230,255,.7)', fontSize: '.72rem' }, children: "Moving image\u2026" })] }), _jsxs("div", { style: { margin: '20px 0' }, children: [_jsxs("h3", { style: { color: '#ff8cfb', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Sora Movies (", filteredVideos.length, ")"] }), filteredVideos.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No Sora renders yet. Pick a character and hit \u201CMovie prompt\u201D to get started." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 10 }, children: filteredVideos.map((video) => (_jsxs("div", { style: { border: movieSel.has(video.key) ? '2px solid #ff8cfb' : '1px solid rgba(255,140,251,.5)', borderRadius: 6, background: '#120017', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }, children: [_jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.82rem', color: '#ff8cfb' }, children: video.name }), _jsxs("div", { style: { fontSize: '.65rem', color: 'rgba(240,230,255,.6)' }, children: [new Date(video.savedAt).toLocaleString(), " \u00B7 ", video.seconds, "s \u00B7 ", video.size, video.startedBy ? _jsxs(_Fragment, { children: [" \u00B7 ", video.startedBy] }) : null] }), video.sourceImageName && (_jsxs("div", { style: { fontSize: '.65rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: ["Ref: ", video.sourceImageName] }))] }), _jsxs("div", { style: { display: 'flex', gap: 6, flexWrap: 'wrap' }, children: [_jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: video.url, target: "_blank", rel: "noopener noreferrer", children: "\u25B6 Play" }), _jsx("button", { style: gBtn, onClick: async () => {
+                                                        if (!video.prompt)
+                                                            return;
+                                                        try {
+                                                            await navigator.clipboard.writeText(video.prompt);
+                                                        }
+                                                        catch {
+                                                            alert(video.prompt);
+                                                        }
+                                                    }, disabled: !video.prompt, children: "Copy prompt" }), _jsx("button", { style: gBtn, onClick: () => copyUrl(video.url), children: "Copy link" }), _jsx("button", { style: { ...gBtn, ...(movieSel.has(video.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }, onClick: () => toggleMovieSel({ key: video.key, name: video.name, type: 'video', prompt: video.prompt }), title: movieSel.has(video.key) ? 'Remove from movie selection' : 'Add to movie selection', children: movieSel.has(video.key) ? '🎬✓' : '🎬+' }), _jsx("button", { style: gBtn, onClick: () => handleDelete(video.key, 'video'), children: "Delete" })] })] }), video.prompt && (_jsx("p", { style: { fontSize: '.75rem', color: 'rgba(240,230,255,.85)', margin: 0 }, children: video.prompt }))] }, video.key))) })] }), _jsxs("div", { style: { marginBottom: 20 }, children: [_jsxs("h3", { style: { color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Saved Parlor Books (", filteredParlorBooks.length, ")"] }), filteredParlorBooks.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No saved Parlor Books yet." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: filteredParlorBooks.map(page => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }, children: page.title }), _jsx("div", { style: { fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: new Date(page.savedAt).toLocaleString() }), _jsx("div", { style: {
                                                 width: 420 * 0.45,
                                                 height: 260 * 0.45,
                                                 overflow: 'hidden',
@@ -1241,11 +1317,17 @@ async function searchGifs(query) {
     try {
         const r = await fetch(`https://api.tenor.com/v1/search?q=${encodeURIComponent(query)}&key=LIVDSRZULELA&limit=6&media_filter=minimal`);
         const d = await r.json();
-        return (d.results || []).map((item) => ({
-            id: item.id,
-            url: (item.media[0]?.gif?.url || item.media[0]?.tinygif?.url || ''),
-            preview: (item.media[0]?.tinygif?.url || item.media[0]?.gif?.url || ''),
-        }));
+        return (d.results || []).map((item) => {
+            const media = item.media ?? [];
+            const primary = media[0] ?? {};
+            const gifUrl = primary.gif?.url || '';
+            const tinyUrl = primary.tinygif?.url || '';
+            return {
+                id: item.id ?? Math.random().toString(36).slice(2),
+                url: gifUrl || tinyUrl,
+                preview: tinyUrl || gifUrl,
+            };
+        });
     }
     catch {
         return [];
@@ -1341,6 +1423,7 @@ export default function App() {
     const chatFeedRef = useRef(null);
     const canvasIframeRef = useRef(null);
     const currentAudioRef = useRef(null);
+    const movieSourceRef = useRef(null);
     const conversationId = useMemo(() => mode === 'shared' ? 'butt-bitch-hang' : `private-${(userEmail || 'anon').replace(/[^a-z0-9@._-]/gi, '')}`, [mode, userEmail]);
     const canvasBase = useMemo(() => `${API_BASE}/api/song-canvas?conversationId=${encodeURIComponent(conversationId)}&devEmail=${encodeURIComponent(userEmail)}`, [conversationId, userEmail]);
     // ── postMessage to avatar iframe ─────────────────────────────────────────
@@ -1518,6 +1601,20 @@ export default function App() {
         socket.on('reactions:update', onReactionsUpdate);
         return () => { socket.off('reactions:update', onReactionsUpdate); };
     }, []);
+    useEffect(() => {
+        function onVideoAdded(video) {
+            setGalleryRefreshTick(Date.now());
+            const title = video?.name ? video.name : 'Sora movie';
+            addMessage({
+                id: uuid(),
+                author: 'bot',
+                text: `🎬 "${title}" just landed in the gallery. Hit the Sora stash to watch it.`,
+                createdAt: new Date().toISOString()
+            });
+        }
+        socket.on('gallery:video-added', onVideoAdded);
+        return () => { socket.off('gallery:video-added', onVideoAdded); };
+    }, [addMessage]);
     // ── Memory ───────────────────────────────────────────────────────────────
     useEffect(() => {
         fetch(`${API_BASE}/api/memory`, { headers: { ...authHeaders } })
@@ -1530,6 +1627,67 @@ export default function App() {
         if (chatFeedRef.current)
             chatFeedRef.current.scrollTop = chatFeedRef.current.scrollHeight;
     }, [messages]);
+    const runMovieCommand = useCallback(async (rawPrompt) => {
+        const trimmed = rawPrompt.trim();
+        if (!trimmed) {
+            addMessage({
+                id: uuid(),
+                author: 'bot',
+                text: 'Drop a cinematic prompt after /movie and I will hit Sora.',
+                createdAt: new Date().toISOString()
+            });
+            return;
+        }
+        const userMsg = {
+            id: uuid(),
+            author: 'butt',
+            text: `/movie ${trimmed}`,
+            createdAt: new Date().toISOString(),
+            userEmail: userEmail || undefined
+        };
+        addMessage(userMsg);
+        try {
+            const res = await fetch(`${API_BASE}/api/sora/movie`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders },
+                body: JSON.stringify({
+                    prompt: trimmed,
+                    size: '1280x720',
+                    seconds: 4,
+                    sourceImageKey: movieSourceRef.current?.key,
+                    sourceImageName: movieSourceRef.current?.name
+                })
+            });
+            let data = null;
+            try {
+                data = await res.json();
+            }
+            catch {
+                data = null;
+            }
+            if (!res.ok)
+                throw new Error(data?.error ?? `Sora job ${res.status}`);
+            const suffix = typeof data?.jobId === 'string' ? data.jobId.slice(-6) : '';
+            addMessage({
+                id: uuid(),
+                author: 'bot',
+                text: `🎬 Movie spell cast. Job ${suffix || 'ID'} is cooking — it will land in the gallery when ready.`,
+                createdAt: new Date().toISOString()
+            });
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : 'unknown error';
+            addMessage({
+                id: uuid(),
+                author: 'bot',
+                text: `Sora movie failed: ${message}.`,
+                createdAt: new Date().toISOString()
+            });
+        }
+        finally {
+            movieSourceRef.current = null;
+        }
+    }, [addMessage, authHeaders, userEmail]);
     // ── Send message ─────────────────────────────────────────────────────────
     async function sendMessage(e, extraText, attachments, options) {
         e?.preventDefault();
@@ -1561,6 +1719,12 @@ export default function App() {
             clearDraft();
             setHotdogsOn(true);
             addMessage({ id: uuid(), author: 'bot', text: '🌭🌭🌭', createdAt: new Date().toISOString() });
+            return;
+        }
+        if (/^\/movie\b/i.test(text)) {
+            clearDraft();
+            const promptOnly = text.replace(/^\/movie/i, '').trim();
+            await runMovieCommand(promptOnly);
             return;
         }
         const displayText = text || (attachments?.map(a => `[${a.name}]`).join(' ') ?? '');
@@ -1608,6 +1772,7 @@ export default function App() {
                 .replace(/\s{2,}/g, ' ')
                 .trim();
             addMessage({ id: data.id ?? uuid(), author: 'bot', text: botText, createdAt: data.createdAt ?? new Date().toISOString() });
+            options?.onBotReply?.(botText);
         }
         catch (err) {
             console.error('[chat] frontend error:', err);
@@ -1627,9 +1792,72 @@ export default function App() {
             throw new Error('image fetch failed');
         const data = await res.json();
         const attachmentName = `${(item.name || 'gallery-image').replace(/\s+/g, '-')}.png`;
-        await sendMessage(undefined, `[Image: ${item.name || 'gallery image'}]`, [
+        await sendMessage(undefined, `BotButt, check out ${item.name || 'this'} — what do you see? Just be yourself, no movie prompts.`, [
             { name: attachmentName, contentType: data.contentType || 'image/png', data: data.data }
         ], { ignoreDraft: true });
+    }, [authHeaders, sendMessage]);
+    const requestMoviePrompt = useCallback(async (item) => {
+        const res = await fetch(`${API_BASE}/api/gallery/image-data`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders },
+            body: JSON.stringify({ key: item.key })
+        });
+        if (!res.ok)
+            throw new Error('image fetch failed');
+        const data = await res.json();
+        const attachmentName = `${(item.name || 'gallery-image').replace(/\s+/g, '-')}.png`;
+        movieSourceRef.current = { key: item.key, name: item.name };
+        try {
+            await sendMessage(undefined, 'BotButt, turn this character into a cinematic Sora movie prompt. Reply only with "Movie Prompt: <text>".', [{ name: attachmentName, contentType: data.contentType || 'image/png', data: data.data }], {
+                ignoreDraft: true,
+                onBotReply: (botText) => {
+                    const match = /movie prompt:\s*(.+)/i.exec(botText);
+                    const prompt = (match?.[1] || botText).trim();
+                    setInput(`/movie ${prompt}`);
+                }
+            });
+        }
+        catch (err) {
+            movieSourceRef.current = null;
+            throw err;
+        }
+    }, [authHeaders, sendMessage]);
+    const requestMultiMoviePrompt = useCallback(async (items) => {
+        const imageItems = items.filter(i => i.type === 'image');
+        const videoItems = items.filter(i => i.type === 'video');
+        const attachments = await Promise.all(imageItems.map(async (item) => {
+            const res = await fetch(`${API_BASE}/api/gallery/image-data`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders },
+                body: JSON.stringify({ key: item.key })
+            });
+            if (!res.ok)
+                throw new Error(`image fetch failed for ${item.name}`);
+            const d = await res.json();
+            return { name: `${(item.name || 'image').replace(/\s+/g, '-')}.png`, contentType: d.contentType || 'image/png', data: d.data };
+        }));
+        const names = items.map(i => i.name).join(', ');
+        movieSourceRef.current = { name: names };
+        let promptText = `BotButt, write a single cinematic Sora movie prompt that combines these ${items.length} gallery items into one scene: ${names}.`;
+        if (videoItems.length > 0) {
+            const videoContext = videoItems.map(i => `"${i.name}" (originally prompted as: "${i.prompt ?? 'no prompt'}")`).join('; ');
+            promptText += ` For the video references: ${videoContext}.`;
+        }
+        promptText += ' Reply only with "Movie Prompt: <text>".';
+        try {
+            await sendMessage(undefined, promptText, attachments, {
+                ignoreDraft: true,
+                onBotReply: (botText) => {
+                    const match = /movie prompt:\s*(.+)/i.exec(botText);
+                    const prompt = (match?.[1] || botText).trim();
+                    setInput(`/movie ${prompt}`);
+                }
+            });
+        }
+        catch (err) {
+            movieSourceRef.current = null;
+            throw err;
+        }
     }, [authHeaders, sendMessage]);
     // ── File drop ─────────────────────────────────────────────────────────────
     async function handleDrop(e) {
@@ -1836,5 +2064,5 @@ export default function App() {
                                                             return ai >= 0 ? { ...s, idx: ai } : s;
                                                         });
                                                         postToAvatar({ type: 'clear-canvas-html' });
-                                                    }, children: "BotButt" }), _jsx("button", { className: `book-tab${currentPage.type === 'edit' ? ' book-tab--active' : ''}`, onClick: openEdit, children: "Editor" }), _jsx("button", { className: `book-tab${currentPage.type === 'gallery' ? ' book-tab--active' : ''}`, onClick: () => pushPage({ type: 'gallery' }), children: "Gallery" })] }), _jsxs("div", { className: "book-nav", children: [_jsx("button", { className: "book-nav-btn", onClick: goBack, disabled: session.idx === 0, title: "Previous", children: "\u25C0" }), _jsxs("span", { className: "book-nav-pos", children: [session.idx + 1, "/", session.pages.length] }), _jsx("button", { className: "book-nav-btn", onClick: goForward, disabled: session.idx === session.pages.length - 1, title: "Next", children: "\u25B6" })] }), currentPage.type === 'html' && (currentPage.s3Url ? (_jsx("a", { className: "book-dl", href: currentPage.s3Url, target: "_blank", rel: "noopener noreferrer", title: "Open S3 share link", children: "\uD83D\uDD17 S3" })) : (_jsx("button", { className: "book-dl", onClick: uploadToS3, disabled: s3Uploading, title: "Upload page to S3 for sharing", children: s3Uploading ? '↑…' : '↑ Share' }))), currentPage.type === 'html' && currentPage.s3Url && (_jsx("button", { className: "book-dl", onClick: () => showQR(currentPage.s3Url), title: "Generate QR code", children: "QR" })), currentPage.type === 'html' && (/storyboard|episode/i.test(currentPage.title) || /<table/i.test(currentPage.html)) && (_jsx("button", { className: "book-dl", onClick: saveStoryboard, disabled: sbSaving, title: "Save storyboard to gallery", children: sbSaving ? 'Saving...' : 'Save' })), _jsx("button", { className: "book-dl", onClick: downloadCanvas, title: "Download current page", children: "\u2913 Download" })] }), _jsxs("div", { className: "book-frame", children: [_jsx("iframe", { ref: canvasIframeRef, title: "BotButt avatar", srcDoc: BOTBUTT_SRCDOC, sandbox: "allow-scripts", style: { display: currentPage.type === 'avatar' ? 'block' : 'none', width: '100%', height: '100%', border: 'none' } }), currentPage.type === 'edit' && (_jsx("iframe", { title: "Parlor Book editor", src: currentPage.src, sandbox: "allow-scripts allow-same-origin allow-forms", style: { width: '100%', height: '100%', border: 'none' } })), currentPage.type === 'html' && (_jsx(CanvasHtmlFrame, { html: currentPage.html, title: currentPage.title }, session.idx)), currentPage.type === 'gallery' && (_jsx(GalleryPanel, { authHeaders: authHeaders, onLoadStoryboard: pushPage, refreshTick: galleryRefreshTick, recentStoryboards: recentStoryboards, recentParlorBooks: recentCanvasPages, onRenameParlorBook: renameParlorBook, onDescribeImage: describeGalleryImage }))] })] }) })] }), _jsx("div", { className: "parlor-basement", children: _jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('memory'), children: [_jsx("span", { children: "Memory & Threads" }), _jsx("span", { className: "basement-chevron", children: basement.memory ? '▲' : '▼' })] }), basement.memory && (_jsxs("div", { className: "basement-body", children: [projectMemory ? (_jsxs(_Fragment, { children: [_jsxs("p", { className: "mem-focus", children: [_jsx("strong", { children: "Episode:" }), " ", projectMemory.episodeFocus] }), _jsx("ul", { className: "mem-threads", children: projectMemory.openThreads.map((t) => _jsx("li", { children: t }, t)) })] })) : _jsx("p", { style: { color: 'var(--muted)', fontSize: '.82rem' }, children: "Loading\u2026" }), _jsx("button", { className: "kg-button kg-button--harvest", onClick: runHarvest, disabled: harvesting, style: { marginTop: '10px' }, children: harvesting ? 'Scouring...' : 'Harvest SSBB from the web' }), lastHarvest && _jsxs("p", { style: { fontSize: '.72rem', color: 'var(--teal)', marginTop: '4px' }, children: [lastHarvest.count, " results via ", lastHarvest.backend] })] }))] }) }), qrModal && (_jsx("div", { className: "qr-backdrop", onClick: () => setQrModal(null), children: _jsxs("div", { className: "qr-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("img", { src: qrModal.dataUrl, alt: "QR Code", width: 220, height: 220 }), _jsxs("p", { className: "qr-url", children: [qrModal.url.slice(0, 72), qrModal.url.length > 72 ? '…' : ''] }), _jsx("button", { className: "qr-close", onClick: () => setQrModal(null), children: "\u2715 Close" })] }) }))] }));
+                                                    }, children: "BotButt" }), _jsx("button", { className: `book-tab${currentPage.type === 'edit' ? ' book-tab--active' : ''}`, onClick: openEdit, children: "Editor" }), _jsx("button", { className: `book-tab${currentPage.type === 'gallery' ? ' book-tab--active' : ''}`, onClick: () => pushPage({ type: 'gallery' }), children: "Gallery" })] }), _jsxs("div", { className: "book-nav", children: [_jsx("button", { className: "book-nav-btn", onClick: goBack, disabled: session.idx === 0, title: "Previous", children: "\u25C0" }), _jsxs("span", { className: "book-nav-pos", children: [session.idx + 1, "/", session.pages.length] }), _jsx("button", { className: "book-nav-btn", onClick: goForward, disabled: session.idx === session.pages.length - 1, title: "Next", children: "\u25B6" })] }), currentPage.type === 'html' && (currentPage.s3Url ? (_jsx("a", { className: "book-dl", href: currentPage.s3Url, target: "_blank", rel: "noopener noreferrer", title: "Open S3 share link", children: "\uD83D\uDD17 S3" })) : (_jsx("button", { className: "book-dl", onClick: uploadToS3, disabled: s3Uploading, title: "Upload page to S3 for sharing", children: s3Uploading ? '↑…' : '↑ Share' }))), currentPage.type === 'html' && currentPage.s3Url && (_jsx("button", { className: "book-dl", onClick: () => showQR(currentPage.s3Url), title: "Generate QR code", children: "QR" })), currentPage.type === 'html' && (/storyboard|episode/i.test(currentPage.title) || /<table/i.test(currentPage.html)) && (_jsx("button", { className: "book-dl", onClick: saveStoryboard, disabled: sbSaving, title: "Save storyboard to gallery", children: sbSaving ? 'Saving...' : 'Save' })), _jsx("button", { className: "book-dl", onClick: downloadCanvas, title: "Download current page", children: "\u2913 Download" })] }), _jsxs("div", { className: "book-frame", children: [_jsx("iframe", { ref: canvasIframeRef, title: "BotButt avatar", srcDoc: BOTBUTT_SRCDOC, sandbox: "allow-scripts", style: { display: currentPage.type === 'avatar' ? 'block' : 'none', width: '100%', height: '100%', border: 'none' } }), currentPage.type === 'edit' && (_jsx("iframe", { title: "Parlor Book editor", src: currentPage.src, sandbox: "allow-scripts allow-same-origin allow-forms", style: { width: '100%', height: '100%', border: 'none' } })), currentPage.type === 'html' && (_jsx(CanvasHtmlFrame, { html: currentPage.html, title: currentPage.title }, session.idx)), currentPage.type === 'gallery' && (_jsx(GalleryPanel, { authHeaders: authHeaders, onLoadStoryboard: pushPage, refreshTick: galleryRefreshTick, recentStoryboards: recentStoryboards, recentParlorBooks: recentCanvasPages, onRenameParlorBook: renameParlorBook, onDescribeImage: describeGalleryImage, onRequestMoviePrompt: requestMoviePrompt, onRequestMultiMoviePrompt: requestMultiMoviePrompt }))] })] }) })] }), _jsx("div", { className: "parlor-basement", children: _jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('memory'), children: [_jsx("span", { children: "Memory & Threads" }), _jsx("span", { className: "basement-chevron", children: basement.memory ? '▲' : '▼' })] }), basement.memory && (_jsxs("div", { className: "basement-body", children: [projectMemory ? (_jsxs(_Fragment, { children: [_jsxs("p", { className: "mem-focus", children: [_jsx("strong", { children: "Episode:" }), " ", projectMemory.episodeFocus] }), _jsx("ul", { className: "mem-threads", children: projectMemory.openThreads.map((t) => _jsx("li", { children: t }, t)) })] })) : _jsx("p", { style: { color: 'var(--muted)', fontSize: '.82rem' }, children: "Loading\u2026" }), _jsx("button", { className: "kg-button kg-button--harvest", onClick: runHarvest, disabled: harvesting, style: { marginTop: '10px' }, children: harvesting ? 'Scouring...' : 'Harvest SSBB from the web' }), lastHarvest && _jsxs("p", { style: { fontSize: '.72rem', color: 'var(--teal)', marginTop: '4px' }, children: [lastHarvest.count, " results via ", lastHarvest.backend] })] }))] }) }), qrModal && (_jsx("div", { className: "qr-backdrop", onClick: () => setQrModal(null), children: _jsxs("div", { className: "qr-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("img", { src: qrModal.dataUrl, alt: "QR Code", width: 220, height: 220 }), _jsxs("p", { className: "qr-url", children: [qrModal.url.slice(0, 72), qrModal.url.length > 72 ? '…' : ''] }), _jsx("button", { className: "qr-close", onClick: () => setQrModal(null), children: "\u2715 Close" })] }) }))] }));
 }

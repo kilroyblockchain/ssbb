@@ -108,6 +108,7 @@ The Screaming Smoldering Butt Bitches are a geographically distributed all-femal
    - Express routes `/api/generate/art`, `/api/generate/video` implementing the `api/sora*` logic (POST trigger + polling).  
    - Store results in `ssbb-media-dev/generated/{art|video}/` and broadcast completion events via WebSocket.  
    - Front-end gallery tiles show thumbnails (images) or video players, with ability to drop assets into the Song Canvas.
+   - `/movie` slash command pairs with a gallery picker: BotButt writes a Sora2 prompt from the chosen image, pre-fills the composer, then the server triggers Azure Sora, saves the MP4 to `videos/`, and announces completion in chat plus the Media gallery (Sora creds live in Secrets Manager `ssbb/Sora` so prod picks them up automatically).
 10. **Observability + Ops**
    - Local dev scripts: `pnpm dev:client`, `pnpm dev:server`, `pnpm dev` (concurrently).  
    - Health endpoint verifying S3 + Bedrock connectivity.  

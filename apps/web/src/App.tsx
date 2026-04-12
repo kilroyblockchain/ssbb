@@ -36,8 +36,9 @@ function LoginScreen({ onLogin }: { onLogin: (idToken: string) => void }) {
     try {
       const idToken = await cognitoLogin(email, password);
       onLogin(idToken);
-    } catch (err: any) {
-      setError(err.message || 'Login failed.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Login failed.';
+      setError(message || 'Login failed.');
     } finally {
       setLoading(false);
     }
@@ -929,22 +930,33 @@ svg{width:100%;height:100%;display:block;}
 
 // ── Small bear for header ─────────────────────────────────────────────────────
 
+const seededRandom = (seed: number) => {
+  const x = Math.sin(seed) * 10000;
+  return x - Math.floor(x);
+};
+
 function HotdogRain({ onDone }: { onDone: () => void }) {
   const [fading, setFading] = useState(false);
-  const handleDone = useCallback(onDone, []); // stable ref so effect doesn't re-fire
+  const handleDone = useCallback(() => { onDone(); }, [onDone]);
   useEffect(() => {
     const fadeTimer = setTimeout(() => setFading(true), 55000);
     const doneTimer = setTimeout(handleDone, 60000);
     return () => { clearTimeout(fadeTimer); clearTimeout(doneTimer); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [handleDone]);
 
-  const dogs = useMemo(() => Array.from({ length: 45 }, (_, i) => ({
-    id: i,
-    left: `${(Math.random() * 96).toFixed(1)}vw`,
-    duration: `${(3 + Math.random() * 5).toFixed(2)}s`,
-    delay: `${(Math.random() * 14).toFixed(2)}s`,
-    size: `${(1.4 + Math.random() * 1.6).toFixed(2)}rem`,
-  })), []);
+  const dogs = useMemo(() => Array.from({ length: 45 }, (_, i) => {
+    const left = (seededRandom(i + 1) * 96).toFixed(1);
+    const duration = (3 + seededRandom(i + 101) * 5).toFixed(2);
+    const delay = (seededRandom(i + 401) * 14).toFixed(2);
+    const size = (1.4 + seededRandom(i + 701) * 1.6).toFixed(2);
+    return {
+      id: i,
+      left: `${left}vw`,
+      duration: `${duration}s`,
+      delay: `${delay}s`,
+      size: `${size}rem`,
+    };
+  }), []);
 
   return (
     <div className="hotdog-rain" style={{ opacity: fading ? 0 : 1 }}>
@@ -1008,6 +1020,19 @@ type GalleryStoryboard = { key: string; title: string; savedAt: string; conversa
 type GalleryImage      = { key: string; name: string; url: string };
 type GalleryCanvasPage = { key: string; title: string; savedAt: string; url: string };
 type GalleryCanvasAsset = { key: string; title: string; savedAt: string; url: string };
+type MultiMovieItem = { key: string; name: string; type: 'image' | 'video'; prompt?: string };
+type GalleryVideo = {
+  key: string;
+  name: string;
+  url: string;
+  savedAt: string;
+  prompt?: string;
+  startedBy?: string | null;
+  size: string;
+  seconds: number;
+  sourceImageKey?: string | null;
+  sourceImageName?: string | null;
+};
 
 function GalleryPanel({
   authHeaders,
@@ -1017,6 +1042,8 @@ function GalleryPanel({
   recentParlorBooks,
   onRenameParlorBook,
   onDescribeImage,
+  onRequestMoviePrompt,
+  onRequestMultiMoviePrompt,
 }: {
   authHeaders: Record<string, string>;
   onLoadStoryboard: (page: { type: 'html'; html: string; title: string }) => void;
@@ -1025,11 +1052,14 @@ function GalleryPanel({
   recentParlorBooks: GalleryCanvasPage[];
   onRenameParlorBook: (page: GalleryCanvasPage, title: string) => Promise<void>;
   onDescribeImage: (item: { key: string; name: string; url: string }) => Promise<void>;
+  onRequestMoviePrompt: (item: { key: string; name: string }) => Promise<void>;
+  onRequestMultiMoviePrompt: (items: MultiMovieItem[]) => Promise<void>;
 }) {
   const [storyboards, setStoryboards] = useState<GalleryStoryboard[]>([]);
   const [canvasPages, setCanvasPages] = useState<GalleryCanvasPage[]>([]);
   const [canvasAssets, setCanvasAssets] = useState<GalleryCanvasAsset[]>([]);
   const [images,      setImages]      = useState<GalleryImage[]>([]);
+  const [videos,      setVideos]      = useState<GalleryVideo[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState<string | null>(null);
   const [uploading,   setUploading]   = useState(false);
@@ -1042,6 +1072,35 @@ function GalleryPanel({
   const [previewImage, setPreviewImage] = useState<{ title: string; url: string } | null>(null);
   const [dragData, setDragData] = useState<{ kind: 'character' | 'canvasAsset'; key: string; title: string } | null>(null);
   const [movingImage, setMovingImage] = useState(false);
+  const [moviePromptKey, setMoviePromptKey] = useState<string | null>(null);
+  const [movieSel, setMovieSel] = useState<Map<string, MultiMovieItem>>(new Map());
+  const [combiningMovie, setCombiningMovie] = useState(false);
+
+  const toggleMovieSel = useCallback((item: MultiMovieItem) => {
+    setMovieSel(prev => {
+      const next = new Map(prev);
+      if (next.has(item.key)) {
+        next.delete(item.key);
+      } else if (next.size < 5) {
+        next.set(item.key, item);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleCombineMovie = useCallback(async () => {
+    if (movieSel.size < 2) return;
+    setCombiningMovie(true);
+    try {
+      await onRequestMultiMoviePrompt(Array.from(movieSel.values()));
+      setMovieSel(new Map());
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Multi-movie prompt failed';
+      alert(msg);
+    } finally {
+      setCombiningMovie(false);
+    }
+  }, [movieSel, onRequestMultiMoviePrompt]);
 
   const fetchGallery = useCallback(async () => {
     setLoading(true);
@@ -1060,8 +1119,12 @@ function GalleryPanel({
         new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
       ));
       setImages(data.images ?? []);
-    } catch (e: any) {
-      setError(e.message || 'Failed to load gallery');
+      setVideos((data.videos ?? []).sort((a: GalleryVideo, b: GalleryVideo) =>
+        new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
+      ));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load gallery';
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -1156,6 +1219,14 @@ function GalleryPanel({
     );
   }, [mergedCanvasAssets, term]);
 
+  const filteredVideos = useMemo(() => {
+    if (!term) return videos;
+    return videos.filter(video =>
+      (video.name ?? '').toLowerCase().includes(term) ||
+      (video.prompt ?? '').toLowerCase().includes(term)
+    );
+  }, [videos, term]);
+
   const allowDropToCharacters = dragData?.kind === 'canvasAsset';
   const allowDropToAssets = dragData?.kind === 'character';
 
@@ -1167,8 +1238,9 @@ function GalleryPanel({
       if (!res.ok) throw new Error(`Fetch storyboard ${res.status}`);
       const data = await res.json();
       onLoadStoryboard({ type: 'html', html: data.html, title: data.title ?? title });
-    } catch (e: any) {
-      alert(`Could not load storyboard: ${e.message}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      alert(`Could not load storyboard: ${message}`);
     }
   }, [authHeaders, onLoadStoryboard]);
 
@@ -1188,8 +1260,9 @@ function GalleryPanel({
       });
       if (!res.ok) throw new Error(`Upload ${res.status}`);
       await fetchGallery();
-    } catch (e: any) {
-      alert(`Upload failed: ${e.message}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      alert(`Upload failed: ${message}`);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -1255,8 +1328,24 @@ function GalleryPanel({
     [handleAssetUpload]
   );
 
+  const handleMoviePrompt = useCallback(
+    async (item: { key: string; name: string }) => {
+      setMoviePromptKey(item.key);
+      try {
+        await onRequestMoviePrompt(item);
+      } catch (err) {
+        console.warn('[movie prompt]', err);
+        const message = err instanceof Error ? err.message : '';
+        alert(message ? `Movie prompt failed: ${message}` : 'Movie prompt failed.');
+      } finally {
+        setMoviePromptKey(null);
+      }
+    },
+    [onRequestMoviePrompt]
+  );
+
   const handleDelete = useCallback(
-    async (key: string, type: 'storyboard' | 'character' | 'canvasPage' | 'canvasAsset') => {
+    async (key: string, type: 'storyboard' | 'character' | 'canvasPage' | 'canvasAsset' | 'video') => {
       if (!window.confirm('Delete this item from the gallery?')) return;
       try {
         const res = await fetch(`${API_BASE}/api/gallery`, {
@@ -1377,6 +1466,24 @@ function GalleryPanel({
       {loading && <p style={{ color: '#ff1493', fontSize: '.8rem' }}>Loading...</p>}
       {error   && <p style={{ color: '#ffe66d', fontSize: '.8rem' }}>Error: {error}</p>}
 
+      {/* ── Multi-movie selection bar ── */}
+      {movieSel.size > 0 && (
+        <div style={{ background: 'rgba(255,140,251,.12)', border: '1px solid #ff8cfb', borderRadius: 8, padding: '8px 12px', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '.78rem', color: '#ff8cfb' }}>
+            🎬 {movieSel.size} selected{movieSel.size < 2 ? ' — pick at least 2 to combine' : ''}
+            {movieSel.size >= 5 ? ' (max)' : ''}
+          </span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {movieSel.size >= 2 && (
+              <button style={{ ...gBtn, color: '#ff8cfb', borderColor: '#ff8cfb' }} onClick={handleCombineMovie} disabled={combiningMovie}>
+                {combiningMovie ? 'Prompting…' : `Combine ${movieSel.size} into movie`}
+              </button>
+            )}
+            <button style={gBtn} onClick={() => setMovieSel(new Map())}>Clear</button>
+          </div>
+        </div>
+      )}
+
       {/* ── Storyboards ── */}
       <div style={{ marginBottom: 20 }}>
         <h3 style={{ color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }}>
@@ -1437,7 +1544,7 @@ function GalleryPanel({
               draggable
               onDragStart={handleDragStart('character', { key: img.key, title: img.name || 'Character' })}
               onDragEnd={handleDragEnd}
-              style={{ border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', overflow: 'hidden', textAlign: 'center', display: 'flex', flexDirection: 'column' }}
+              style={{ border: movieSel.has(img.key) ? '2px solid #ff8cfb' : '1px solid #ff1493', borderRadius: 6, background: '#0d001a', overflow: 'hidden', textAlign: 'center', display: 'flex', flexDirection: 'column' }}
             >
               <img src={img.url} alt={img.name} style={{ width: '100%', height: 90, objectFit: 'cover', display: 'block' }} />
               <div style={{ padding: '4px 6px', fontSize: '.68rem', color: 'rgba(240,230,255,.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1446,6 +1553,16 @@ function GalleryPanel({
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', padding: '6px 4px' }}>
                 <button style={gBtn} onClick={() => describeImage({ key: img.key, name: img.name || 'Character', url: img.url })} disabled={talkingKey === img.key}>
                   {talkingKey === img.key ? 'Talking…' : 'Talk'}
+                </button>
+                <button style={gBtn} onClick={() => handleMoviePrompt({ key: img.key, name: img.name || 'Character' })} disabled={moviePromptKey === img.key}>
+                  {moviePromptKey === img.key ? 'Prompting…' : 'Movie prompt'}
+                </button>
+                <button
+                  style={{ ...gBtn, ...(movieSel.has(img.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }}
+                  onClick={() => toggleMovieSel({ key: img.key, name: img.name || 'Character', type: 'image' })}
+                  title={movieSel.has(img.key) ? 'Remove from movie selection' : 'Add to movie selection'}
+                >
+                  {movieSel.has(img.key) ? '🎬✓' : '🎬+'}
                 </button>
                 <button style={gBtn} onClick={() => setPreviewImage({ title: img.name || 'Character', url: img.url })}>View</button>
                 <a style={{ ...gBtn, textDecoration: 'none' }} href={img.url} target="_blank" rel="noopener noreferrer" download={img.name || 'character.png'}>
@@ -1493,7 +1610,7 @@ function GalleryPanel({
                 draggable
                 onDragStart={handleDragStart('canvasAsset', { key: asset.key, title: asset.title })}
                 onDragEnd={handleDragEnd}
-                style={{ border: '1px solid rgba(57,255,20,.45)', borderRadius: 6, background: '#0f0920', padding: '6px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}
+                style={{ border: movieSel.has(asset.key) ? '2px solid #ff8cfb' : '1px solid rgba(57,255,20,.45)', borderRadius: 6, background: '#0f0920', padding: '6px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}
               >
                 <div>
                   <div style={{ fontWeight: 600, fontSize: '.78rem', color: '#39ff14' }}>{asset.title}</div>
@@ -1503,6 +1620,16 @@ function GalleryPanel({
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button style={gBtn} onClick={() => describeImage({ key: asset.key, name: asset.title, url: asset.url })} disabled={talkingKey === asset.key}>
                     {talkingKey === asset.key ? 'Talking…' : 'Talk'}
+                  </button>
+                  <button style={gBtn} onClick={() => handleMoviePrompt({ key: asset.key, name: asset.title })} disabled={moviePromptKey === asset.key}>
+                    {moviePromptKey === asset.key ? 'Prompting…' : 'Movie prompt'}
+                  </button>
+                  <button
+                    style={{ ...gBtn, ...(movieSel.has(asset.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }}
+                    onClick={() => toggleMovieSel({ key: asset.key, name: asset.title, type: 'image' })}
+                    title={movieSel.has(asset.key) ? 'Remove from movie selection' : 'Add to movie selection'}
+                  >
+                    {movieSel.has(asset.key) ? '🎬✓' : '🎬+'}
                   </button>
                   <button style={gBtn} onClick={() => setPreviewImage({ title: asset.title, url: asset.url })}>View</button>
                   <a style={{ ...gBtn, textDecoration: 'none' }} href={asset.url} target="_blank" rel="noopener noreferrer" download={`${(asset.title || 'canvas').replace(/\s+/g, '-')}.png`}>
@@ -1517,6 +1644,66 @@ function GalleryPanel({
           </div>
         )}
         {movingImage && <p style={{ color: 'rgba(240,230,255,.7)', fontSize: '.72rem' }}>Moving image…</p>}
+      </div>
+
+      {/* ── Sora Movies ── */}
+      <div style={{ margin: '20px 0' }}>
+        <h3 style={{ color: '#ff8cfb', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }}>
+          Sora Movies ({filteredVideos.length})
+        </h3>
+        {filteredVideos.length === 0 && (
+          <p style={{ color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }}>No Sora renders yet. Pick a character and hit &ldquo;Movie prompt&rdquo; to get started.</p>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {filteredVideos.map((video) => (
+            <div key={video.key} style={{ border: movieSel.has(video.key) ? '2px solid #ff8cfb' : '1px solid rgba(255,140,251,.5)', borderRadius: 6, background: '#120017', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: '.82rem', color: '#ff8cfb' }}>{video.name}</div>
+                  <div style={{ fontSize: '.65rem', color: 'rgba(240,230,255,.6)' }}>
+                    {new Date(video.savedAt).toLocaleString()} · {video.seconds}s · {video.size}
+                    {video.startedBy ? <> · {video.startedBy}</> : null}
+                  </div>
+                  {video.sourceImageName && (
+                    <div style={{ fontSize: '.65rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }}>
+                      Ref: {video.sourceImageName}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <a style={{ ...gBtn, textDecoration: 'none' }} href={video.url} target="_blank" rel="noopener noreferrer">
+                    ▶ Play
+                  </a>
+                  <button
+                    style={gBtn}
+                    onClick={async () => {
+                      if (!video.prompt) return;
+                      try { await navigator.clipboard.writeText(video.prompt); }
+                      catch { alert(video.prompt); }
+                    }}
+                    disabled={!video.prompt}
+                  >
+                    Copy prompt
+                  </button>
+                  <button style={gBtn} onClick={() => copyUrl(video.url)}>Copy link</button>
+                  <button
+                    style={{ ...gBtn, ...(movieSel.has(video.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }}
+                    onClick={() => toggleMovieSel({ key: video.key, name: video.name, type: 'video', prompt: video.prompt })}
+                    title={movieSel.has(video.key) ? 'Remove from movie selection' : 'Add to movie selection'}
+                  >
+                    {movieSel.has(video.key) ? '🎬✓' : '🎬+'}
+                  </button>
+                  <button style={gBtn} onClick={() => handleDelete(video.key, 'video')}>Delete</button>
+                </div>
+              </div>
+              {video.prompt && (
+                <p style={{ fontSize: '.75rem', color: 'rgba(240,230,255,.85)', margin: 0 }}>
+                  {video.prompt}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* ── Parlor Books ── */}
@@ -1601,17 +1788,27 @@ const QUICK_EMOJIS = [
   '💎','🖤','💗','❤️‍🔥','🐍','🦄','🎉','✨',
 ];
 
+type TenorMedia = { gif?: { url?: string }; tinygif?: { url?: string } };
+type TenorResult = { id?: string; media?: TenorMedia[] };
+type TenorResponse = { results?: TenorResult[] };
+
 async function searchGifs(query: string) {
   try {
     const r = await fetch(
       `https://api.tenor.com/v1/search?q=${encodeURIComponent(query)}&key=LIVDSRZULELA&limit=6&media_filter=minimal`
     );
-    const d = await r.json();
-    return (d.results || []).map((item: any) => ({
-      id: item.id as string,
-      url:     (item.media[0]?.gif?.url     || item.media[0]?.tinygif?.url || '') as string,
-      preview: (item.media[0]?.tinygif?.url || item.media[0]?.gif?.url     || '') as string,
-    }));
+    const d: TenorResponse = await r.json();
+    return (d.results || []).map((item) => {
+      const media = item.media ?? [];
+      const primary = media[0] ?? {};
+      const gifUrl = primary.gif?.url || '';
+      const tinyUrl = primary.tinygif?.url || '';
+      return {
+        id: item.id ?? Math.random().toString(36).slice(2),
+        url: gifUrl || tinyUrl,
+        preview: tinyUrl || gifUrl,
+      };
+    });
   } catch { return []; }
 }
 
@@ -1794,6 +1991,7 @@ export default function App() {
   const chatFeedRef      = useRef<HTMLDivElement>(null);
   const canvasIframeRef  = useRef<HTMLIFrameElement>(null);
   const currentAudioRef  = useRef<HTMLAudioElement | null>(null);
+  const movieSourceRef   = useRef<{ key?: string; name?: string } | null>(null);
 
   const conversationId = useMemo(
     () => mode === 'shared' ? 'butt-bitch-hang' : `private-${(userEmail || 'anon').replace(/[^a-z0-9@._-]/gi, '')}`,
@@ -1986,6 +2184,21 @@ export default function App() {
     return () => { socket.off('reactions:update', onReactionsUpdate); };
   }, []);
 
+  useEffect(() => {
+    function onVideoAdded(video: { name?: string }) {
+      setGalleryRefreshTick(Date.now());
+      const title = video?.name ? video.name : 'Sora movie';
+      addMessage({
+        id: uuid(),
+        author: 'bot',
+        text: `🎬 "${title}" just landed in the gallery. Hit the Sora stash to watch it.`,
+        createdAt: new Date().toISOString()
+      });
+    }
+    socket.on('gallery:video-added', onVideoAdded);
+    return () => { socket.off('gallery:video-added', onVideoAdded); };
+  }, [addMessage]);
+
   // ── Memory ───────────────────────────────────────────────────────────────
   useEffect(() => {
     fetch(`${API_BASE}/api/memory`, { headers: { ...authHeaders } })
@@ -1999,12 +2212,71 @@ export default function App() {
     if (chatFeedRef.current) chatFeedRef.current.scrollTop = chatFeedRef.current.scrollHeight;
   }, [messages]);
 
+  const runMovieCommand = useCallback(async (rawPrompt: string) => {
+    const trimmed = rawPrompt.trim();
+    if (!trimmed) {
+      addMessage({
+        id: uuid(),
+        author: 'bot',
+        text: 'Drop a cinematic prompt after /movie and I will hit Sora.',
+        createdAt: new Date().toISOString()
+      });
+      return;
+    }
+    const userMsg: ChatMessage = {
+      id: uuid(),
+      author: 'butt',
+      text: `/movie ${trimmed}`,
+      createdAt: new Date().toISOString(),
+      userEmail: userEmail || undefined
+    };
+    addMessage(userMsg);
+    try {
+      const res = await fetch(`${API_BASE}/api/sora/movie`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({
+          prompt: trimmed,
+          size: '1280x720',
+          seconds: 4,
+          sourceImageKey: movieSourceRef.current?.key,
+          sourceImageName: movieSourceRef.current?.name
+        })
+      });
+      type SoraJobResponse = { jobId?: string; error?: string };
+      let data: SoraJobResponse | null = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+      if (!res.ok) throw new Error(data?.error ?? `Sora job ${res.status}`);
+      const suffix = typeof data?.jobId === 'string' ? data.jobId.slice(-6) : '';
+      addMessage({
+        id: uuid(),
+        author: 'bot',
+        text: `🎬 Movie spell cast. Job ${suffix || 'ID'} is cooking — it will land in the gallery when ready.`,
+        createdAt: new Date().toISOString()
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'unknown error';
+      addMessage({
+        id: uuid(),
+        author: 'bot',
+        text: `Sora movie failed: ${message}.`,
+        createdAt: new Date().toISOString()
+      });
+    } finally {
+      movieSourceRef.current = null;
+    }
+  }, [addMessage, authHeaders, userEmail]);
+
   // ── Send message ─────────────────────────────────────────────────────────
 async function sendMessage(
   e?: FormEvent,
   extraText?: string,
   attachments?: { name: string; contentType: string; data: string }[],
-  options?: { ignoreDraft?: boolean }
+  options?: { ignoreDraft?: boolean; onBotReply?: (botText: string) => void }
 ) {
   e?.preventDefault();
   const useDraft = !options?.ignoreDraft;
@@ -2034,6 +2306,12 @@ async function sendMessage(
     clearDraft();
     setHotdogsOn(true);
     addMessage({ id: uuid(), author: 'bot', text: '🌭🌭🌭', createdAt: new Date().toISOString() });
+    return;
+  }
+  if (/^\/movie\b/i.test(text)) {
+    clearDraft();
+    const promptOnly = text.replace(/^\/movie/i, '').trim();
+    await runMovieCommand(promptOnly);
     return;
   }
 
@@ -2083,6 +2361,7 @@ async function sendMessage(
         .trim();
 
       addMessage({ id: data.id ?? uuid(), author: 'bot', text: botText, createdAt: data.createdAt ?? new Date().toISOString() });
+      options?.onBotReply?.(botText);
     } catch (err) {
       console.error('[chat] frontend error:', err);
       addMessage({ id: uuid(), author: 'bot', text: 'BotButt hit a snag. Check the backend logs.', createdAt: new Date().toISOString() });
@@ -2100,10 +2379,82 @@ async function sendMessage(
     if (!res.ok) throw new Error('image fetch failed');
     const data = await res.json();
     const attachmentName = `${(item.name || 'gallery-image').replace(/\s+/g, '-')}.png`;
-    await sendMessage(undefined, `[Image: ${item.name || 'gallery image'}]`, [
+    await sendMessage(undefined, `BotButt, check out ${item.name || 'this'} — what do you see? Just be yourself, no movie prompts.`, [
       { name: attachmentName, contentType: data.contentType || 'image/png', data: data.data }
     ], { ignoreDraft: true });
   }, [authHeaders, sendMessage]);
+
+  const requestMoviePrompt = useCallback(async (item: { key: string; name: string }) => {
+    const res = await fetch(`${API_BASE}/api/gallery/image-data`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify({ key: item.key })
+    });
+    if (!res.ok) throw new Error('image fetch failed');
+    const data = await res.json();
+    const attachmentName = `${(item.name || 'gallery-image').replace(/\s+/g, '-')}.png`;
+    movieSourceRef.current = { key: item.key, name: item.name };
+    try {
+      await sendMessage(undefined,
+        'BotButt, turn this character into a cinematic Sora movie prompt. Reply only with "Movie Prompt: <text>".',
+        [{ name: attachmentName, contentType: data.contentType || 'image/png', data: data.data }],
+        {
+          ignoreDraft: true,
+          onBotReply: (botText) => {
+            const match = /movie prompt:\s*(.+)/i.exec(botText);
+            const prompt = (match?.[1] || botText).trim();
+            setInput(`/movie ${prompt}`);
+          }
+        }
+      );
+    } catch (err) {
+      movieSourceRef.current = null;
+      throw err;
+    }
+  }, [authHeaders, sendMessage]);
+
+  const requestMultiMoviePrompt = useCallback(async (items: MultiMovieItem[]) => {
+    const imageItems = items.filter(i => i.type === 'image');
+    const videoItems = items.filter(i => i.type === 'video');
+
+    const attachments = await Promise.all(
+      imageItems.map(async (item) => {
+        const res = await fetch(`${API_BASE}/api/gallery/image-data`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ key: item.key })
+        });
+        if (!res.ok) throw new Error(`image fetch failed for ${item.name}`);
+        const d = await res.json();
+        return { name: `${(item.name || 'image').replace(/\s+/g, '-')}.png`, contentType: d.contentType || 'image/png', data: d.data };
+      })
+    );
+
+    const names = items.map(i => i.name).join(', ');
+    movieSourceRef.current = { name: names };
+
+    let promptText = `BotButt, write a single cinematic Sora movie prompt that combines these ${items.length} gallery items into one scene: ${names}.`;
+    if (videoItems.length > 0) {
+      const videoContext = videoItems.map(i => `"${i.name}" (originally prompted as: "${i.prompt ?? 'no prompt'}")`).join('; ');
+      promptText += ` For the video references: ${videoContext}.`;
+    }
+    promptText += ' Reply only with "Movie Prompt: <text>".';
+
+    try {
+      await sendMessage(undefined, promptText, attachments, {
+        ignoreDraft: true,
+        onBotReply: (botText) => {
+          const match = /movie prompt:\s*(.+)/i.exec(botText);
+          const prompt = (match?.[1] || botText).trim();
+          setInput(`/movie ${prompt}`);
+        }
+      });
+    } catch (err) {
+      movieSourceRef.current = null;
+      throw err;
+    }
+  }, [authHeaders, sendMessage]);
+
   // ── File drop ─────────────────────────────────────────────────────────────
   async function handleDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -2462,6 +2813,8 @@ async function sendMessage(
                   recentParlorBooks={recentCanvasPages}
                   onRenameParlorBook={renameParlorBook}
                   onDescribeImage={describeGalleryImage}
+                  onRequestMoviePrompt={requestMoviePrompt}
+                  onRequestMultiMoviePrompt={requestMultiMoviePrompt}
                 />
               )}
             </div>
