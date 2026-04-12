@@ -1297,10 +1297,13 @@ export default function App() {
               <span className="book-title">✦ Parlor Book</span>
               <div className="book-tabs">
                 <button className={`book-tab${currentPage.type === 'avatar' ? ' book-tab--active' : ''}`}
-                  onClick={() => setSession(s => {
-                    const ai = s.pages.findIndex(p => p.type === 'avatar');
-                    return ai >= 0 ? { ...s, idx: ai } : s;
-                  })}>
+                  onClick={() => {
+                    setSession(s => {
+                      const ai = s.pages.findIndex(p => p.type === 'avatar');
+                      return ai >= 0 ? { ...s, idx: ai } : s;
+                    });
+                    postToAvatar({ type: 'clear-canvas-html' });
+                  }}>
                   BotButt
                 </button>
                 <button className={`book-tab${currentPage.type === 'edit' ? ' book-tab--active' : ''}`}
