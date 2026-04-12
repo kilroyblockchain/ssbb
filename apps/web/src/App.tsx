@@ -1561,7 +1561,11 @@ function ReactionBar({
             title={users.map(u => u.split('@')[0]).join(', ')}
           >
             {type === 'gif'
-              ? <><img src={val} alt="gif" style={{ height: 20, borderRadius: 3, verticalAlign: 'middle' }} /><span>{users.length}</span></>
+              ? <>
+                  <img src={val} alt="gif" className="reaction-gif-thumb" />
+                  <img src={val} alt="" className="reaction-gif-preview" />
+                  <span>{users.length}</span>
+                </>
               : <>{val} <span>{users.length}</span></>
             }
           </button>

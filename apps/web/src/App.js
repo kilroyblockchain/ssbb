@@ -1204,7 +1204,7 @@ function ReactionBar({ messageId, reactions, userEmail, authHeaders: ah, onUpdat
     return (_jsxs("div", { className: "reaction-bar", children: [entries.map(([val, { type, users }]) => {
                 const isMine = users.includes(userEmail);
                 return (_jsx("button", { className: `reaction-chip${isMine ? ' reaction-chip--mine' : ''}`, onClick: () => toggle(val, type), title: users.map(u => u.split('@')[0]).join(', '), children: type === 'gif'
-                        ? _jsxs(_Fragment, { children: [_jsx("img", { src: val, alt: "gif", style: { height: 20, borderRadius: 3, verticalAlign: 'middle' } }), _jsx("span", { children: users.length })] })
+                        ? _jsxs(_Fragment, { children: [_jsx("img", { src: val, alt: "gif", className: "reaction-gif-thumb" }), _jsx("img", { src: val, alt: "", className: "reaction-gif-preview" }), _jsx("span", { children: users.length })] })
                         : _jsxs(_Fragment, { children: [val, " ", _jsx("span", { children: users.length })] }) }, val));
             }), _jsxs("div", { style: { position: 'relative', display: 'inline-flex' }, children: [_jsx("button", { className: "reaction-add", onClick: () => setPickerOpen(p => !p), title: "Add reaction", children: "\uFF0B" }), pickerOpen && (_jsx("div", { style: { position: 'absolute', bottom: '110%', left: 0, zIndex: 1000 }, children: _jsx(ReactionPicker, { onSelect: (val, type) => toggle(val, type), onClose: () => setPickerOpen(false) }) }))] })] }));
 }

@@ -442,6 +442,22 @@ body {
 .reaction-chip:hover  { background: rgba(255,255,255,.13); }
 .reaction-chip--mine  { background: rgba(255,20,147,.2); border-color: rgba(255,20,147,.55); }
 .reaction-chip span   { font-size: .75rem; opacity: .75; }
+.reaction-chip        { position: relative; }
+.reaction-gif-thumb   { height: 20px; border-radius: 3px; vertical-align: middle; display: block; }
+.reaction-gif-preview {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 220px;
+  border-radius: 10px;
+  box-shadow: 0 6px 28px rgba(0,0,0,.75);
+  border: 1px solid rgba(255,20,147,.35);
+  pointer-events: none;
+  z-index: 200;
+}
+.reaction-chip:hover .reaction-gif-preview { display: block; }
 .reaction-add {
   width: 22px; height: 22px; border-radius: 11px;
   border: 1px dashed rgba(255,255,255,.22); background: none;
