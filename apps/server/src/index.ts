@@ -187,6 +187,7 @@ app.post('/api/canvas/upload', async (req, res) => {
 
   const safeTitle = title.replace(/[<>"']/g, '').slice(0, 80);
   const key = `canvas/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.html`;
+  const savedAt = new Date().toISOString();
   const fullHtml = `<!DOCTYPE html>
 <html>
 <head>
@@ -206,8 +207,9 @@ app.post('/api/canvas/upload', async (req, res) => {
       Bucket: config.mediaBucket, Key: key,
       Body: fullHtml, ContentType: 'text/html; charset=utf-8',
     }));
+    await writeObject(config.mediaBucket, `canvas-meta/${key.replace('canvas/', '')}.json`, JSON.stringify({ title: safeTitle, savedAt }));
     const url = await getSignedUrl(s3c, new GetObjectCommand({ Bucket: config.mediaBucket, Key: key }), { expiresIn: 604800 });
-    res.json({ url, key });
+    res.json({ url, key, title: safeTitle, savedAt });
   } catch (err: any) {
     console.error('[canvas/upload]', err);
     res.status(500).json({ error: err.message || 'Upload failed' });
@@ -257,9 +259,11 @@ app.get('/api/storyboard/fetch', async (req, res) => {
 app.get('/api/gallery', async (req, res) => {
   if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
   try {
-    const [sbObjects, dollObjects] = await Promise.all([
+    const [sbObjects, dollObjects, canvasObjects, canvasAssetObjects] = await Promise.all([
       listObjects(config.mediaBucket, 'storyboards/'),
       listObjects(config.mediaBucket, 'dolls/'),
+      listObjects(config.mediaBucket, 'canvas/'),
+      listObjects(config.mediaBucket, 'canvas-assets/'),
     ]);
 
     // For storyboards, read the JSON metadata (title, savedAt)
@@ -292,10 +296,89 @@ app.get('/api/gallery', async (req, res) => {
       })
     );
 
-    res.json({ storyboards, images });
+    // Canvas pages — stored as raw HTML files
+    const canvasPages = await Promise.all(
+      canvasObjects.map(async ({ key, lastModified }) => {
+        try {
+          const url = await getPresignedUrl(config.mediaBucket, key, 3600);
+          const metaKey = `canvas-meta/${key.replace('canvas/', '')}.json`;
+          let title = key.split('/').pop()?.replace(/\.html$/i, '') ?? 'Parlor Book';
+          let savedAt = lastModified.toISOString();
+          try {
+            const rawMeta = await readObject(config.mediaBucket, metaKey);
+            if (rawMeta) {
+              const parsed = JSON.parse(rawMeta);
+              title = parsed.title ?? title;
+              savedAt = parsed.savedAt ?? savedAt;
+            }
+          } catch {
+            // ignore missing metadata
+          }
+          return { key, title, url, savedAt };
+        } catch (err) {
+          console.warn('[gallery] canvas read failed', err);
+          return null;
+        }
+      })
+    ).then((items) => items.filter((x): x is NonNullable<typeof x> => Boolean(x)));
+
+    const canvasAssets = await Promise.all(
+      canvasAssetObjects.map(async ({ key, lastModified }) => {
+        try {
+          const url = await getPresignedUrl(config.mediaBucket, key, 3600);
+          const metaKey = `canvas-assets-meta/${key.replace('canvas-assets/', '')}.json`;
+          let title = key.split('/').pop()?.replace(/^\d+-/, '') ?? 'Canvas asset';
+          let savedAt = lastModified.toISOString();
+          try {
+            const rawMeta = await readObject(config.mediaBucket, metaKey);
+            if (rawMeta) {
+              const parsed = JSON.parse(rawMeta);
+              title = parsed.name ?? title;
+              savedAt = parsed.savedAt ?? savedAt;
+            }
+          } catch {
+            // ignore missing metadata
+          }
+          return { key, title, url, savedAt };
+        } catch (err) {
+          console.warn('[gallery] canvas asset read failed', err);
+          return null;
+        }
+      })
+    ).then((items) => items.filter((x): x is NonNullable<typeof x> => Boolean(x)));
+
+    res.json({ storyboards, images, canvasPages, canvasAssets });
   } catch (err: any) {
     console.error('[gallery]', err);
     res.status(500).json({ error: err.message || 'Gallery fetch failed' });
+  }
+});
+
+app.put('/api/canvas/title', async (req, res) => {
+  const key = typeof req.body?.key === 'string' ? req.body.key : '';
+  const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+  if (!key.startsWith('canvas/')) return res.status(400).json({ error: 'invalid key' });
+  if (!title) return res.status(400).json({ error: 'title required' });
+  if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
+
+  const safeTitle = title.replace(/[<>"']/g, '').slice(0, 120);
+  const metaKey = `canvas-meta/${key.replace('canvas/', '')}.json`;
+  try {
+    let savedAt = new Date().toISOString();
+    try {
+      const existing = await readObject(config.mediaBucket, metaKey);
+      if (existing) {
+        const parsed = JSON.parse(existing);
+        savedAt = parsed.savedAt ?? savedAt;
+      }
+    } catch {
+      // ignore
+    }
+    await writeObject(config.mediaBucket, metaKey, JSON.stringify({ title: safeTitle, savedAt }));
+    res.json({ key, title: safeTitle, savedAt });
+  } catch (err: any) {
+    console.error('[canvas/title]', err);
+    res.status(500).json({ error: err.message || 'Rename failed' });
   }
 });
 
@@ -315,6 +398,26 @@ app.post('/api/dolls/upload', upload.single('file'), async (req: any, res) => {
     res.json({ key, url, name });
   } catch (err: any) {
     console.error('[dolls/upload]', err);
+    res.status(500).json({ error: err.message || 'Upload failed' });
+  }
+});
+
+// POST /api/canvas/assets/upload — upload an image for Parlor Book canvas use
+app.post('/api/canvas/assets/upload', upload.single('file'), async (req: any, res) => {
+  if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
+  const file = req.file;
+  if (!file) return res.status(400).json({ error: 'file required' });
+  const base = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_') || 'image.png';
+  const key = `canvas-assets/${Date.now()}-${base}`;
+  try {
+    const savedAt = new Date().toISOString();
+    await writeBuffer(config.mediaBucket, key, file.buffer, file.mimetype);
+    const metaKey = `canvas-assets-meta/${key.replace('canvas-assets/', '')}.json`;
+    await writeObject(config.mediaBucket, metaKey, JSON.stringify({ name: file.originalname, savedAt }));
+    const url = await getPresignedUrl(config.mediaBucket, key, 3600);
+    res.json({ key, url, name: file.originalname, savedAt });
+  } catch (err: any) {
+    console.error('[canvas/assets/upload]', err);
     res.status(500).json({ error: err.message || 'Upload failed' });
   }
 });

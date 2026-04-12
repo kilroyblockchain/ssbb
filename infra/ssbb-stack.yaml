@@ -38,17 +38,6 @@ Parameters:
 # ── Resources ─────────────────────────────────────────────────────────────────
 Resources:
 
-  # ── ECR: container registry ──────────────────────────────────────────────
-  ServerRepo:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: ssbb-server
-      LifecyclePolicy:
-        LifecyclePolicyText: |
-          {"rules":[{"rulePriority":1,"description":"Keep last 10 images",
-          "selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":10},
-          "action":{"type":"expire"}}]}
-
   # ── S3: web frontend bucket (private, served via CloudFront OAC) ──────────
   WebBucket:
     Type: AWS::S3::Bucket
@@ -125,6 +114,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Allow HTTP/HTTPS from internet to ALB
+      VpcId: vpc-0c10f9300c9484638
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 80
@@ -139,6 +129,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Allow traffic from ALB to ECS tasks on port 4000
+      VpcId: vpc-0c10f9300c9484638
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 4000
@@ -164,6 +155,7 @@ Resources:
       Port: 4000
       Protocol: HTTP
       TargetType: ip
+      VpcId: vpc-0c10f9300c9484638
       HealthCheckPath: /api/health
       HealthCheckIntervalSeconds: 30
       HealthyThresholdCount: 2
@@ -402,10 +394,6 @@ Outputs:
   WebBucketName:
     Description: S3 bucket to sync Vite build into
     Value: !Ref WebBucket
-
-  ECRRepository:
-    Description: ECR repo URI for Docker push
-    Value: !GetAtt ServerRepo.RepositoryUri
 
   CognitoUserPoolId:
     Description: Cognito User Pool ID (add to app config)

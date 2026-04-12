@@ -654,10 +654,11 @@ svg{width:100%;height:100%;display:block;}
       // Head only moves on loud emphasis — still during normal speech
       var headTilt = amp > 0.2 ? (amp * 25 * Math.sin(t*3.5)).toFixed(2) : '0';
       head.setAttribute('transform','rotate('+headTilt+',400,310)');
-      // Arms — wide, energetic, amplitude-boosted
-      var spkSway = Math.sin(t*2.2)*22 + spkAmp*20;
-      armL.setAttribute('transform','rotate('+(-22+spkSway).toFixed(1)+',294,459)');
-      setArmR(-24+Math.sin(t*1.8)*12 - spkAmp*12);
+      // Arms — rest during normal speech, raise only on loud emphasis
+      var armEmphasis = Math.max(0, (amp - 0.22) * 6);  // silent below 0.22
+      var armSway = Math.sin(t * 2.4) * armEmphasis * 14;
+      armL.setAttribute('transform','rotate('+(-8 + armSway).toFixed(1)+',294,459)');
+      setArmR(-10 - armSway * 0.75);
       // Eyebrows lift subtly with amplitude
       var browRise = -(spkAmp*8 + Math.sin(t*3.5)*2);
       browL.setAttribute('transform','translate(0,'+browRise.toFixed(1)+')');
@@ -826,21 +827,49 @@ svg{width:100%;height:100%;display:block;}
 </script>
 </body>
 </html>`;
+// ── Small bear for header ─────────────────────────────────────────────────────
+function HotdogRain({ onDone }) {
+    const [fading, setFading] = useState(false);
+    const handleDone = useCallback(onDone, []); // stable ref so effect doesn't re-fire
+    useEffect(() => {
+        const fadeTimer = setTimeout(() => setFading(true), 55000);
+        const doneTimer = setTimeout(handleDone, 60000);
+        return () => { clearTimeout(fadeTimer); clearTimeout(doneTimer); };
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    const dogs = useMemo(() => Array.from({ length: 45 }, (_, i) => ({
+        id: i,
+        left: `${(Math.random() * 96).toFixed(1)}vw`,
+        duration: `${(3 + Math.random() * 5).toFixed(2)}s`,
+        delay: `${(Math.random() * 14).toFixed(2)}s`,
+        size: `${(1.4 + Math.random() * 1.6).toFixed(2)}rem`,
+    })), []);
+    return (_jsx("div", { className: "hotdog-rain", style: { opacity: fading ? 0 : 1 }, children: dogs.map((d, i) => (_jsx("div", { className: "hotdog-rain__dog", style: {
+                left: d.left,
+                fontSize: d.size,
+                animationDuration: d.duration,
+                animationDelay: d.delay,
+            }, children: "\uD83C\uDF2D" }, i))) }));
+}
 function CanvasHtmlFrame({ html, title }) {
     const doc = useMemo(() => `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{background:#0d0010;color:#F7F1E8;font-family:sans-serif;padding:24px;margin:0}</style></head><body>${html}</body></html>`, [html, title]);
-    return _jsx("iframe", { title: title, srcDoc: doc, sandbox: "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads", style: { width: '100%', height: '100%', border: 'none' } });
+    return (_jsx("iframe", { title: title, srcDoc: doc, sandbox: "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads", style: { width: '100%', height: '100%', border: 'none' } }));
 }
-// ── Small bear for header ─────────────────────────────────────────────────────
 function BotButtBear({ state }) {
     return (_jsxs("svg", { className: `bear-svg bear-wrap--${state}`, viewBox: "0 0 100 100", fill: "none", xmlns: "http://www.w3.org/2000/svg", "aria-label": "BotButt", children: [_jsx("circle", { cx: "22", cy: "24", r: "14", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("circle", { cx: "78", cy: "24", r: "14", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("circle", { cx: "22", cy: "24", r: "7", fill: "#4a0066" }), _jsx("circle", { cx: "78", cy: "24", r: "7", fill: "#4a0066" }), _jsx("ellipse", { cx: "50", cy: "60", rx: "34", ry: "32", className: "bear-head-fill", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("line", { x1: "30", y1: "47", x2: "40", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "40", y1: "47", x2: "30", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "60", y1: "47", x2: "70", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "70", y1: "47", x2: "60", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("ellipse", { cx: "50", cy: "66", rx: "5", ry: "3.5", fill: "#ff1493" }), _jsx("path", { className: "bear-mouth", d: "M36 75 Q50 83 64 75", stroke: "#ff1493", strokeWidth: "2.5", strokeLinecap: "round", fill: "none" }), _jsx("path", { d: "M38 12 Q50 6 62 12 Q50 18 38 12Z", fill: "#ff1493" }), _jsx("circle", { cx: "50", cy: "12", r: "3.5", fill: "#fff" }), state === 'speaking' && _jsxs(_Fragment, { children: [_jsx("line", { x1: "50", y1: "28", x2: "50", y2: "10", stroke: "#39ff14", strokeWidth: "1.5", strokeLinecap: "round" }), _jsx("circle", { cx: "50", cy: "8", r: "3", fill: "#39ff14", opacity: "0.9" })] })] }));
 }
-function GalleryPanel({ userEmail, onLoadStoryboard, }) {
+function GalleryPanel({ userEmail, onLoadStoryboard, refreshTick, recentStoryboards, recentParlorBooks, onRenameParlorBook, }) {
     const [storyboards, setStoryboards] = useState([]);
+    const [canvasPages, setCanvasPages] = useState([]);
+    const [canvasAssets, setCanvasAssets] = useState([]);
     const [images, setImages] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [uploading, setUploading] = useState(false);
+    const [assetUploading, setAssetUploading] = useState(false);
+    const [assetUploads, setAssetUploads] = useState([]);
     const fileInputRef = useRef(null);
+    const assetInputRef = useRef(null);
+    const [searchTerm, setSearchTerm] = useState('');
     const fetchGallery = useCallback(async () => {
         setLoading(true);
         setError(null);
@@ -850,6 +879,8 @@ function GalleryPanel({ userEmail, onLoadStoryboard, }) {
                 throw new Error(`Gallery fetch ${res.status}`);
             const data = await res.json();
             setStoryboards((data.storyboards ?? []).sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()));
+            setCanvasPages((data.canvasPages ?? []).sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()));
+            setCanvasAssets((data.canvasAssets ?? []).sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()));
             setImages(data.images ?? []);
         }
         catch (e) {
@@ -859,7 +890,83 @@ function GalleryPanel({ userEmail, onLoadStoryboard, }) {
             setLoading(false);
         }
     }, [userEmail]);
-    useEffect(() => { fetchGallery(); }, [fetchGallery]);
+    useEffect(() => { fetchGallery(); }, [fetchGallery, refreshTick]);
+    const mergedParlorBooks = useMemo(() => {
+        const seen = new Set();
+        const merged = [];
+        recentParlorBooks.forEach((page) => {
+            if (!seen.has(page.key)) {
+                seen.add(page.key);
+                merged.push(page);
+            }
+        });
+        canvasPages.forEach((page) => {
+            if (!seen.has(page.key)) {
+                seen.add(page.key);
+                merged.push(page);
+            }
+        });
+        return merged;
+    }, [recentParlorBooks, canvasPages]);
+    const mergedCanvasAssets = useMemo(() => {
+        const seen = new Set();
+        const merged = [];
+        assetUploads.forEach((asset) => {
+            if (!seen.has(asset.key)) {
+                seen.add(asset.key);
+                merged.push(asset);
+            }
+        });
+        canvasAssets.forEach((asset) => {
+            if (!seen.has(asset.key)) {
+                seen.add(asset.key);
+                merged.push(asset);
+            }
+        });
+        return merged;
+    }, [assetUploads, canvasAssets]);
+    const mergedStoryboards = useMemo(() => {
+        const seen = new Set();
+        const recents = [];
+        const remote = [];
+        recentStoryboards.forEach((sb) => {
+            if (!seen.has(sb.key)) {
+                seen.add(sb.key);
+                recents.push(sb);
+            }
+        });
+        storyboards.forEach((sb) => {
+            if (!seen.has(sb.key)) {
+                seen.add(sb.key);
+                remote.push(sb);
+            }
+        });
+        return { recents, remote };
+    }, [recentStoryboards, storyboards]);
+    const term = searchTerm.trim().toLowerCase();
+    const filteredStoryboards = useMemo(() => {
+        if (!term)
+            return mergedStoryboards.remote;
+        return mergedStoryboards.remote.filter(sb => sb.title.toLowerCase().includes(term) ||
+            sb.conversationId.toLowerCase().includes(term));
+    }, [mergedStoryboards, term]);
+    const filteredParlorBooks = useMemo(() => {
+        if (!term)
+            return mergedParlorBooks;
+        return mergedParlorBooks.filter(page => page.title.toLowerCase().includes(term) ||
+            page.url.toLowerCase().includes(term));
+    }, [mergedParlorBooks, term]);
+    const filteredImages = useMemo(() => {
+        if (!term)
+            return images;
+        return images.filter(img => (img.name ?? '').toLowerCase().includes(term));
+    }, [images, term]);
+    const filteredAssets = useMemo(() => {
+        if (!term)
+            return mergedCanvasAssets;
+        return mergedCanvasAssets.filter(asset => asset.title.toLowerCase().includes(term) ||
+            asset.url.toLowerCase().includes(term));
+    }, [mergedCanvasAssets, term]);
     const loadStoryboard = useCallback(async (key, title) => {
         try {
             const res = await fetch(`${API_BASE}/api/storyboard/fetch?key=${encodeURIComponent(key)}`, {
@@ -912,7 +1019,80 @@ function GalleryPanel({ userEmail, onLoadStoryboard, }) {
         fontSize: '.75rem',
         letterSpacing: '.06em',
     };
-    return (_jsxs("div", { style: { background: '#08000f', color: '#f0e6ff', fontFamily: 'sans-serif', padding: '16px', height: '100%', overflowY: 'auto', boxSizing: 'border-box' }, children: [_jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }, children: [_jsx("span", { style: { color: '#ff1493', fontWeight: 700, fontSize: '1rem', letterSpacing: '.08em' }, children: "GALLERY" }), _jsx("button", { style: gBtn, onClick: fetchGallery, children: "Refresh" })] }), loading && _jsx("p", { style: { color: '#ff1493', fontSize: '.8rem' }, children: "Loading..." }), error && _jsxs("p", { style: { color: '#ffe66d', fontSize: '.8rem' }, children: ["Error: ", error] }), _jsxs("div", { style: { marginBottom: 20 }, children: [_jsxs("h3", { style: { color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Storyboards (", storyboards.length, ")"] }), !loading && storyboards.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No saved storyboards yet." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: storyboards.map(sb => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }, children: sb.title }), _jsxs("div", { style: { fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: [new Date(sb.savedAt).toLocaleString(), " \u2022 ", sb.conversationId] })] }), _jsx("button", { style: gBtn, onClick: () => loadStoryboard(sb.key, sb.title), children: "Load" })] }, sb.key))) })] }), _jsxs("div", { children: [_jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }, children: [_jsxs("h3", { style: { color: '#39ff14', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', margin: 0 }, children: ["Characters (", images.length, ")"] }), _jsx("button", { style: { ...gBtn, color: '#39ff14', borderColor: '#39ff14' }, onClick: () => fileInputRef.current?.click(), disabled: uploading, children: uploading ? 'Uploading...' : '+ Upload' }), _jsx("input", { ref: fileInputRef, type: "file", accept: "image/*", style: { display: 'none' }, onChange: handleUpload })] }), !loading && images.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No character images yet." })), _jsx("div", { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 10 }, children: images.map(img => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', overflow: 'hidden', textAlign: 'center' }, children: [_jsx("img", { src: img.url, alt: img.name, style: { width: '100%', height: 90, objectFit: 'cover', display: 'block' } }), _jsx("div", { style: { padding: '4px 6px', fontSize: '.68rem', color: 'rgba(240,230,255,.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: img.name })] }, img.key))) })] })] }));
+    const copyUrl = useCallback(async (url) => {
+        try {
+            await navigator.clipboard.writeText(url);
+        }
+        catch {
+            alert(url);
+        }
+    }, []);
+    const handleAssetUpload = useCallback(async (file) => {
+        setAssetUploading(true);
+        try {
+            const form = new FormData();
+            form.append('file', file);
+            const res = await fetch(`${API_BASE}/api/canvas/assets/upload`, {
+                method: 'POST',
+                headers: { 'x-dev-email': userEmail },
+                body: form,
+            });
+            if (!res.ok)
+                throw new Error('Upload failed');
+            const data = await res.json();
+            const entry = {
+                key: data.key ?? `asset-${Date.now()}`,
+                title: data.name ?? file.name,
+                url: data.url,
+                savedAt: data.savedAt ?? new Date().toISOString(),
+            };
+            setAssetUploads(prev => [entry, ...prev]);
+            await copyUrl(entry.url);
+        }
+        catch (err) {
+            console.warn('[canvas asset upload]', err);
+            alert('Could not upload that image.');
+        }
+        finally {
+            setAssetUploading(false);
+            if (assetInputRef.current)
+                assetInputRef.current.value = '';
+        }
+    }, [userEmail, copyUrl]);
+    const handleAssetInput = useCallback((e) => {
+        const file = e.target.files?.[0];
+        if (file)
+            handleAssetUpload(file);
+    }, [handleAssetUpload]);
+    const handleRename = useCallback(async (page) => {
+        const next = prompt('Parlor Book title?', page.title) ?? '';
+        const trimmed = next.trim();
+        if (!trimmed || trimmed === page.title)
+            return;
+        await onRenameParlorBook(page, trimmed);
+    }, [onRenameParlorBook]);
+    return (_jsxs("div", { style: { background: '#08000f', color: '#f0e6ff', fontFamily: 'sans-serif', padding: '16px', height: '100%', overflowY: 'auto', boxSizing: 'border-box' }, children: [_jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }, children: [_jsx("span", { style: { color: '#ff1493', fontWeight: 700, fontSize: '1rem', letterSpacing: '.08em' }, children: "GALLERY" }), _jsx("button", { style: gBtn, onClick: fetchGallery, children: "Refresh" })] }), _jsx("div", { style: { marginBottom: 14 }, children: _jsx("input", { type: "search", placeholder: "Search titles, conversations, URLs...", value: searchTerm, onChange: (e) => setSearchTerm(e.target.value), style: {
+                        width: '100%',
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: '1px solid rgba(255,20,147,.4)',
+                        background: '#02000a',
+                        color: '#f0e6ff'
+                    } }) }), loading && _jsx("p", { style: { color: '#ff1493', fontSize: '.8rem' }, children: "Loading..." }), error && _jsxs("p", { style: { color: '#ffe66d', fontSize: '.8rem' }, children: ["Error: ", error] }), _jsxs("div", { style: { marginBottom: 20 }, children: [_jsxs("h3", { style: { color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Saved Storyboards (", filteredStoryboards.length, ")"] }), !loading && filteredStoryboards.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No saved storyboards yet." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: filteredStoryboards.map(sb => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }, children: sb.title }), _jsxs("div", { style: { fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: [new Date(sb.savedAt).toLocaleString(), " \u2022 ", sb.conversationId] })] }), _jsx("button", { style: gBtn, onClick: () => loadStoryboard(sb.key, sb.title), children: "Load" })] }, sb.key))) })] }), _jsxs("div", { children: [_jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }, children: [_jsxs("h3", { style: { color: '#39ff14', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', margin: 0 }, children: ["Characters (", filteredImages.length, ")"] }), _jsx("button", { style: { ...gBtn, color: '#39ff14', borderColor: '#39ff14' }, onClick: () => fileInputRef.current?.click(), disabled: uploading, children: uploading ? 'Uploading...' : '+ Upload' }), _jsx("input", { ref: fileInputRef, type: "file", accept: "image/*", style: { display: 'none' }, onChange: handleUpload })] }), !loading && filteredImages.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No character images yet." })), _jsx("div", { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 10 }, children: filteredImages.map(img => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', overflow: 'hidden', textAlign: 'center' }, children: [_jsx("img", { src: img.url, alt: img.name, style: { width: '100%', height: 90, objectFit: 'cover', display: 'block' } }), _jsx("div", { style: { padding: '4px 6px', fontSize: '.68rem', color: 'rgba(240,230,255,.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: img.name })] }, img.key))) })] }), _jsxs("div", { style: { margin: '20px 0' }, children: [_jsxs("h3", { style: { color: '#7df9ff', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Canvas Images (", filteredAssets.length, ")"] }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }, children: [_jsx("button", { style: { ...gBtn, color: '#39ff14', borderColor: '#39ff14' }, onClick: () => assetInputRef.current?.click(), disabled: assetUploading, children: assetUploading ? 'Uploading image...' : '+ Upload image' }), _jsx("input", { ref: assetInputRef, type: "file", accept: "image/*", style: { display: 'none' }, onChange: handleAssetInput }), _jsx("small", { style: { color: 'rgba(240,230,255,.7)' }, children: "Uploads return shareable URLs for your Parlor Book cards." })] }), filteredAssets.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No canvas image uploads yet." })), filteredAssets.length > 0 && (_jsx("div", { style: { marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }, children: filteredAssets.map((asset) => (_jsxs("div", { style: { border: '1px solid rgba(57,255,20,.45)', borderRadius: 6, background: '#0f0920', padding: '6px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.78rem', color: '#39ff14' }, children: asset.title }), _jsx("div", { style: { fontSize: '.65rem', color: 'rgba(240,230,255,.55)' }, children: new Date(asset.savedAt).toLocaleString() }), _jsx("img", { src: asset.url, alt: asset.title, style: { width: 160, height: 90, objectFit: 'cover', borderRadius: 4, marginTop: 6, border: '1px solid rgba(57,255,20,.35)' } })] }), _jsxs("div", { style: { display: 'flex', gap: 6, flexWrap: 'wrap' }, children: [_jsx("button", { style: gBtn, onClick: () => copyUrl(asset.url), children: "Copy URL" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: asset.url, target: "_blank", rel: "noopener noreferrer", children: "Open" })] })] }, asset.key))) }))] }), _jsxs("div", { style: { marginBottom: 20 }, children: [_jsxs("h3", { style: { color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Saved Parlor Books (", filteredParlorBooks.length, ")"] }), filteredParlorBooks.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No saved Parlor Books yet." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: filteredParlorBooks.map(page => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }, children: page.title }), _jsx("div", { style: { fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: new Date(page.savedAt).toLocaleString() }), _jsx("div", { style: {
+                                                width: 420 * 0.45,
+                                                height: 260 * 0.45,
+                                                overflow: 'hidden',
+                                                borderRadius: 4,
+                                                border: '1px solid rgba(255,20,147,.4)',
+                                                marginTop: 6,
+                                                background: '#030012'
+                                            }, children: _jsx("iframe", { title: `preview-${page.key}`, src: page.url, style: {
+                                                    width: 420,
+                                                    height: 260,
+                                                    border: 'none',
+                                                    transform: 'scale(0.45)',
+                                                    transformOrigin: 'top left'
+                                                }, sandbox: "allow-same-origin allow-scripts" }) })] }), _jsxs("div", { style: { display: 'flex', gap: 8 }, children: [_jsx("button", { style: gBtn, onClick: () => handleRename(page), children: "Rename" }), _jsx("button", { style: gBtn, onClick: () => copyUrl(page.url), children: "Copy URL" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }, href: page.url, target: "_blank", rel: "noopener noreferrer", children: "Open" })] })] }, page.key))) })] })] }));
 }
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
@@ -931,9 +1111,14 @@ export default function App() {
     const [lastHarvest, setLastHarvest] = useState(null);
     const [basement, setBasement] = useState({ identity: true, memory: false });
     const [isDragging, setIsDragging] = useState(false);
+    const [hotdogsOn, setHotdogsOn] = useState(false);
+    const dragCounterRef = useRef(0);
     const [qrModal, setQrModal] = useState(null);
     const [s3Uploading, setS3Uploading] = useState(false);
     const [sbSaving, setSbSaving] = useState(false);
+    const [recentStoryboards, setRecentStoryboards] = useState([]);
+    const [recentCanvasPages, setRecentCanvasPages] = useState([]);
+    const [galleryRefreshTick, setGalleryRefreshTick] = useState(0);
     const lastSpokenRef = useRef(null);
     const chatFeedRef = useRef(null);
     const canvasIframeRef = useRef(null);
@@ -1103,6 +1288,12 @@ export default function App() {
             addMessage({ id: uuid(), author: 'bot', text: '🎤 *drops the mic*', createdAt: new Date().toISOString() });
             return;
         }
+        if (/^\/hotdogs\b/i.test(text)) {
+            setInput('');
+            setHotdogsOn(true);
+            addMessage({ id: uuid(), author: 'bot', text: '🌭🌭🌭', createdAt: new Date().toISOString() });
+            return;
+        }
         const displayText = text || (attachments?.map(a => `[${a.name}]`).join(' ') ?? '');
         const userMsg = { id: uuid(), author: 'butt', text: displayText, createdAt: new Date().toISOString() };
         addMessage(userMsg);
@@ -1129,16 +1320,20 @@ export default function App() {
                 // Replace [IMG:name] placeholders with actual base64 data URLs from this message's attachments
                 for (const att of (attachments ?? [])) {
                     const dataUrl = `data:${att.contentType};base64,${att.data}`;
-                    html = html.replaceAll(`[IMG:${att.name}]`, dataUrl);
+                    html = html.split(`[IMG:${att.name}]`).join(dataUrl);
                 }
                 pushPage({ type: 'html', html, title: `BotButt made this (${new Date().toLocaleTimeString()})` });
                 postToAvatar({ type: 'set-canvas-html', html });
                 canvasCount++;
             }
+            // Detect [HOTDOGS] celebration trigger
+            if (/\[HOTDOGS\]/i.test(rawText))
+                setHotdogsOn(true);
             // Strip canvas blocks + any stray HTML tags from chat display text
             botText = rawText
                 .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, canvasCount > 0 ? '↳ [see canvas →]' : '')
                 .replace(/\[IMG:[^\]]*\]/g, '') // strip image placeholders
+                .replace(/\[HOTDOGS\]/gi, '') // strip hotdog trigger tag
                 .replace(/<[^>]+>/g, '') // strip any HTML tags
                 .replace(/&[a-z#0-9]+;/gi, ' ') // strip HTML entities
                 .replace(/\s{2,}/g, ' ')
@@ -1225,6 +1420,14 @@ export default function App() {
                         pages[s.idx] = { ...p, s3Url: data.url };
                     return { ...s, pages };
                 });
+                const savedEntry = {
+                    key: data.key ?? data.url ?? `canvas-${Date.now()}`,
+                    title: data.title ?? (currentPage.title || 'Parlor Book'),
+                    url: data.url,
+                    savedAt: data.savedAt ?? new Date().toISOString(),
+                };
+                setRecentCanvasPages(prev => [savedEntry, ...prev.filter(p => p.key !== savedEntry.key)]);
+                setGalleryRefreshTick(Date.now());
             }
         }
         catch (e) {
@@ -1246,6 +1449,15 @@ export default function App() {
             });
             if (!res.ok)
                 throw new Error(`Save ${res.status}`);
+            const data = await res.json();
+            const savedEntry = {
+                key: data.key ?? `local-${Date.now()}`,
+                title: data.title ?? (currentPage.title || 'Untitled'),
+                savedAt: data.savedAt ?? new Date().toISOString(),
+                conversationId,
+            };
+            setRecentStoryboards((prev) => [savedEntry, ...prev.filter((sb) => sb.key !== savedEntry.key)]);
+            setGalleryRefreshTick(Date.now());
         }
         catch (e) {
             console.warn('[storyboard/save]', e);
@@ -1254,6 +1466,21 @@ export default function App() {
             setSbSaving(false);
         }
     }, [currentPage, sbSaving, userEmail, conversationId]);
+    const renameParlorBook = useCallback(async (page, title) => {
+        try {
+            await fetch(`${API_BASE}/api/canvas/title`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
+                body: JSON.stringify({ key: page.key, title }),
+            });
+            setRecentCanvasPages(prev => prev.map(p => (p.key === page.key ? { ...p, title } : p)));
+            setGalleryRefreshTick(Date.now());
+        }
+        catch (err) {
+            console.warn('[canvas rename]', err);
+            alert('Could not rename that Parlor Book.');
+        }
+    }, [userEmail]);
     const showQR = useCallback(async (url) => {
         try {
             const QRCode = (await import('qrcode')).default;
@@ -1311,11 +1538,12 @@ export default function App() {
     const toggleBasement = (key) => setBasement((prev) => ({ ...prev, [key]: !prev[key] }));
     const currentBitch = BUTT_BITCHES.find((b) => b.email === userEmail) ?? BUTT_BITCHES[0];
     // ── Render ────────────────────────────────────────────────────────────────
-    return (_jsxs("div", { className: "parlor", children: [_jsxs("header", { className: "parlor-header", children: [_jsxs("div", { className: "parlor-brand", children: [_jsx("div", { className: "parlor-brand__mark", children: _jsx(BotButtBear, { state: bearState }) }), _jsxs("div", { children: [_jsx("p", { className: "parlor-eyebrow", children: "SSBB // Butt Bitch Parlor" }), _jsx("h1", { className: "parlor-title", children: "Screaming Smoldering Butt Bitches" })] })] }), _jsxs("div", { className: "parlor-header__center", children: [_jsx("div", { className: `status-chip${botStatus === 'thinking' ? ' status-chip--thinking' : ''}`, children: botStatus === 'thinking' ? 'BotButt thinking...' : 'BotButt ready' }), _jsx("button", { className: `tts-toggle${ttsEnabled ? ' active' : ''}`, type: "button", onClick: () => setTtsEnabled((s) => !s), children: ttsEnabled ? '🔊 Voice on' : '🔈 Voice off' }), _jsx("button", { className: "mini-btn", type: "button", onClick: () => { setTtsEnabled(true); speakNow("G'day legends, BotButt here — ready to make absolute chaos with you."); }, children: "Test voice" })] }), _jsxs("div", { className: "parlor-header__user", children: [_jsx("span", { children: "Signed in as" }), _jsx("strong", { style: { color: currentBitch.color }, children: currentBitch.handle })] })] }), _jsxs("div", { className: "parlor-main", children: [_jsx("section", { className: "parlor-chat", children: _jsxs("div", { className: "card chat-card", children: [_jsxs("div", { className: "chat-card__header", children: [_jsxs("div", { children: [_jsx("h2", { children: "SSBB Pretendo TV" }), _jsxs("p", { className: "chat-subline", children: [_jsx("button", { className: mode === 'shared' ? 'mode-btn mode-btn--active' : 'mode-btn', onClick: () => setMode('shared'), children: "Shared" }), _jsx("button", { className: mode === 'private' ? 'mode-btn mode-btn--active' : 'mode-btn', onClick: () => setMode('private'), children: "Private 1:1" })] })] }), _jsx("button", { className: "mini-btn", type: "button", onClick: () => sendMessage(), children: "Ping" })] }), _jsxs("div", { className: "chat-feed", ref: chatFeedRef, children: [messages.length === 0 && (_jsx("div", { className: "chat-empty", children: "Say something to BotButt..." })), messages.map((msg) => (_jsxs("article", { className: `chat-bubble chat-bubble--${msg.author}`, children: [_jsxs("header", { children: [_jsx("strong", { children: msg.author === 'bot' ? 'BotButt' : currentBitch.handle }), _jsx("span", { children: msg.mode === 'private' ? 'Private' : 'Shared' }), _jsx("time", { children: new Date(msg.createdAt).toLocaleTimeString() })] }), _jsx("p", { children: msg.text })] }, msg.id)))] }), _jsxs("form", { className: `composer${isDragging ? ' composer--drag' : ''}`, onSubmit: sendMessage, onDragOver: (e) => { e.preventDefault(); setIsDragging(true); }, onDragLeave: () => setIsDragging(false), onDrop: handleDrop, children: [_jsx("input", { className: "command-input", placeholder: isDragging ? 'Drop file here...' : 'Talk to BotButt...', value: input, onChange: (e) => setInput(e.target.value) }), _jsx("button", { className: "send-btn", type: "submit", children: "Send" })] })] }) }), _jsx("section", { className: "parlor-book", children: _jsxs("div", { className: "card parlor-book-card", children: [_jsxs("div", { className: "book-toolbar", children: [_jsx("span", { className: "book-title", children: "\u2726 Parlor Book" }), _jsxs("div", { className: "book-tabs", children: [_jsx("button", { className: `book-tab${currentPage.type === 'avatar' ? ' book-tab--active' : ''}`, onClick: () => {
+    return (_jsxs("div", { className: "parlor", children: [hotdogsOn && _jsx(HotdogRain, { onDone: () => setHotdogsOn(false) }), _jsxs("header", { className: "parlor-header", children: [_jsxs("div", { className: "parlor-brand", children: [_jsx("div", { className: "parlor-brand__mark", children: _jsx(BotButtBear, { state: bearState }) }), _jsxs("div", { children: [_jsx("p", { className: "parlor-eyebrow", children: "SSBB // Butt Bitch Parlor" }), _jsx("h1", { className: "parlor-title", children: "Screaming Smoldering Butt Bitches" })] })] }), _jsxs("div", { className: "parlor-header__center", children: [_jsx("div", { className: `status-chip${botStatus === 'thinking' ? ' status-chip--thinking' : ''}`, children: botStatus === 'thinking' ? 'BotButt thinking...' : 'BotButt ready' }), _jsx("button", { className: `tts-toggle${ttsEnabled ? ' active' : ''}`, type: "button", onClick: () => setTtsEnabled((s) => !s), children: ttsEnabled ? '🔊 Voice on' : '🔈 Voice off' }), _jsx("button", { className: "mini-btn", type: "button", onClick: () => { setTtsEnabled(true); speakNow("G'day legends, BotButt here — ready to make absolute chaos with you."); }, children: "Test voice" })] }), _jsxs("div", { className: "parlor-header__user", children: [_jsx("span", { children: "Signed in as" }), _jsx("strong", { style: { color: currentBitch.color }, children: currentBitch.handle })] })] }), _jsxs("div", { className: "parlor-main", children: [_jsxs("section", { className: "parlor-chat", onDragOver: (e) => e.preventDefault(), onDragEnter: (e) => { e.preventDefault(); dragCounterRef.current++; setIsDragging(true); }, onDragLeave: () => { dragCounterRef.current--; if (dragCounterRef.current === 0)
+                            setIsDragging(false); }, onDrop: (e) => { dragCounterRef.current = 0; setIsDragging(false); handleDrop(e); }, children: [isDragging && _jsx("div", { className: "chat-drop-overlay", children: "Drop file to send to BotButt" }), _jsxs("div", { className: "card chat-card", children: [_jsxs("div", { className: "chat-card__header", children: [_jsxs("div", { children: [_jsx("h2", { children: "SSBB Pretendo TV" }), _jsxs("p", { className: "chat-subline", children: [_jsx("button", { className: mode === 'shared' ? 'mode-btn mode-btn--active' : 'mode-btn', onClick: () => setMode('shared'), children: "Shared" }), _jsx("button", { className: mode === 'private' ? 'mode-btn mode-btn--active' : 'mode-btn', onClick: () => setMode('private'), children: "Private 1:1" })] })] }), _jsx("button", { className: "mini-btn", type: "button", onClick: () => sendMessage(), children: "Ping" })] }), _jsxs("div", { className: "chat-feed", ref: chatFeedRef, children: [messages.length === 0 && (_jsx("div", { className: "chat-empty", children: "Say something to BotButt..." })), messages.map((msg) => (_jsxs("article", { className: `chat-bubble chat-bubble--${msg.author}`, children: [_jsxs("header", { children: [_jsx("strong", { children: msg.author === 'bot' ? 'BotButt' : currentBitch.handle }), _jsx("span", { children: msg.mode === 'private' ? 'Private' : 'Shared' }), _jsx("time", { children: new Date(msg.createdAt).toLocaleTimeString() })] }), _jsx("p", { children: msg.text })] }, msg.id)))] }), _jsxs("form", { className: "composer", onSubmit: sendMessage, children: [_jsx("input", { className: "command-input", placeholder: "Talk to BotButt...", value: input, onChange: (e) => setInput(e.target.value) }), _jsx("button", { className: "send-btn", type: "submit", children: "Send" })] })] })] }), _jsx("section", { className: "parlor-book", children: _jsxs("div", { className: "card parlor-book-card", children: [_jsxs("div", { className: "book-toolbar", children: [_jsx("span", { className: "book-title", children: "\u2726 Parlor Book" }), _jsxs("div", { className: "book-tabs", children: [_jsx("button", { className: `book-tab${currentPage.type === 'avatar' ? ' book-tab--active' : ''}`, onClick: () => {
                                                         setSession(s => {
                                                             const ai = s.pages.findIndex(p => p.type === 'avatar');
                                                             return ai >= 0 ? { ...s, idx: ai } : s;
                                                         });
                                                         postToAvatar({ type: 'clear-canvas-html' });
-                                                    }, children: "BotButt" }), _jsx("button", { className: `book-tab${currentPage.type === 'edit' ? ' book-tab--active' : ''}`, onClick: openEdit, children: "Editor" }), _jsx("button", { className: `book-tab${currentPage.type === 'gallery' ? ' book-tab--active' : ''}`, onClick: () => pushPage({ type: 'gallery' }), children: "Gallery" })] }), _jsxs("div", { className: "book-nav", children: [_jsx("button", { className: "book-nav-btn", onClick: goBack, disabled: session.idx === 0, title: "Previous", children: "\u25C0" }), _jsxs("span", { className: "book-nav-pos", children: [session.idx + 1, "/", session.pages.length] }), _jsx("button", { className: "book-nav-btn", onClick: goForward, disabled: session.idx === session.pages.length - 1, title: "Next", children: "\u25B6" })] }), currentPage.type === 'html' && (currentPage.s3Url ? (_jsx("a", { className: "book-dl", href: currentPage.s3Url, target: "_blank", rel: "noopener noreferrer", title: "Open S3 share link", children: "\uD83D\uDD17 S3" })) : (_jsx("button", { className: "book-dl", onClick: uploadToS3, disabled: s3Uploading, title: "Upload page to S3 for sharing", children: s3Uploading ? '↑…' : '↑ Share' }))), currentPage.type === 'html' && currentPage.s3Url && (_jsx("button", { className: "book-dl", onClick: () => showQR(currentPage.s3Url), title: "Generate QR code", children: "QR" })), currentPage.type === 'html' && (/storyboard|episode/i.test(currentPage.title) || /<table/i.test(currentPage.html)) && (_jsx("button", { className: "book-dl", onClick: saveStoryboard, disabled: sbSaving, title: "Save storyboard to gallery", children: sbSaving ? 'Saving...' : 'Save' })), _jsx("button", { className: "book-dl", onClick: downloadCanvas, title: "Download current page", children: "\u2913 Download" })] }), _jsxs("div", { className: "book-frame", children: [_jsx("iframe", { ref: canvasIframeRef, title: "BotButt avatar", srcDoc: BOTBUTT_SRCDOC, sandbox: "allow-scripts", style: { display: currentPage.type === 'avatar' ? 'block' : 'none', width: '100%', height: '100%', border: 'none' } }), currentPage.type === 'edit' && (_jsx("iframe", { title: "Parlor Book editor", src: currentPage.src, sandbox: "allow-scripts allow-same-origin allow-forms", style: { width: '100%', height: '100%', border: 'none' } })), currentPage.type === 'html' && (_jsx(CanvasHtmlFrame, { key: session.idx, html: currentPage.html, title: currentPage.title })), currentPage.type === 'gallery' && (_jsx(GalleryPanel, { userEmail: userEmail, onLoadStoryboard: pushPage }))] })] }) })] }), _jsxs("div", { className: "parlor-basement", children: [_jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('identity'), children: [_jsx("span", { children: "Who Are You?" }), _jsx("span", { className: "basement-chevron", children: basement.identity ? '▲' : '▼' })] }), basement.identity && (_jsx("div", { className: "basement-body", children: _jsx("div", { className: "butt-bitch-picker horiz", children: BUTT_BITCHES.map((bb) => (_jsx("button", { className: `bb-btn${userEmail === bb.email ? ' bb-btn--active' : ''}`, style: { '--bb-color': bb.color }, onClick: () => setUserEmail(bb.email), children: bb.handle }, bb.email))) }) }))] }), _jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('memory'), children: [_jsx("span", { children: "Memory & Threads" }), _jsx("span", { className: "basement-chevron", children: basement.memory ? '▲' : '▼' })] }), basement.memory && (_jsxs("div", { className: "basement-body", children: [projectMemory ? (_jsxs(_Fragment, { children: [_jsxs("p", { className: "mem-focus", children: [_jsx("strong", { children: "Episode:" }), " ", projectMemory.episodeFocus] }), _jsx("ul", { className: "mem-threads", children: projectMemory.openThreads.map((t) => _jsx("li", { children: t }, t)) })] })) : _jsx("p", { style: { color: 'var(--muted)', fontSize: '.82rem' }, children: "Loading\u2026" }), _jsx("button", { className: "kg-button kg-button--harvest", onClick: runHarvest, disabled: harvesting, style: { marginTop: '10px' }, children: harvesting ? 'Scouring...' : 'Harvest SSBB from the web' }), lastHarvest && _jsxs("p", { style: { fontSize: '.72rem', color: 'var(--teal)', marginTop: '4px' }, children: [lastHarvest.count, " results via ", lastHarvest.backend] })] }))] })] }), qrModal && (_jsx("div", { className: "qr-backdrop", onClick: () => setQrModal(null), children: _jsxs("div", { className: "qr-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("img", { src: qrModal.dataUrl, alt: "QR Code", width: 220, height: 220 }), _jsxs("p", { className: "qr-url", children: [qrModal.url.slice(0, 72), qrModal.url.length > 72 ? '…' : ''] }), _jsx("button", { className: "qr-close", onClick: () => setQrModal(null), children: "\u2715 Close" })] }) }))] }));
+                                                    }, children: "BotButt" }), _jsx("button", { className: `book-tab${currentPage.type === 'edit' ? ' book-tab--active' : ''}`, onClick: openEdit, children: "Editor" }), _jsx("button", { className: `book-tab${currentPage.type === 'gallery' ? ' book-tab--active' : ''}`, onClick: () => pushPage({ type: 'gallery' }), children: "Gallery" })] }), _jsxs("div", { className: "book-nav", children: [_jsx("button", { className: "book-nav-btn", onClick: goBack, disabled: session.idx === 0, title: "Previous", children: "\u25C0" }), _jsxs("span", { className: "book-nav-pos", children: [session.idx + 1, "/", session.pages.length] }), _jsx("button", { className: "book-nav-btn", onClick: goForward, disabled: session.idx === session.pages.length - 1, title: "Next", children: "\u25B6" })] }), currentPage.type === 'html' && (currentPage.s3Url ? (_jsx("a", { className: "book-dl", href: currentPage.s3Url, target: "_blank", rel: "noopener noreferrer", title: "Open S3 share link", children: "\uD83D\uDD17 S3" })) : (_jsx("button", { className: "book-dl", onClick: uploadToS3, disabled: s3Uploading, title: "Upload page to S3 for sharing", children: s3Uploading ? '↑…' : '↑ Share' }))), currentPage.type === 'html' && currentPage.s3Url && (_jsx("button", { className: "book-dl", onClick: () => showQR(currentPage.s3Url), title: "Generate QR code", children: "QR" })), currentPage.type === 'html' && (/storyboard|episode/i.test(currentPage.title) || /<table/i.test(currentPage.html)) && (_jsx("button", { className: "book-dl", onClick: saveStoryboard, disabled: sbSaving, title: "Save storyboard to gallery", children: sbSaving ? 'Saving...' : 'Save' })), _jsx("button", { className: "book-dl", onClick: downloadCanvas, title: "Download current page", children: "\u2913 Download" })] }), _jsxs("div", { className: "book-frame", children: [_jsx("iframe", { ref: canvasIframeRef, title: "BotButt avatar", srcDoc: BOTBUTT_SRCDOC, sandbox: "allow-scripts", style: { display: currentPage.type === 'avatar' ? 'block' : 'none', width: '100%', height: '100%', border: 'none' } }), currentPage.type === 'edit' && (_jsx("iframe", { title: "Parlor Book editor", src: currentPage.src, sandbox: "allow-scripts allow-same-origin allow-forms", style: { width: '100%', height: '100%', border: 'none' } })), currentPage.type === 'html' && (_jsx(CanvasHtmlFrame, { html: currentPage.html, title: currentPage.title }, session.idx)), currentPage.type === 'gallery' && (_jsx(GalleryPanel, { userEmail: userEmail, onLoadStoryboard: pushPage, refreshTick: galleryRefreshTick, recentStoryboards: recentStoryboards, recentParlorBooks: recentCanvasPages, onRenameParlorBook: renameParlorBook }))] })] }) })] }), _jsxs("div", { className: "parlor-basement", children: [_jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('identity'), children: [_jsx("span", { children: "Who Are You?" }), _jsx("span", { className: "basement-chevron", children: basement.identity ? '▲' : '▼' })] }), basement.identity && (_jsx("div", { className: "basement-body", children: _jsx("div", { className: "butt-bitch-picker horiz", children: BUTT_BITCHES.map((bb) => (_jsx("button", { className: `bb-btn${userEmail === bb.email ? ' bb-btn--active' : ''}`, style: { '--bb-color': bb.color }, onClick: () => setUserEmail(bb.email), children: bb.handle }, bb.email))) }) }))] }), _jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('memory'), children: [_jsx("span", { children: "Memory & Threads" }), _jsx("span", { className: "basement-chevron", children: basement.memory ? '▲' : '▼' })] }), basement.memory && (_jsxs("div", { className: "basement-body", children: [projectMemory ? (_jsxs(_Fragment, { children: [_jsxs("p", { className: "mem-focus", children: [_jsx("strong", { children: "Episode:" }), " ", projectMemory.episodeFocus] }), _jsx("ul", { className: "mem-threads", children: projectMemory.openThreads.map((t) => _jsx("li", { children: t }, t)) })] })) : _jsx("p", { style: { color: 'var(--muted)', fontSize: '.82rem' }, children: "Loading\u2026" }), _jsx("button", { className: "kg-button kg-button--harvest", onClick: runHarvest, disabled: harvesting, style: { marginTop: '10px' }, children: harvesting ? 'Scouring...' : 'Harvest SSBB from the web' }), lastHarvest && _jsxs("p", { style: { fontSize: '.72rem', color: 'var(--teal)', marginTop: '4px' }, children: [lastHarvest.count, " results via ", lastHarvest.backend] })] }))] })] }), qrModal && (_jsx("div", { className: "qr-backdrop", onClick: () => setQrModal(null), children: _jsxs("div", { className: "qr-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("img", { src: qrModal.dataUrl, alt: "QR Code", width: 220, height: 220 }), _jsxs("p", { className: "qr-url", children: [qrModal.url.slice(0, 72), qrModal.url.length > 72 ? '…' : ''] }), _jsx("button", { className: "qr-close", onClick: () => setQrModal(null), children: "\u2715 Close" })] }) }))] }));
 }

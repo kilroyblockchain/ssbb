@@ -936,20 +936,36 @@ function BotButtBear({ state }: { state: 'idle' | 'listening' | 'speaking' }) {
 
 type GalleryStoryboard = { key: string; title: string; savedAt: string; conversationId: string };
 type GalleryImage      = { key: string; name: string; url: string };
+type GalleryCanvasPage = { key: string; title: string; savedAt: string; url: string };
+type GalleryCanvasAsset = { key: string; title: string; savedAt: string; url: string };
 
 function GalleryPanel({
   userEmail,
   onLoadStoryboard,
+  refreshTick,
+  recentStoryboards,
+  recentParlorBooks,
+  onRenameParlorBook,
 }: {
   userEmail: string;
   onLoadStoryboard: (page: { type: 'html'; html: string; title: string }) => void;
+  refreshTick: number;
+  recentStoryboards: GalleryStoryboard[];
+  recentParlorBooks: GalleryCanvasPage[];
+  onRenameParlorBook: (page: GalleryCanvasPage, title: string) => Promise<void>;
 }) {
   const [storyboards, setStoryboards] = useState<GalleryStoryboard[]>([]);
+  const [canvasPages, setCanvasPages] = useState<GalleryCanvasPage[]>([]);
+  const [canvasAssets, setCanvasAssets] = useState<GalleryCanvasAsset[]>([]);
   const [images,      setImages]      = useState<GalleryImage[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState<string | null>(null);
   const [uploading,   setUploading]   = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [assetUploading, setAssetUploading] = useState(false);
+  const [assetUploads,   setAssetUploads]   = useState<GalleryCanvasAsset[]>([]);
+  const fileInputRef  = useRef<HTMLInputElement>(null);
+  const assetInputRef = useRef<HTMLInputElement>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const fetchGallery = useCallback(async () => {
     setLoading(true);
@@ -961,6 +977,12 @@ function GalleryPanel({
       setStoryboards((data.storyboards ?? []).sort((a: GalleryStoryboard, b: GalleryStoryboard) =>
         new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
       ));
+      setCanvasPages((data.canvasPages ?? []).sort((a: GalleryCanvasPage, b: GalleryCanvasPage) =>
+        new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
+      ));
+      setCanvasAssets((data.canvasAssets ?? []).sort((a: GalleryCanvasAsset, b: GalleryCanvasAsset) =>
+        new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
+      ));
       setImages(data.images ?? []);
     } catch (e: any) {
       setError(e.message || 'Failed to load gallery');
@@ -969,7 +991,94 @@ function GalleryPanel({
     }
   }, [userEmail]);
 
-  useEffect(() => { fetchGallery(); }, [fetchGallery]);
+  useEffect(() => { fetchGallery(); }, [fetchGallery, refreshTick]);
+
+  const mergedParlorBooks = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: GalleryCanvasPage[] = [];
+    recentParlorBooks.forEach((page) => {
+      if (!seen.has(page.key)) {
+        seen.add(page.key);
+        merged.push(page);
+      }
+    });
+    canvasPages.forEach((page) => {
+      if (!seen.has(page.key)) {
+        seen.add(page.key);
+        merged.push(page);
+      }
+    });
+    return merged;
+  }, [recentParlorBooks, canvasPages]);
+
+  const mergedCanvasAssets = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: GalleryCanvasAsset[] = [];
+    assetUploads.forEach((asset) => {
+      if (!seen.has(asset.key)) {
+        seen.add(asset.key);
+        merged.push(asset);
+      }
+    });
+    canvasAssets.forEach((asset) => {
+      if (!seen.has(asset.key)) {
+        seen.add(asset.key);
+        merged.push(asset);
+      }
+    });
+    return merged;
+  }, [assetUploads, canvasAssets]);
+
+  const mergedStoryboards = useMemo(() => {
+    const seen = new Set<string>();
+    const recents: GalleryStoryboard[] = [];
+    const remote: GalleryStoryboard[] = [];
+    recentStoryboards.forEach((sb) => {
+      if (!seen.has(sb.key)) {
+        seen.add(sb.key);
+        recents.push(sb);
+      }
+    });
+    storyboards.forEach((sb) => {
+      if (!seen.has(sb.key)) {
+        seen.add(sb.key);
+        remote.push(sb);
+      }
+    });
+    return { recents, remote };
+  }, [recentStoryboards, storyboards]);
+
+  const term = searchTerm.trim().toLowerCase();
+  const filteredStoryboards = useMemo(() => {
+    if (!term) return mergedStoryboards.remote;
+    return mergedStoryboards.remote.filter(sb =>
+      sb.title.toLowerCase().includes(term) ||
+      sb.conversationId.toLowerCase().includes(term)
+    );
+  }, [mergedStoryboards, term]);
+
+  const filteredParlorBooks = useMemo(() => {
+    if (!term) return mergedParlorBooks;
+    return mergedParlorBooks.filter(page =>
+      page.title.toLowerCase().includes(term) ||
+      page.url.toLowerCase().includes(term)
+    );
+  }, [mergedParlorBooks, term]);
+
+  const filteredImages = useMemo(() => {
+    if (!term) return images;
+    return images.filter(img =>
+      (img.name ?? '').toLowerCase().includes(term)
+    );
+  }, [images, term]);
+
+  const filteredAssets = useMemo(() => {
+    if (!term) return mergedCanvasAssets;
+    return mergedCanvasAssets.filter(asset =>
+      asset.title.toLowerCase().includes(term) ||
+      asset.url.toLowerCase().includes(term)
+    );
+  }, [mergedCanvasAssets, term]);
 
   const loadStoryboard = useCallback(async (key: string, title: string) => {
     try {
@@ -1019,11 +1128,86 @@ function GalleryPanel({
     letterSpacing: '.06em',
   };
 
+  const copyUrl = useCallback(async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      alert(url);
+    }
+  }, []);
+
+  const handleAssetUpload = useCallback(
+    async (file: File) => {
+      setAssetUploading(true);
+      try {
+        const form = new FormData();
+        form.append('file', file);
+        const res = await fetch(`${API_BASE}/api/canvas/assets/upload`, {
+          method: 'POST',
+          headers: { 'x-dev-email': userEmail },
+          body: form,
+        });
+        if (!res.ok) throw new Error('Upload failed');
+        const data = await res.json();
+        const entry: GalleryCanvasAsset = {
+          key: data.key ?? `asset-${Date.now()}`,
+          title: data.name ?? file.name,
+          url: data.url,
+          savedAt: data.savedAt ?? new Date().toISOString(),
+        };
+        setAssetUploads(prev => [entry, ...prev]);
+        await copyUrl(entry.url);
+      } catch (err) {
+        console.warn('[canvas asset upload]', err);
+        alert('Could not upload that image.');
+      } finally {
+        setAssetUploading(false);
+        if (assetInputRef.current) assetInputRef.current.value = '';
+      }
+    },
+    [userEmail, copyUrl]
+  );
+
+  const handleAssetInput = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) handleAssetUpload(file);
+    },
+    [handleAssetUpload]
+  );
+
+  const handleRename = useCallback(
+    async (page: GalleryCanvasPage) => {
+      const next = prompt('Parlor Book title?', page.title) ?? '';
+      const trimmed = next.trim();
+      if (!trimmed || trimmed === page.title) return;
+      await onRenameParlorBook(page, trimmed);
+    },
+    [onRenameParlorBook]
+  );
+
   return (
     <div style={{ background: '#08000f', color: '#f0e6ff', fontFamily: 'sans-serif', padding: '16px', height: '100%', overflowY: 'auto', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <span style={{ color: '#ff1493', fontWeight: 700, fontSize: '1rem', letterSpacing: '.08em' }}>GALLERY</span>
         <button style={gBtn} onClick={fetchGallery}>Refresh</button>
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <input
+          type="search"
+          placeholder="Search titles, conversations, URLs..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          style={{
+            width: '100%',
+            padding: '6px 10px',
+            borderRadius: 6,
+            border: '1px solid rgba(255,20,147,.4)',
+            background: '#02000a',
+            color: '#f0e6ff'
+          }}
+        />
       </div>
 
       {loading && <p style={{ color: '#ff1493', fontSize: '.8rem' }}>Loading...</p>}
@@ -1032,13 +1216,13 @@ function GalleryPanel({
       {/* ── Storyboards ── */}
       <div style={{ marginBottom: 20 }}>
         <h3 style={{ color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }}>
-          Storyboards ({storyboards.length})
+          Saved Storyboards ({filteredStoryboards.length})
         </h3>
-        {!loading && storyboards.length === 0 && (
+        {!loading && filteredStoryboards.length === 0 && (
           <p style={{ color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }}>No saved storyboards yet.</p>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {storyboards.map(sb => (
+          {filteredStoryboards.map(sb => (
             <div key={sb.key} style={{ border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }}>{sb.title}</div>
@@ -1056,7 +1240,7 @@ function GalleryPanel({
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <h3 style={{ color: '#39ff14', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', margin: 0 }}>
-            Characters ({images.length})
+            Characters ({filteredImages.length})
           </h3>
           <button style={{ ...gBtn, color: '#39ff14', borderColor: '#39ff14' }}
             onClick={() => fileInputRef.current?.click()}
@@ -1065,11 +1249,11 @@ function GalleryPanel({
           </button>
           <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleUpload} />
         </div>
-        {!loading && images.length === 0 && (
+        {!loading && filteredImages.length === 0 && (
           <p style={{ color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }}>No character images yet.</p>
         )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 10 }}>
-          {images.map(img => (
+          {filteredImages.map(img => (
             <div key={img.key} style={{ border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', overflow: 'hidden', textAlign: 'center' }}>
               <img src={img.url} alt={img.name} style={{ width: '100%', height: 90, objectFit: 'cover', display: 'block' }} />
               <div style={{ padding: '4px 6px', fontSize: '.68rem', color: 'rgba(240,230,255,.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1079,6 +1263,95 @@ function GalleryPanel({
           ))}
         </div>
       </div>
+
+      {/* ── Canvas Images for Parlor Books ── */}
+      <div style={{ margin: '20px 0' }}>
+        <h3 style={{ color: '#7df9ff', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }}>
+          Canvas Images ({filteredAssets.length})
+        </h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+          <button style={{ ...gBtn, color: '#39ff14', borderColor: '#39ff14' }} onClick={() => assetInputRef.current?.click()} disabled={assetUploading}>
+            {assetUploading ? 'Uploading image...' : '+ Upload image'}
+          </button>
+          <input ref={assetInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAssetInput} />
+          <small style={{ color: 'rgba(240,230,255,.7)' }}>Uploads return shareable URLs for your Parlor Book cards.</small>
+        </div>
+        {filteredAssets.length === 0 && (
+          <p style={{ color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }}>No canvas image uploads yet.</p>
+        )}
+        {filteredAssets.length > 0 && (
+          <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {filteredAssets.map((asset) => (
+              <div key={asset.key} style={{ border: '1px solid rgba(57,255,20,.45)', borderRadius: 6, background: '#0f0920', padding: '6px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: '.78rem', color: '#39ff14' }}>{asset.title}</div>
+                  <div style={{ fontSize: '.65rem', color: 'rgba(240,230,255,.55)' }}>{new Date(asset.savedAt).toLocaleString()}</div>
+                  <img src={asset.url} alt={asset.title} style={{ width: 160, height: 90, objectFit: 'cover', borderRadius: 4, marginTop: 6, border: '1px solid rgba(57,255,20,.35)' }} />
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button style={gBtn} onClick={() => copyUrl(asset.url)}>Copy URL</button>
+                  <a style={{ ...gBtn, textDecoration: 'none' }} href={asset.url} target="_blank" rel="noopener noreferrer">Open</a>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Parlor Books ── */}
+      <div style={{ marginBottom: 20 }}>
+        <h3 style={{ color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }}>
+          Saved Parlor Books ({filteredParlorBooks.length})
+        </h3>
+        {filteredParlorBooks.length === 0 && (
+          <p style={{ color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }}>No saved Parlor Books yet.</p>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {filteredParlorBooks.map(page => (
+            <div key={page.key} style={{ border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }}>{page.title}</div>
+                <div style={{ fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }}>
+                  {new Date(page.savedAt).toLocaleString()}
+                </div>
+                <div
+                  style={{
+                    width: 420 * 0.45,
+                    height: 260 * 0.45,
+                    overflow: 'hidden',
+                    borderRadius: 4,
+                    border: '1px solid rgba(255,20,147,.4)',
+                    marginTop: 6,
+                    background: '#030012'
+                  }}
+                >
+                  <iframe
+                    title={`preview-${page.key}`}
+                    src={page.url}
+                    style={{
+                      width: 420,
+                      height: 260,
+                      border: 'none',
+                      transform: 'scale(0.45)',
+                      transformOrigin: 'top left'
+                    }}
+                    sandbox="allow-same-origin allow-scripts"
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button style={gBtn} onClick={() => handleRename(page)}>Rename</button>
+                <button style={gBtn} onClick={() => copyUrl(page.url)}>Copy URL</button>
+                <a style={{ ...gBtn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                  href={page.url} target="_blank" rel="noopener noreferrer">
+                  Open
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
     </div>
   );
 }
@@ -1107,6 +1380,9 @@ export default function App() {
   const [qrModal,      setQrModal]      = useState<{ url: string; dataUrl: string } | null>(null);
   const [s3Uploading,  setS3Uploading]  = useState(false);
   const [sbSaving,     setSbSaving]     = useState(false);
+  const [recentStoryboards, setRecentStoryboards] = useState<GalleryStoryboard[]>([]);
+  const [recentCanvasPages, setRecentCanvasPages] = useState<GalleryCanvasPage[]>([]);
+  const [galleryRefreshTick, setGalleryRefreshTick] = useState(0);
 
   const lastSpokenRef    = useRef<string | null>(null);
   const chatFeedRef      = useRef<HTMLDivElement>(null);
@@ -1424,6 +1700,14 @@ export default function App() {
           if (p.type === 'html') pages[s.idx] = { ...p, s3Url: data.url };
           return { ...s, pages };
         });
+        const savedEntry: GalleryCanvasPage = {
+          key: data.key ?? data.url ?? `canvas-${Date.now()}`,
+          title: data.title ?? (currentPage.title || 'Parlor Book'),
+          url: data.url,
+          savedAt: data.savedAt ?? new Date().toISOString(),
+        };
+        setRecentCanvasPages(prev => [savedEntry, ...prev.filter(p => p.key !== savedEntry.key)]);
+        setGalleryRefreshTick(Date.now());
       }
     } catch (e) { console.warn('[s3 upload]', e); }
     finally { setS3Uploading(false); }
@@ -1439,9 +1723,33 @@ export default function App() {
         body: JSON.stringify({ html: currentPage.html, title: currentPage.title, conversationId }),
       });
       if (!res.ok) throw new Error(`Save ${res.status}`);
+      const data = await res.json();
+      const savedEntry: GalleryStoryboard = {
+        key: data.key ?? `local-${Date.now()}`,
+        title: data.title ?? (currentPage.title || 'Untitled'),
+        savedAt: data.savedAt ?? new Date().toISOString(),
+        conversationId,
+      };
+      setRecentStoryboards((prev) => [savedEntry, ...prev.filter((sb) => sb.key !== savedEntry.key)]);
+      setGalleryRefreshTick(Date.now());
     } catch (e) { console.warn('[storyboard/save]', e); }
     finally { setSbSaving(false); }
   }, [currentPage, sbSaving, userEmail, conversationId]);
+
+  const renameParlorBook = useCallback(async (page: GalleryCanvasPage, title: string) => {
+    try {
+      await fetch(`${API_BASE}/api/canvas/title`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
+        body: JSON.stringify({ key: page.key, title }),
+      });
+      setRecentCanvasPages(prev => prev.map(p => (p.key === page.key ? { ...p, title } : p)));
+      setGalleryRefreshTick(Date.now());
+    } catch (err) {
+      console.warn('[canvas rename]', err);
+      alert('Could not rename that Parlor Book.');
+    }
+  }, [userEmail]);
 
   const showQR = useCallback(async (url: string) => {
     try {
@@ -1658,7 +1966,14 @@ export default function App() {
               )}
               {/* Gallery panel */}
               {currentPage.type === 'gallery' && (
-                <GalleryPanel userEmail={userEmail} onLoadStoryboard={pushPage} />
+                <GalleryPanel
+                  userEmail={userEmail}
+                  onLoadStoryboard={pushPage}
+                  refreshTick={galleryRefreshTick}
+                  recentStoryboards={recentStoryboards}
+                  recentParlorBooks={recentCanvasPages}
+                  onRenameParlorBook={renameParlorBook}
+                />
               )}
             </div>
           </div>
