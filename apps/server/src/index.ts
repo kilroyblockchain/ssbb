@@ -7,11 +7,13 @@ import { fileURLToPath } from 'url';
 import { Server as SocketIOServer } from 'socket.io';
 import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
+import multer from 'multer';
 import {
   getProjectMemory,
   getUserMemory,
   rememberProjectFact,
   rememberUserFact,
+  updateLastSession,
   type PersonaMemory
 } from './services/memory';
 import { generateChatResponse } from './services/provider';
@@ -21,6 +23,7 @@ import { config, ensureAwsConfig } from './config';
 import { appendToConversation, fetchConversation } from './services/conversations';
 import { runHarvest } from './services/harvest';
 import { synthesizeSpeech } from './services/tts';
+import { readObject, writeObject, writeBuffer, listObjects, getPresignedUrl } from './services/s3';
 
 dotenv.config();
 
@@ -117,6 +120,7 @@ app.post('/api/chat', async (req, res) => {
     const responseText = await generateChatResponse({
       mode,
       text: trimmed,
+      userEmail,
       memory: {
         project: getProjectMemory(),
         user: userMemory
@@ -124,6 +128,11 @@ app.post('/api/chat', async (req, res) => {
       history,
       attachments
     });
+
+    // Track last conversation topic per user so BotButt can pick up where they left off
+    if (userEmail && mode === 'private') {
+      updateLastSession(userEmail, trimmed);
+    }
 
     const userMsg = {
       id,
@@ -201,6 +210,111 @@ app.post('/api/canvas/upload', async (req, res) => {
     res.json({ url, key });
   } catch (err: any) {
     console.error('[canvas/upload]', err);
+    res.status(500).json({ error: err.message || 'Upload failed' });
+  }
+});
+
+// ── Gallery / Storyboard routes ───────────────────────────────────────────────
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+
+// PUT /api/storyboard — save a storyboard to S3
+app.put('/api/storyboard', async (req, res) => {
+  const html           = typeof req.body?.html           === 'string' ? req.body.html           : '';
+  const title          = typeof req.body?.title          === 'string' ? req.body.title          : 'Untitled';
+  const conversationId = typeof req.body?.conversationId === 'string' ? req.body.conversationId : 'unknown';
+  if (!html.trim())         return res.status(400).json({ error: 'html required' });
+  if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
+
+  const savedAt = new Date().toISOString();
+  const key = `storyboards/${conversationId}/${Date.now()}.json`;
+  try {
+    await writeObject(config.mediaBucket, key, JSON.stringify({ html, title, savedAt }));
+    res.json({ key, title, savedAt });
+  } catch (err: any) {
+    console.error('[storyboard/save]', err);
+    res.status(500).json({ error: err.message || 'Save failed' });
+  }
+});
+
+// GET /api/storyboard/fetch?key=... — fetch a single storyboard HTML by key
+app.get('/api/storyboard/fetch', async (req, res) => {
+  const key = typeof req.query.key === 'string' ? req.query.key : '';
+  if (!key) return res.status(400).json({ error: 'key required' });
+  if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
+  try {
+    const raw = await readObject(config.mediaBucket, key);
+    if (!raw) return res.status(404).json({ error: 'Not found' });
+    const parsed = JSON.parse(raw);
+    res.json({ html: parsed.html, title: parsed.title, savedAt: parsed.savedAt });
+  } catch (err: any) {
+    console.error('[storyboard/get]', err);
+    res.status(500).json({ error: err.message || 'Fetch failed' });
+  }
+});
+
+// GET /api/gallery — list storyboards and doll images
+app.get('/api/gallery', async (req, res) => {
+  if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
+  try {
+    const [sbObjects, dollObjects] = await Promise.all([
+      listObjects(config.mediaBucket, 'storyboards/'),
+      listObjects(config.mediaBucket, 'dolls/'),
+    ]);
+
+    // For storyboards, read the JSON metadata (title, savedAt)
+    const storyboards = await Promise.all(
+      sbObjects.map(async ({ key, lastModified }) => {
+        try {
+          const raw = await readObject(config.mediaBucket, key);
+          const parsed = raw ? JSON.parse(raw) : {};
+          const parts = key.split('/'); // storyboards/<conversationId>/<ts>.json
+          const conversationId = parts[1] ?? 'unknown';
+          return {
+            key,
+            title: parsed.title ?? 'Untitled',
+            savedAt: parsed.savedAt ?? lastModified.toISOString(),
+            conversationId
+          };
+        } catch {
+          return { key, title: 'Untitled', savedAt: lastModified.toISOString(), conversationId: 'unknown' };
+        }
+      })
+    );
+
+    // For dolls, generate presigned URLs and extract name from key path
+    const images = await Promise.all(
+      dollObjects.map(async ({ key }) => {
+        const parts = key.split('/'); // dolls/<name>/<ts>-<filename>
+        const name = parts[1] ? parts[1].replace(/-/g, ' ') : 'Character';
+        const url = await getPresignedUrl(config.mediaBucket, key, 3600);
+        return { key, name, url };
+      })
+    );
+
+    res.json({ storyboards, images });
+  } catch (err: any) {
+    console.error('[gallery]', err);
+    res.status(500).json({ error: err.message || 'Gallery fetch failed' });
+  }
+});
+
+// POST /api/dolls/upload — upload a doll/character image
+app.post('/api/dolls/upload', upload.single('file'), async (req: any, res) => {
+  if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
+  const file = req.file;
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : 'character';
+  if (!file) return res.status(400).json({ error: 'file required' });
+
+  const slug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  const filename = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const key = `dolls/${slug}/${Date.now()}-${filename}`;
+  try {
+    await writeBuffer(config.mediaBucket, key, file.buffer, file.mimetype);
+    const url = await getPresignedUrl(config.mediaBucket, key, 3600);
+    res.json({ key, url, name });
+  } catch (err: any) {
+    console.error('[dolls/upload]', err);
     res.status(500).json({ error: err.message || 'Upload failed' });
   }
 });

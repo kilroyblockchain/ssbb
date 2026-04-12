@@ -88,17 +88,17 @@ function wrapInSSML(text: string): string {
 
   const ssml = safe
     // Natural pause after sentence-ending punctuation followed by a capital
-    .replace(/\. (?=[A-Z])/g, '.<break time="380ms"/> ')
-    .replace(/! (?=[A-Z\w])/g, '!<break time="260ms"/> ')
-    .replace(/\? (?=[A-Z\w])/g, '?<break time="340ms"/> ')
+    .replace(/\. (?=[A-Z])/g, '.<break time="520ms"/> ')
+    .replace(/! (?=[A-Z\w])/g, '!<break time="420ms"/> ')
+    .replace(/\? (?=[A-Z\w])/g, '?<break time="480ms"/> ')
     // Short breath after commas
-    .replace(/, /g, ',<break time="100ms"/> ')
+    .replace(/, /g, ',<break time="160ms"/> ')
     // Long pause for ellipsis / em-dash
-    .replace(/\.\.\./g, '<break time="500ms"/>')
-    .replace(/\u2014/g, '<break time="220ms"/>');
+    .replace(/\.\.\./g, '<break time="650ms"/>')
+    .replace(/\u2014/g, '<break time="320ms"/>');
 
-  // BotButt: rate 106% (punchy), no pitch (neural voices reject it)
-  return `<speak><prosody rate="106%">${ssml}</prosody></speak>`;
+  // BotButt: rate 88% (relaxed but energetic), no pitch (neural voices reject it)
+  return `<speak><prosody rate="88%">${ssml}</prosody></speak>`;
 }
 
 export async function synthesizeSpeech(text: string): Promise<Buffer> {

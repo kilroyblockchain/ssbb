@@ -153,9 +153,9 @@ Resources:
       Scheme: internet-facing
       Type: application
       SecurityGroups: [!Ref ALBSecurityGroup]
-      Subnets: !Split [',', !Sub '{{resolve:ssm:/aws/service/global-infrastructure/regions/${AWS::Region}/azs}}']
-      # Note: replace Subnets above with your actual public subnet IDs, e.g.:
-      # Subnets: [subnet-aaaa, subnet-bbbb]
+      Subnets:
+        - subnet-0334240d04441bbc2
+        - subnet-065c57bf266ada6ad
 
   ALBTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
@@ -315,9 +315,9 @@ Resources:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED
           SecurityGroups: [!Ref ECSSecurityGroup]
-          # Replace with your actual public subnet IDs:
-          Subnets: [!Select [0, !GetAZs ''], !Select [1, !GetAZs '']]
-          # e.g. Subnets: [subnet-aaaa, subnet-bbbb]
+          Subnets:
+            - subnet-0334240d04441bbc2
+            - subnet-065c57bf266ada6ad
       LoadBalancers:
         - ContainerName: ssbb-server
           ContainerPort: 4000

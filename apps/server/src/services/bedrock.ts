@@ -26,7 +26,7 @@ async function loadAwsCredentialsFromSecret(): Promise<boolean> {
   if (!credentialLoadPromise) {
     credentialLoadPromise = (async () => {
       try {
-        const secretsSdk = (await import('@aws-sdk/client-secrets-manager')) as SecretsModule;
+        const secretsSdk = (await import('@aws-sdk/client-secrets-manager')) as unknown as SecretsModule;
         const client = new secretsSdk.SecretsManagerClient({ region: config.awsRegion });
         const resp = await client.send(
           new secretsSdk.GetSecretValueCommand({ SecretId: config.bedrockSecretArn })
@@ -59,7 +59,7 @@ async function getBedrockClient(): Promise<LoadedBedrock | null> {
     const credsAvailable = await loadAwsCredentialsFromSecret();
     if (!config.bedrockModelId || !credsAvailable) return null;
     try {
-      const sdk = (await import('@aws-sdk/client-bedrock-runtime')) as BedrockModule;
+      const sdk = (await import('@aws-sdk/client-bedrock-runtime')) as unknown as BedrockModule;
       return {
         client: new sdk.BedrockRuntimeClient({ region: config.awsRegion }),
         ConverseCommand: sdk.ConverseCommand

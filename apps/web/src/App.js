@@ -1,52 +1,23 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-runtime";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuid } from 'uuid';
 import { create } from 'zustand';
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-type ChatMessage = {
-  id: string;
-  author: 'butt' | 'bot';
-  text: string;
-  createdAt: string;
-  mode?: 'shared' | 'private';
-  attachments?: { name: string; url: string; contentType: string }[];
-};
-
-type CanvasPage =
-  | { type: 'avatar' }
-  | { type: 'html'; html: string; title: string; s3Url?: string }
-  | { type: 'edit'; src: string }
-  | { type: 'gallery' };
-
-type ChatState = {
-  messages: ChatMessage[];
-  addMessage: (msg: ChatMessage) => void;
-  replaceMessages: (msgs: ChatMessage[]) => void;
-};
-
 // ── Store ─────────────────────────────────────────────────────────────────────
-
-const useChatStore = create<ChatState>((set) => ({
-  messages: [],
-  addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
-  replaceMessages: (msgs) => set(() => ({ messages: msgs })),
+const useChatStore = create((set) => ({
+    messages: [],
+    addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
+    replaceMessages: (msgs) => set(() => ({ messages: msgs })),
 }));
-
 // ── Constants ─────────────────────────────────────────────────────────────────
-
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000';
-
 const BUTT_BITCHES = [
-  { handle: 'Spanky Butt', email: 'spanky@ssbb.band', color: '#ff1493' },
-  { handle: 'Booty Butt',  email: 'booty@ssbb.band',  color: '#ffe66d' },
-  { handle: 'Cheeky Butt', email: 'cheeky@ssbb.band', color: '#00e5cf' },
-  { handle: 'Astro Butt',  email: 'astro@ssbb.band',  color: '#c084fc' },
-  { handle: 'Jazzy Butt',  email: 'jazzy@ssbb.band',  color: '#39ff14' },
-] as const;
-
+    { handle: 'Spanky Butt', email: 'spanky@ssbb.band', color: '#ff1493' },
+    { handle: 'Booty Butt', email: 'booty@ssbb.band', color: '#ffe66d' },
+    { handle: 'Cheeky Butt', email: 'cheeky@ssbb.band', color: '#00e5cf' },
+    { handle: 'Astro Butt', email: 'astro@ssbb.band', color: '#c084fc' },
+    { handle: 'Jazzy Butt', email: 'jazzy@ssbb.band', color: '#39ff14' },
+];
 // ── BotButt Avatar srcdoc (self-contained — lives inside the Parlor Book iframe) ──
-
 const BOTBUTT_SRCDOC = `<!DOCTYPE html>
 <html>
 <head>
@@ -837,552 +808,451 @@ svg{width:100%;height:100%;display:block;}
 </script>
 </body>
 </html>`;
-
 // ── Small bear for header ─────────────────────────────────────────────────────
-
-function BotButtBear({ state }: { state: 'idle' | 'listening' | 'speaking' }) {
-  return (
-    <svg className={`bear-svg bear-wrap--${state}`} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="BotButt">
-      <circle cx="22" cy="24" r="14" fill="#1a0033" stroke="#ff1493" strokeWidth="2"/>
-      <circle cx="78" cy="24" r="14" fill="#1a0033" stroke="#ff1493" strokeWidth="2"/>
-      <circle cx="22" cy="24" r="7"  fill="#4a0066"/>
-      <circle cx="78" cy="24" r="7"  fill="#4a0066"/>
-      <ellipse cx="50" cy="60" rx="34" ry="32" className="bear-head-fill" fill="#1a0033" stroke="#ff1493" strokeWidth="2"/>
-      <line x1="30" y1="47" x2="40" y2="57" className="bear-eye" stroke="#ffe66d" strokeWidth="2.5" strokeLinecap="round"/>
-      <line x1="40" y1="47" x2="30" y2="57" className="bear-eye" stroke="#ffe66d" strokeWidth="2.5" strokeLinecap="round"/>
-      <line x1="60" y1="47" x2="70" y2="57" className="bear-eye" stroke="#ffe66d" strokeWidth="2.5" strokeLinecap="round"/>
-      <line x1="70" y1="47" x2="60" y2="57" className="bear-eye" stroke="#ffe66d" strokeWidth="2.5" strokeLinecap="round"/>
-      <ellipse cx="50" cy="66" rx="5" ry="3.5" fill="#ff1493"/>
-      <path className="bear-mouth" d="M36 75 Q50 83 64 75" stroke="#ff1493" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
-      <path d="M38 12 Q50 6 62 12 Q50 18 38 12Z" fill="#ff1493"/>
-      <circle cx="50" cy="12" r="3.5" fill="#fff"/>
-      {state === 'speaking' && <>
-        <line x1="50" y1="28" x2="50" y2="10" stroke="#39ff14" strokeWidth="1.5" strokeLinecap="round"/>
-        <circle cx="50" cy="8" r="3" fill="#39ff14" opacity="0.9"/>
-      </>}
-    </svg>
-  );
+function BotButtBear({ state }) {
+    return (_jsxs("svg", { className: `bear-svg bear-wrap--${state}`, viewBox: "0 0 100 100", fill: "none", xmlns: "http://www.w3.org/2000/svg", "aria-label": "BotButt", children: [_jsx("circle", { cx: "22", cy: "24", r: "14", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("circle", { cx: "78", cy: "24", r: "14", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("circle", { cx: "22", cy: "24", r: "7", fill: "#4a0066" }), _jsx("circle", { cx: "78", cy: "24", r: "7", fill: "#4a0066" }), _jsx("ellipse", { cx: "50", cy: "60", rx: "34", ry: "32", className: "bear-head-fill", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("line", { x1: "30", y1: "47", x2: "40", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "40", y1: "47", x2: "30", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "60", y1: "47", x2: "70", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "70", y1: "47", x2: "60", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("ellipse", { cx: "50", cy: "66", rx: "5", ry: "3.5", fill: "#ff1493" }), _jsx("path", { className: "bear-mouth", d: "M36 75 Q50 83 64 75", stroke: "#ff1493", strokeWidth: "2.5", strokeLinecap: "round", fill: "none" }), _jsx("path", { d: "M38 12 Q50 6 62 12 Q50 18 38 12Z", fill: "#ff1493" }), _jsx("circle", { cx: "50", cy: "12", r: "3.5", fill: "#fff" }), state === 'speaking' && _jsxs(_Fragment, { children: [_jsx("line", { x1: "50", y1: "28", x2: "50", y2: "10", stroke: "#39ff14", strokeWidth: "1.5", strokeLinecap: "round" }), _jsx("circle", { cx: "50", cy: "8", r: "3", fill: "#39ff14", opacity: "0.9" })] })] }));
 }
-
-// ── GalleryPanel ─────────────────────────────────────────────────────────────
-
-type GalleryStoryboard = { key: string; title: string; savedAt: string; conversationId: string };
-type GalleryImage      = { key: string; name: string; url: string };
-
-function GalleryPanel({
-  userEmail,
-  onLoadStoryboard,
-}: {
-  userEmail: string;
-  onLoadStoryboard: (page: { type: 'html'; html: string; title: string }) => void;
-}) {
-  const [storyboards, setStoryboards] = useState<GalleryStoryboard[]>([]);
-  const [images,      setImages]      = useState<GalleryImage[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState<string | null>(null);
-  const [uploading,   setUploading]   = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const fetchGallery = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/api/gallery`, { headers: { 'x-dev-email': userEmail } });
-      if (!res.ok) throw new Error(`Gallery fetch ${res.status}`);
-      const data = await res.json();
-      setStoryboards((data.storyboards ?? []).sort((a: GalleryStoryboard, b: GalleryStoryboard) =>
-        new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
-      ));
-      setImages(data.images ?? []);
-    } catch (e: any) {
-      setError(e.message || 'Failed to load gallery');
-    } finally {
-      setLoading(false);
-    }
-  }, [userEmail]);
-
-  useEffect(() => { fetchGallery(); }, [fetchGallery]);
-
-  const loadStoryboard = useCallback(async (key: string, title: string) => {
-    try {
-      const res = await fetch(`${API_BASE}/api/storyboard/fetch?key=${encodeURIComponent(key)}`, {
-        headers: { 'x-dev-email': userEmail },
-      });
-      if (!res.ok) throw new Error(`Fetch storyboard ${res.status}`);
-      const data = await res.json();
-      onLoadStoryboard({ type: 'html', html: data.html, title: data.title ?? title });
-    } catch (e: any) {
-      alert(`Could not load storyboard: ${e.message}`);
-    }
-  }, [userEmail, onLoadStoryboard]);
-
-  const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const name = prompt('Character name?', file.name.replace(/\.[^.]+$/, '')) ?? file.name;
-    setUploading(true);
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('name', name);
-      const res = await fetch(`${API_BASE}/api/dolls/upload`, {
-        method: 'POST',
-        headers: { 'x-dev-email': userEmail },
-        body: form,
-      });
-      if (!res.ok) throw new Error(`Upload ${res.status}`);
-      await fetchGallery();
-    } catch (e: any) {
-      alert(`Upload failed: ${e.message}`);
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  }, [userEmail, fetchGallery]);
-
-  const gBtn: React.CSSProperties = {
-    background: 'transparent',
-    border: '1px solid #ff1493',
-    color: '#ff1493',
-    borderRadius: 4,
-    padding: '3px 10px',
-    cursor: 'pointer',
-    fontSize: '.75rem',
-    letterSpacing: '.06em',
-  };
-
-  return (
-    <div style={{ background: '#08000f', color: '#f0e6ff', fontFamily: 'sans-serif', padding: '16px', height: '100%', overflowY: 'auto', boxSizing: 'border-box' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <span style={{ color: '#ff1493', fontWeight: 700, fontSize: '1rem', letterSpacing: '.08em' }}>GALLERY</span>
-        <button style={gBtn} onClick={fetchGallery}>Refresh</button>
-      </div>
-
-      {loading && <p style={{ color: '#ff1493', fontSize: '.8rem' }}>Loading...</p>}
-      {error   && <p style={{ color: '#ffe66d', fontSize: '.8rem' }}>Error: {error}</p>}
-
-      {/* ── Storyboards ── */}
-      <div style={{ marginBottom: 20 }}>
-        <h3 style={{ color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }}>
-          Storyboards ({storyboards.length})
-        </h3>
-        {!loading && storyboards.length === 0 && (
-          <p style={{ color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }}>No saved storyboards yet.</p>
-        )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {storyboards.map(sb => (
-            <div key={sb.key} style={{ border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }}>{sb.title}</div>
-                <div style={{ fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }}>
-                  {new Date(sb.savedAt).toLocaleString()} &bull; {sb.conversationId}
-                </div>
-              </div>
-              <button style={gBtn} onClick={() => loadStoryboard(sb.key, sb.title)}>Load</button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Characters ── */}
-      <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <h3 style={{ color: '#39ff14', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', margin: 0 }}>
-            Characters ({images.length})
-          </h3>
-          <button style={{ ...gBtn, color: '#39ff14', borderColor: '#39ff14' }}
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}>
-            {uploading ? 'Uploading...' : '+ Upload'}
-          </button>
-          <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleUpload} />
-        </div>
-        {!loading && images.length === 0 && (
-          <p style={{ color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }}>No character images yet.</p>
-        )}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 10 }}>
-          {images.map(img => (
-            <div key={img.key} style={{ border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', overflow: 'hidden', textAlign: 'center' }}>
-              <img src={img.url} alt={img.name} style={{ width: '100%', height: 90, objectFit: 'cover', display: 'block' }} />
-              <div style={{ padding: '4px 6px', fontSize: '.68rem', color: 'rgba(240,230,255,.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {img.name}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── App ───────────────────────────────────────────────────────────────────────
-
-export default function App() {
-  const messages     = useChatStore((s) => s.messages);
-  const addMessage   = useChatStore((s) => s.addMessage);
-  const replaceMessages = useChatStore((s) => s.replaceMessages);
-
-  const [input,        setInput]        = useState('');
-  const [mode,         setMode]         = useState<'shared' | 'private'>('shared');
-  const [botStatus,    setBotStatus]    = useState<'idle' | 'thinking'>('idle');
-  const [userEmail,    setUserEmail]    = useState('spanky@ssbb.band');
-  const [projectMemory, setProjectMemory] = useState<{ episodeFocus: string; openThreads: string[] } | null>(null);
-  const [ttsEnabled,   setTtsEnabled]   = useState(true);
-  const [isSpeaking,   setIsSpeaking]   = useState(false);
-  const [session,      setSession]      = useState<{ pages: CanvasPage[]; idx: number }>({ pages: [{ type: 'avatar' }], idx: 0 });
-  const [harvesting,   setHarvesting]   = useState(false);
-  const [lastHarvest,  setLastHarvest]  = useState<{ count: number; backend: string } | null>(null);
-  const [basement,     setBasement]     = useState<Record<string, boolean>>({ identity: true, memory: false });
-  const [isDragging,   setIsDragging]   = useState(false);
-  const [qrModal,      setQrModal]      = useState<{ url: string; dataUrl: string } | null>(null);
-  const [s3Uploading,  setS3Uploading]  = useState(false);
-  const [sbSaving,     setSbSaving]     = useState(false);
-
-  const lastSpokenRef    = useRef<string | null>(null);
-  const chatFeedRef      = useRef<HTMLDivElement>(null);
-  const canvasIframeRef  = useRef<HTMLIFrameElement>(null);
-  const currentAudioRef  = useRef<HTMLAudioElement | null>(null);
-
-  const conversationId = useMemo(
-    () => mode === 'shared' ? 'butt-bitch-hang' : `private-${(userEmail || 'anon').replace(/[^a-z0-9@._-]/gi, '')}`,
-    [mode, userEmail]
-  );
-
-  const canvasBase = useMemo(
-    () => `${API_BASE}/api/song-canvas?conversationId=${encodeURIComponent(conversationId)}&devEmail=${encodeURIComponent(userEmail)}`,
-    [conversationId, userEmail]
-  );
-
-  // ── postMessage to avatar iframe ─────────────────────────────────────────
-  const postToAvatar = useCallback((msg: object) => {
-    canvasIframeRef.current?.contentWindow?.postMessage(msg, '*');
-  }, []);
-
-  // ── Canvas session helpers ────────────────────────────────────────────────
-  const currentPage = session.pages[session.idx];
-
-  const pushPage = useCallback((page: CanvasPage) => {
-    setSession(s => {
-      const pages = [...s.pages.slice(0, s.idx + 1), page];
-      return { pages, idx: pages.length - 1 };
-    });
-  }, []);
-
-  const goBack    = useCallback(() => setSession(s => ({ ...s, idx: Math.max(0, s.idx - 1) })), []);
-  const goForward = useCallback(() => setSession(s => ({ ...s, idx: Math.min(s.pages.length - 1, s.idx + 1) })), []);
-
-  // ── Bear state → avatar emotion ──────────────────────────────────────────
-  const bearState: 'idle' | 'listening' | 'speaking' =
-    isSpeaking ? 'speaking' : botStatus === 'thinking' ? 'listening' : 'idle';
-
-  useEffect(() => {
-    if (currentPage.type !== 'avatar') return;
-    postToAvatar({ type: 'bb-emotion', state: bearState });
-  }, [bearState, currentPage, postToAvatar]);
-
-  // ── TTS ──────────────────────────────────────────────────────────────────
-  const speakNow = useCallback(async (rawSpeakText: string) => {
-    // Strip canvas cross-references, HTML tags, and slash-command echoes before speaking
-    const text = rawSpeakText
-      .replace(/↳\s*\[see canvas[^\]]*\]/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\[IMG:[^\]]*\]/g, '')
-      .replace(/\s{2,}/g, ' ')
-      .trim();
-    if (!text) return;
-    // Stop any current playback
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
-      currentAudioRef.current = null;
-    }
-    try {
-      const resp = await fetch(`${API_BASE}/api/tts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
-        body: JSON.stringify({ text }),
-      });
-      if (!resp.ok) throw new Error(`TTS ${resp.status}`);
-      const blob = await resp.blob();
-      const url  = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      currentAudioRef.current = audio;
-
-      // Tap the actual playing audio for amplitude — avoids sync drift from a parallel decode
-      let ampCtx: AudioContext | null = null;
-      try {
-        ampCtx = new AudioContext();
-        const src = ampCtx.createMediaElementSource(audio);
-        const an  = ampCtx.createAnalyser();
-        an.fftSize = 128;
-        an.smoothingTimeConstant = 0.1; // near-instant response — no slow decay tail at phrase-end
-        src.connect(an);
-        src.connect(ampCtx.destination);   // still routes to speakers
-        const data = new Uint8Array(an.frequencyBinCount);
-        const pump = () => {
-          if (!currentAudioRef.current) { ampCtx?.close(); return; }
-          an.getByteFrequencyData(data);
-          const avg = data.reduce((a, b) => a + b, 0) / data.length / 255;
-          postToAvatar({ type: 'bb-amplitude', value: avg });
-          requestAnimationFrame(pump);
-        };
-        audio.addEventListener('playing', () => { requestAnimationFrame(pump); }, { once: true });
-      } catch (_) { /* amplitude optional — audio still plays normally */ }
-
-      audio.addEventListener('playing', () => {
-        setIsSpeaking(true);
-        postToAvatar({ type: 'bb-emotion', state: 'speaking' });
-      });
-      audio.addEventListener('ended', () => {
-        setIsSpeaking(false);
-        postToAvatar({ type: 'bb-emotion', state: 'idle' });
-        URL.revokeObjectURL(url);
-        currentAudioRef.current = null;
-        ampCtx?.close();
-      });
-
-      await audio.play();
-
-    } catch (err) {
-      console.warn('[tts]', err);
-    }
-  }, [userEmail, postToAvatar]);
-
-  const speak = useCallback((text: string) => {
-    if (!ttsEnabled) return;
-    speakNow(text);
-  }, [ttsEnabled, speakNow]);
-
-  // Auto-speak latest bot message
-  useEffect(() => {
-    const lastBot = [...messages].reverse().find((m) => m.author === 'bot');
-    if (!lastBot || lastBot.id === lastSpokenRef.current) return;
-    lastSpokenRef.current = lastBot.id;
-    speak(lastBot.text);
-  }, [messages, speak]);
-
-  // Stop playback when TTS toggled off
-  useEffect(() => {
-    if (!ttsEnabled && currentAudioRef.current) {
-      currentAudioRef.current.pause();
-      currentAudioRef.current = null;
-      setIsSpeaking(false);
-      postToAvatar({ type: 'bb-emotion', state: 'idle' });
-    }
-  }, [ttsEnabled, postToAvatar]);
-
-  // ── Chat history ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    fetch(`${API_BASE}/api/chat/history?mode=${mode}`, {
-      headers: userEmail ? { 'x-dev-email': userEmail } : {},
-    })
-      .then((r) => r.json())
-      .then((d) => replaceMessages((d.history || []).map((msg: ChatMessage) => ({
-        ...msg,
-        text: msg.text
-          .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, '↳ [see canvas →]')
-          .replace(/\[IMG:[^\]]*\]/g, '')
-          .replace(/<[^>]+>/g, '')
-          .replace(/&[a-z#0-9]+;/gi, ' ')
-          .replace(/\s{2,}/g, ' ')
-          .trim()
-      }))))
-      .catch((e) => console.error('history fetch failed', e));
-  }, [mode, userEmail, replaceMessages]);
-
-  // ── Memory ───────────────────────────────────────────────────────────────
-  useEffect(() => {
-    fetch(`${API_BASE}/api/memory`, { headers: { 'x-dev-email': userEmail } })
-      .then((r) => r.json())
-      .then((d) => setProjectMemory(d.project))
-      .catch((e) => console.error('memory fetch failed', e));
-  }, [userEmail]);
-
-  // Auto-scroll chat
-  useEffect(() => {
-    if (chatFeedRef.current) chatFeedRef.current.scrollTop = chatFeedRef.current.scrollHeight;
-  }, [messages]);
-
-  // ── Send message ─────────────────────────────────────────────────────────
-  async function sendMessage(
-    e?: FormEvent,
-    extraText?: string,
-    attachments?: { name: string; contentType: string; data: string }[]
-  ) {
-    e?.preventDefault();
-    const text = (input.trim() + (extraText ? '\n' + extraText : '')).trim();
-    if (!text && !attachments?.length) return;
-
-    // ── Slash commands ──
-    if (/^\/laserbra\b/i.test(text)) {
-      setInput('');
-      postToAvatar({ type: 'bb-emotion', state: 'punk' });
-      postToAvatar({ type: 'laser-blast' });
-      addMessage({ id: uuid(), author: 'bot', text: '⚡ laser bra activated ⚡', createdAt: new Date().toISOString() });
-      setTimeout(() => postToAvatar({ type: 'bb-emotion', state: 'idle' }), 4000);
-      return;
-    }
-    if (/^\/micdrop\b/i.test(text)) {
-      setInput('');
-      postToAvatar({ type: 'mic-drop' });
-      addMessage({ id: uuid(), author: 'bot', text: '🎤 *drops the mic*', createdAt: new Date().toISOString() });
-      return;
-    }
-
-    const displayText = text || (attachments?.map(a => `[${a.name}]`).join(' ') ?? '');
-    const userMsg: ChatMessage = { id: uuid(), author: 'butt', text: displayText, createdAt: new Date().toISOString() };
-    addMessage(userMsg);
-    setInput('');
-    setBotStatus('thinking');
-    postToAvatar({ type: 'bb-emotion', state: 'thinking' });
-    try {
-      const resp = await fetch(`${API_BASE}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
-        body: JSON.stringify({ message: displayText, mode, attachments }),
-      });
-      if (!resp.ok) throw new Error('Chat failed');
-      const data = await resp.json();
-      const rawText: string = data.text ?? 'BotButt heard you.';
-
-      // Extract [CANVAS]...[/CANVAS] blocks — push each as a new canvas page
-      const canvasPattern = /\[CANVAS\]([\s\S]*?)\[\/CANVAS\]/g;
-      let botText = rawText;
-      let match: RegExpExecArray | null;
-      let canvasCount = 0;
-      while ((match = canvasPattern.exec(rawText)) !== null) {
-        let html = match[1].trim();
-        // Replace [IMG:name] placeholders with actual base64 data URLs from this message's attachments
-        for (const att of (attachments ?? [])) {
-          const dataUrl = `data:${att.contentType};base64,${att.data}`;
-          html = html.replaceAll(`[IMG:${att.name}]`, dataUrl);
+function GalleryPanel({ userEmail, onLoadStoryboard, }) {
+    const [storyboards, setStoryboards] = useState([]);
+    const [images, setImages] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [uploading, setUploading] = useState(false);
+    const fileInputRef = useRef(null);
+    const fetchGallery = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await fetch(`${API_BASE}/api/gallery`, { headers: { 'x-dev-email': userEmail } });
+            if (!res.ok)
+                throw new Error(`Gallery fetch ${res.status}`);
+            const data = await res.json();
+            setStoryboards((data.storyboards ?? []).sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()));
+            setImages(data.images ?? []);
         }
-        pushPage({ type: 'html', html, title: `BotButt made this (${new Date().toLocaleTimeString()})` });
-        postToAvatar({ type: 'set-canvas-html', html });
-        canvasCount++;
-      }
-      // Strip canvas blocks + any stray HTML tags from chat display text
-      botText = rawText
-        .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, canvasCount > 0 ? '↳ [see canvas →]' : '')
-        .replace(/\[IMG:[^\]]*\]/g, '')       // strip image placeholders
-        .replace(/<[^>]+>/g, '')              // strip any HTML tags
-        .replace(/&[a-z#0-9]+;/gi, ' ')      // strip HTML entities
-        .replace(/\s{2,}/g, ' ')
-        .trim();
-
-      addMessage({ id: data.id ?? uuid(), author: 'bot', text: botText, createdAt: data.createdAt ?? new Date().toISOString() });
-    } catch (err) {
-      console.error('[chat] frontend error:', err);
-      addMessage({ id: uuid(), author: 'bot', text: 'BotButt hit a snag. Check the backend logs.', createdAt: new Date().toISOString() });
-    } finally {
-      setBotStatus('idle');
-    }
-  }
-
-  // ── File drop ─────────────────────────────────────────────────────────────
-  async function handleDrop(e: React.DragEvent) {
-    e.preventDefault();
-    setIsDragging(false);
-    const files = Array.from(e.dataTransfer.files);
-    if (!files.length) return;
-
-    const textParts: string[] = [];
-    const imageParts: { name: string; contentType: string; data: string }[] = [];
-
-    for (const file of files) {
-      if (file.type.startsWith('image/')) {
-        // Read as base64 for multimodal vision
-        const data = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (ev) => {
-            const dataUrl = (ev.target?.result as string) || '';
-            resolve(dataUrl.split(',')[1] || '');
-          };
-          reader.readAsDataURL(file);
-        });
-        imageParts.push({ name: file.name, contentType: file.type, data });
-        textParts.push(`[Image: ${file.name}]`);
-      } else if (file.type.startsWith('text/') || file.name.match(/\.(md|txt|csv|json)$/i)) {
-        const text = await file.text();
-        textParts.push(`[File: ${file.name}]\n${text.slice(0, 4000)}`);
-      } else {
-        textParts.push(`[File: ${file.name} (${file.type || 'binary'}, ${(file.size / 1024).toFixed(1)} KB)]`);
-      }
-    }
-
-    await sendMessage(undefined, textParts.join('\n'), imageParts);
-  }
-
-  // ── Harvest ──────────────────────────────────────────────────────────────
-  async function runHarvest() {
-    if (harvesting) return;
-    setHarvesting(true);
-    try {
-      const r = await fetch(`${API_BASE}/api/harvest`, { method: 'POST', headers: { 'x-dev-email': userEmail } });
-      const d = await r.json();
-      setLastHarvest({ count: d.totalFound ?? 0, backend: d.backend ?? '?' });
-      const mem = await fetch(`${API_BASE}/api/memory`, { headers: { 'x-dev-email': userEmail } }).then((r) => r.json());
-      setProjectMemory(mem.project);
-    } catch (e) { console.error('harvest failed', e); }
-    finally     { setHarvesting(false); }
-  }
-
-  // ── Canvas S3 upload + QR ────────────────────────────────────────────────
-  const uploadToS3 = useCallback(async () => {
-    if (currentPage.type !== 'html' || currentPage.s3Url || s3Uploading) return;
-    setS3Uploading(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/canvas/upload`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
-        body: JSON.stringify({ html: currentPage.html, title: currentPage.title }),
-      });
-      const data = await res.json();
-      if (data.url) {
+        catch (e) {
+            setError(e.message || 'Failed to load gallery');
+        }
+        finally {
+            setLoading(false);
+        }
+    }, [userEmail]);
+    useEffect(() => { fetchGallery(); }, [fetchGallery]);
+    const loadStoryboard = useCallback(async (key, title) => {
+        try {
+            const res = await fetch(`${API_BASE}/api/storyboard/fetch?key=${encodeURIComponent(key)}`, {
+                headers: { 'x-dev-email': userEmail },
+            });
+            if (!res.ok)
+                throw new Error(`Fetch storyboard ${res.status}`);
+            const data = await res.json();
+            onLoadStoryboard({ type: 'html', html: data.html, title: data.title ?? title });
+        }
+        catch (e) {
+            alert(`Could not load storyboard: ${e.message}`);
+        }
+    }, [userEmail, onLoadStoryboard]);
+    const handleUpload = useCallback(async (e) => {
+        const file = e.target.files?.[0];
+        if (!file)
+            return;
+        const name = prompt('Character name?', file.name.replace(/\.[^.]+$/, '')) ?? file.name;
+        setUploading(true);
+        try {
+            const form = new FormData();
+            form.append('file', file);
+            form.append('name', name);
+            const res = await fetch(`${API_BASE}/api/dolls/upload`, {
+                method: 'POST',
+                headers: { 'x-dev-email': userEmail },
+                body: form,
+            });
+            if (!res.ok)
+                throw new Error(`Upload ${res.status}`);
+            await fetchGallery();
+        }
+        catch (e) {
+            alert(`Upload failed: ${e.message}`);
+        }
+        finally {
+            setUploading(false);
+            if (fileInputRef.current)
+                fileInputRef.current.value = '';
+        }
+    }, [userEmail, fetchGallery]);
+    const gBtn = {
+        background: 'transparent',
+        border: '1px solid #ff1493',
+        color: '#ff1493',
+        borderRadius: 4,
+        padding: '3px 10px',
+        cursor: 'pointer',
+        fontSize: '.75rem',
+        letterSpacing: '.06em',
+    };
+    return (_jsxs("div", { style: { background: '#08000f', color: '#f0e6ff', fontFamily: 'sans-serif', padding: '16px', height: '100%', overflowY: 'auto', boxSizing: 'border-box' }, children: [_jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }, children: [_jsx("span", { style: { color: '#ff1493', fontWeight: 700, fontSize: '1rem', letterSpacing: '.08em' }, children: "GALLERY" }), _jsx("button", { style: gBtn, onClick: fetchGallery, children: "Refresh" })] }), loading && _jsx("p", { style: { color: '#ff1493', fontSize: '.8rem' }, children: "Loading..." }), error && _jsxs("p", { style: { color: '#ffe66d', fontSize: '.8rem' }, children: ["Error: ", error] }), _jsxs("div", { style: { marginBottom: 20 }, children: [_jsxs("h3", { style: { color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Storyboards (", storyboards.length, ")"] }), !loading && storyboards.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No saved storyboards yet." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: storyboards.map(sb => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }, children: sb.title }), _jsxs("div", { style: { fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: [new Date(sb.savedAt).toLocaleString(), " \u2022 ", sb.conversationId] })] }), _jsx("button", { style: gBtn, onClick: () => loadStoryboard(sb.key, sb.title), children: "Load" })] }, sb.key))) })] }), _jsxs("div", { children: [_jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }, children: [_jsxs("h3", { style: { color: '#39ff14', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', margin: 0 }, children: ["Characters (", images.length, ")"] }), _jsx("button", { style: { ...gBtn, color: '#39ff14', borderColor: '#39ff14' }, onClick: () => fileInputRef.current?.click(), disabled: uploading, children: uploading ? 'Uploading...' : '+ Upload' }), _jsx("input", { ref: fileInputRef, type: "file", accept: "image/*", style: { display: 'none' }, onChange: handleUpload })] }), !loading && images.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No character images yet." })), _jsx("div", { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 10 }, children: images.map(img => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', overflow: 'hidden', textAlign: 'center' }, children: [_jsx("img", { src: img.url, alt: img.name, style: { width: '100%', height: 90, objectFit: 'cover', display: 'block' } }), _jsx("div", { style: { padding: '4px 6px', fontSize: '.68rem', color: 'rgba(240,230,255,.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: img.name })] }, img.key))) })] })] }));
+}
+// ── App ───────────────────────────────────────────────────────────────────────
+export default function App() {
+    const messages = useChatStore((s) => s.messages);
+    const addMessage = useChatStore((s) => s.addMessage);
+    const replaceMessages = useChatStore((s) => s.replaceMessages);
+    const [input, setInput] = useState('');
+    const [mode, setMode] = useState('shared');
+    const [botStatus, setBotStatus] = useState('idle');
+    const [userEmail, setUserEmail] = useState('spanky@ssbb.band');
+    const [projectMemory, setProjectMemory] = useState(null);
+    const [ttsEnabled, setTtsEnabled] = useState(true);
+    const [isSpeaking, setIsSpeaking] = useState(false);
+    const [session, setSession] = useState({ pages: [{ type: 'avatar' }], idx: 0 });
+    const [harvesting, setHarvesting] = useState(false);
+    const [lastHarvest, setLastHarvest] = useState(null);
+    const [basement, setBasement] = useState({ identity: true, memory: false });
+    const [isDragging, setIsDragging] = useState(false);
+    const [qrModal, setQrModal] = useState(null);
+    const [s3Uploading, setS3Uploading] = useState(false);
+    const [sbSaving, setSbSaving] = useState(false);
+    const lastSpokenRef = useRef(null);
+    const chatFeedRef = useRef(null);
+    const canvasIframeRef = useRef(null);
+    const currentAudioRef = useRef(null);
+    const conversationId = useMemo(() => mode === 'shared' ? 'butt-bitch-hang' : `private-${(userEmail || 'anon').replace(/[^a-z0-9@._-]/gi, '')}`, [mode, userEmail]);
+    const canvasBase = useMemo(() => `${API_BASE}/api/song-canvas?conversationId=${encodeURIComponent(conversationId)}&devEmail=${encodeURIComponent(userEmail)}`, [conversationId, userEmail]);
+    // ── postMessage to avatar iframe ─────────────────────────────────────────
+    const postToAvatar = useCallback((msg) => {
+        canvasIframeRef.current?.contentWindow?.postMessage(msg, '*');
+    }, []);
+    // ── Canvas session helpers ────────────────────────────────────────────────
+    const currentPage = session.pages[session.idx];
+    const pushPage = useCallback((page) => {
         setSession(s => {
-          const pages = [...s.pages];
-          const p = pages[s.idx];
-          if (p.type === 'html') pages[s.idx] = { ...p, s3Url: data.url };
-          return { ...s, pages };
+            const pages = [...s.pages.slice(0, s.idx + 1), page];
+            return { pages, idx: pages.length - 1 };
         });
-      }
-    } catch (e) { console.warn('[s3 upload]', e); }
-    finally { setS3Uploading(false); }
-  }, [currentPage, s3Uploading, userEmail]);
-
-  const saveStoryboard = useCallback(async () => {
-    if (currentPage.type !== 'html' || sbSaving) return;
-    setSbSaving(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/storyboard`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
-        body: JSON.stringify({ html: currentPage.html, title: currentPage.title, conversationId }),
-      });
-      if (!res.ok) throw new Error(`Save ${res.status}`);
-    } catch (e) { console.warn('[storyboard/save]', e); }
-    finally { setSbSaving(false); }
-  }, [currentPage, sbSaving, userEmail, conversationId]);
-
-  const showQR = useCallback(async (url: string) => {
-    try {
-      const QRCode = (await import('qrcode')).default;
-      const dataUrl = await QRCode.toDataURL(url, {
-        width: 240, margin: 2,
-        color: { dark: '#111111', light: '#F7F1E8' },
-      });
-      setQrModal({ url, dataUrl });
-    } catch (e) { console.warn('[qr]', e); }
-  }, []);
-
-  // ── Canvas view helpers ──────────────────────────────────────────────────
-  const openEdit = useCallback(() => {
-    pushPage({ type: 'edit', src: `${canvasBase}&tick=${Date.now()}` });
-  }, [pushPage, canvasBase]);
-
-  const downloadCanvas = () => {
-    const timestamp = new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-');
-    if (currentPage.type === 'html') {
-      const fullHtml = `<!DOCTYPE html>
+    }, []);
+    const goBack = useCallback(() => setSession(s => ({ ...s, idx: Math.max(0, s.idx - 1) })), []);
+    const goForward = useCallback(() => setSession(s => ({ ...s, idx: Math.min(s.pages.length - 1, s.idx + 1) })), []);
+    // ── Bear state → avatar emotion ──────────────────────────────────────────
+    const bearState = isSpeaking ? 'speaking' : botStatus === 'thinking' ? 'listening' : 'idle';
+    useEffect(() => {
+        if (currentPage.type !== 'avatar')
+            return;
+        postToAvatar({ type: 'bb-emotion', state: bearState });
+    }, [bearState, currentPage, postToAvatar]);
+    // ── TTS ──────────────────────────────────────────────────────────────────
+    const speakNow = useCallback(async (rawSpeakText) => {
+        // Strip canvas cross-references, HTML tags, and slash-command echoes before speaking
+        const text = rawSpeakText
+            .replace(/↳\s*\[see canvas[^\]]*\]/gi, '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\[IMG:[^\]]*\]/g, '')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+        if (!text)
+            return;
+        // Stop any current playback
+        if (currentAudioRef.current) {
+            currentAudioRef.current.pause();
+            currentAudioRef.current = null;
+        }
+        try {
+            const resp = await fetch(`${API_BASE}/api/tts`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
+                body: JSON.stringify({ text }),
+            });
+            if (!resp.ok)
+                throw new Error(`TTS ${resp.status}`);
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            currentAudioRef.current = audio;
+            // Tap the actual playing audio for amplitude — avoids sync drift from a parallel decode
+            let ampCtx = null;
+            try {
+                ampCtx = new AudioContext();
+                const src = ampCtx.createMediaElementSource(audio);
+                const an = ampCtx.createAnalyser();
+                an.fftSize = 128;
+                an.smoothingTimeConstant = 0.1; // near-instant response — no slow decay tail at phrase-end
+                src.connect(an);
+                src.connect(ampCtx.destination); // still routes to speakers
+                const data = new Uint8Array(an.frequencyBinCount);
+                const pump = () => {
+                    if (!currentAudioRef.current) {
+                        ampCtx?.close();
+                        return;
+                    }
+                    an.getByteFrequencyData(data);
+                    const avg = data.reduce((a, b) => a + b, 0) / data.length / 255;
+                    postToAvatar({ type: 'bb-amplitude', value: avg });
+                    requestAnimationFrame(pump);
+                };
+                audio.addEventListener('playing', () => { requestAnimationFrame(pump); }, { once: true });
+            }
+            catch (_) { /* amplitude optional — audio still plays normally */ }
+            audio.addEventListener('playing', () => {
+                setIsSpeaking(true);
+                postToAvatar({ type: 'bb-emotion', state: 'speaking' });
+            });
+            audio.addEventListener('ended', () => {
+                setIsSpeaking(false);
+                postToAvatar({ type: 'bb-emotion', state: 'idle' });
+                URL.revokeObjectURL(url);
+                currentAudioRef.current = null;
+                ampCtx?.close();
+            });
+            await audio.play();
+        }
+        catch (err) {
+            console.warn('[tts]', err);
+        }
+    }, [userEmail, postToAvatar]);
+    const speak = useCallback((text) => {
+        if (!ttsEnabled)
+            return;
+        speakNow(text);
+    }, [ttsEnabled, speakNow]);
+    // Auto-speak latest bot message
+    useEffect(() => {
+        const lastBot = [...messages].reverse().find((m) => m.author === 'bot');
+        if (!lastBot || lastBot.id === lastSpokenRef.current)
+            return;
+        lastSpokenRef.current = lastBot.id;
+        speak(lastBot.text);
+    }, [messages, speak]);
+    // Stop playback when TTS toggled off
+    useEffect(() => {
+        if (!ttsEnabled && currentAudioRef.current) {
+            currentAudioRef.current.pause();
+            currentAudioRef.current = null;
+            setIsSpeaking(false);
+            postToAvatar({ type: 'bb-emotion', state: 'idle' });
+        }
+    }, [ttsEnabled, postToAvatar]);
+    // ── Chat history ─────────────────────────────────────────────────────────
+    useEffect(() => {
+        fetch(`${API_BASE}/api/chat/history?mode=${mode}`, {
+            headers: userEmail ? { 'x-dev-email': userEmail } : {},
+        })
+            .then((r) => r.json())
+            .then((d) => replaceMessages((d.history || []).map((msg) => ({
+            ...msg,
+            text: msg.text
+                .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, '↳ [see canvas →]')
+                .replace(/\[IMG:[^\]]*\]/g, '')
+                .replace(/<[^>]+>/g, '')
+                .replace(/&[a-z#0-9]+;/gi, ' ')
+                .replace(/\s{2,}/g, ' ')
+                .trim()
+        }))))
+            .catch((e) => console.error('history fetch failed', e));
+    }, [mode, userEmail, replaceMessages]);
+    // ── Memory ───────────────────────────────────────────────────────────────
+    useEffect(() => {
+        fetch(`${API_BASE}/api/memory`, { headers: { 'x-dev-email': userEmail } })
+            .then((r) => r.json())
+            .then((d) => setProjectMemory(d.project))
+            .catch((e) => console.error('memory fetch failed', e));
+    }, [userEmail]);
+    // Auto-scroll chat
+    useEffect(() => {
+        if (chatFeedRef.current)
+            chatFeedRef.current.scrollTop = chatFeedRef.current.scrollHeight;
+    }, [messages]);
+    // ── Send message ─────────────────────────────────────────────────────────
+    async function sendMessage(e, extraText, attachments) {
+        e?.preventDefault();
+        const text = (input.trim() + (extraText ? '\n' + extraText : '')).trim();
+        if (!text && !attachments?.length)
+            return;
+        // ── Slash commands ──
+        if (/^\/laserbra\b/i.test(text)) {
+            setInput('');
+            postToAvatar({ type: 'bb-emotion', state: 'punk' });
+            postToAvatar({ type: 'laser-blast' });
+            addMessage({ id: uuid(), author: 'bot', text: '⚡ laser bra activated ⚡', createdAt: new Date().toISOString() });
+            setTimeout(() => postToAvatar({ type: 'bb-emotion', state: 'idle' }), 4000);
+            return;
+        }
+        if (/^\/micdrop\b/i.test(text)) {
+            setInput('');
+            postToAvatar({ type: 'mic-drop' });
+            addMessage({ id: uuid(), author: 'bot', text: '🎤 *drops the mic*', createdAt: new Date().toISOString() });
+            return;
+        }
+        const displayText = text || (attachments?.map(a => `[${a.name}]`).join(' ') ?? '');
+        const userMsg = { id: uuid(), author: 'butt', text: displayText, createdAt: new Date().toISOString() };
+        addMessage(userMsg);
+        setInput('');
+        setBotStatus('thinking');
+        postToAvatar({ type: 'bb-emotion', state: 'thinking' });
+        try {
+            const resp = await fetch(`${API_BASE}/api/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
+                body: JSON.stringify({ message: displayText, mode, attachments }),
+            });
+            if (!resp.ok)
+                throw new Error('Chat failed');
+            const data = await resp.json();
+            const rawText = data.text ?? 'BotButt heard you.';
+            // Extract [CANVAS]...[/CANVAS] blocks — push each as a new canvas page
+            const canvasPattern = /\[CANVAS\]([\s\S]*?)\[\/CANVAS\]/g;
+            let botText = rawText;
+            let match;
+            let canvasCount = 0;
+            while ((match = canvasPattern.exec(rawText)) !== null) {
+                let html = match[1].trim();
+                // Replace [IMG:name] placeholders with actual base64 data URLs from this message's attachments
+                for (const att of (attachments ?? [])) {
+                    const dataUrl = `data:${att.contentType};base64,${att.data}`;
+                    html = html.replaceAll(`[IMG:${att.name}]`, dataUrl);
+                }
+                pushPage({ type: 'html', html, title: `BotButt made this (${new Date().toLocaleTimeString()})` });
+                postToAvatar({ type: 'set-canvas-html', html });
+                canvasCount++;
+            }
+            // Strip canvas blocks + any stray HTML tags from chat display text
+            botText = rawText
+                .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, canvasCount > 0 ? '↳ [see canvas →]' : '')
+                .replace(/\[IMG:[^\]]*\]/g, '') // strip image placeholders
+                .replace(/<[^>]+>/g, '') // strip any HTML tags
+                .replace(/&[a-z#0-9]+;/gi, ' ') // strip HTML entities
+                .replace(/\s{2,}/g, ' ')
+                .trim();
+            addMessage({ id: data.id ?? uuid(), author: 'bot', text: botText, createdAt: data.createdAt ?? new Date().toISOString() });
+        }
+        catch (err) {
+            console.error('[chat] frontend error:', err);
+            addMessage({ id: uuid(), author: 'bot', text: 'BotButt hit a snag. Check the backend logs.', createdAt: new Date().toISOString() });
+        }
+        finally {
+            setBotStatus('idle');
+        }
+    }
+    // ── File drop ─────────────────────────────────────────────────────────────
+    async function handleDrop(e) {
+        e.preventDefault();
+        setIsDragging(false);
+        const files = Array.from(e.dataTransfer.files);
+        if (!files.length)
+            return;
+        const textParts = [];
+        const imageParts = [];
+        for (const file of files) {
+            if (file.type.startsWith('image/')) {
+                // Read as base64 for multimodal vision
+                const data = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                        const dataUrl = ev.target?.result || '';
+                        resolve(dataUrl.split(',')[1] || '');
+                    };
+                    reader.readAsDataURL(file);
+                });
+                imageParts.push({ name: file.name, contentType: file.type, data });
+                textParts.push(`[Image: ${file.name}]`);
+            }
+            else if (file.type.startsWith('text/') || file.name.match(/\.(md|txt|csv|json)$/i)) {
+                const text = await file.text();
+                textParts.push(`[File: ${file.name}]\n${text.slice(0, 4000)}`);
+            }
+            else {
+                textParts.push(`[File: ${file.name} (${file.type || 'binary'}, ${(file.size / 1024).toFixed(1)} KB)]`);
+            }
+        }
+        await sendMessage(undefined, textParts.join('\n'), imageParts);
+    }
+    // ── Harvest ──────────────────────────────────────────────────────────────
+    async function runHarvest() {
+        if (harvesting)
+            return;
+        setHarvesting(true);
+        try {
+            const r = await fetch(`${API_BASE}/api/harvest`, { method: 'POST', headers: { 'x-dev-email': userEmail } });
+            const d = await r.json();
+            setLastHarvest({ count: d.totalFound ?? 0, backend: d.backend ?? '?' });
+            const mem = await fetch(`${API_BASE}/api/memory`, { headers: { 'x-dev-email': userEmail } }).then((r) => r.json());
+            setProjectMemory(mem.project);
+        }
+        catch (e) {
+            console.error('harvest failed', e);
+        }
+        finally {
+            setHarvesting(false);
+        }
+    }
+    // ── Canvas S3 upload + QR ────────────────────────────────────────────────
+    const uploadToS3 = useCallback(async () => {
+        if (currentPage.type !== 'html' || currentPage.s3Url || s3Uploading)
+            return;
+        setS3Uploading(true);
+        try {
+            const res = await fetch(`${API_BASE}/api/canvas/upload`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
+                body: JSON.stringify({ html: currentPage.html, title: currentPage.title }),
+            });
+            const data = await res.json();
+            if (data.url) {
+                setSession(s => {
+                    const pages = [...s.pages];
+                    const p = pages[s.idx];
+                    if (p.type === 'html')
+                        pages[s.idx] = { ...p, s3Url: data.url };
+                    return { ...s, pages };
+                });
+            }
+        }
+        catch (e) {
+            console.warn('[s3 upload]', e);
+        }
+        finally {
+            setS3Uploading(false);
+        }
+    }, [currentPage, s3Uploading, userEmail]);
+    const saveStoryboard = useCallback(async () => {
+        if (currentPage.type !== 'html' || sbSaving)
+            return;
+        setSbSaving(true);
+        try {
+            const res = await fetch(`${API_BASE}/api/storyboard`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
+                body: JSON.stringify({ html: currentPage.html, title: currentPage.title, conversationId }),
+            });
+            if (!res.ok)
+                throw new Error(`Save ${res.status}`);
+        }
+        catch (e) {
+            console.warn('[storyboard/save]', e);
+        }
+        finally {
+            setSbSaving(false);
+        }
+    }, [currentPage, sbSaving, userEmail, conversationId]);
+    const showQR = useCallback(async (url) => {
+        try {
+            const QRCode = (await import('qrcode')).default;
+            const dataUrl = await QRCode.toDataURL(url, {
+                width: 240, margin: 2,
+                color: { dark: '#111111', light: '#F7F1E8' },
+            });
+            setQrModal({ url, dataUrl });
+        }
+        catch (e) {
+            console.warn('[qr]', e);
+        }
+    }, []);
+    // ── Canvas view helpers ──────────────────────────────────────────────────
+    const openEdit = useCallback(() => {
+        pushPage({ type: 'edit', src: `${canvasBase}&tick=${Date.now()}` });
+    }, [pushPage, canvasBase]);
+    const downloadCanvas = () => {
+        const timestamp = new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-');
+        if (currentPage.type === 'html') {
+            const fullHtml = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
@@ -1395,252 +1265,35 @@ export default function App() {
 </head>
 <body>${currentPage.html}</body>
 </html>`;
-      const blob = new Blob([fullHtml], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `ssbb-canvas-${timestamp}.html`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } else if (currentPage.type === 'avatar') {
-      const blob = new Blob([BOTBUTT_SRCDOC], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `botbutt-${timestamp}.html`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } else if (currentPage.type === 'edit') {
-      window.open(currentPage.src, '_blank', 'noopener,noreferrer');
-    }
-  };
-
-  const toggleBasement = (key: string) =>
-    setBasement((prev) => ({ ...prev, [key]: !prev[key] }));
-
-  const currentBitch = BUTT_BITCHES.find((b) => b.email === userEmail) ?? BUTT_BITCHES[0];
-
-  // ── Render ────────────────────────────────────────────────────────────────
-  return (
-    <div className="parlor">
-
-      {/* ── HEADER ── */}
-      <header className="parlor-header">
-        <div className="parlor-brand">
-          <div className="parlor-brand__mark"><BotButtBear state={bearState}/></div>
-          <div>
-            <p className="parlor-eyebrow">SSBB // Butt Bitch Parlor</p>
-            <h1 className="parlor-title">Screaming Smoldering Butt Bitches</h1>
-          </div>
-        </div>
-
-        <div className="parlor-header__center">
-          <div className={`status-chip${botStatus === 'thinking' ? ' status-chip--thinking' : ''}`}>
-            {botStatus === 'thinking' ? 'BotButt thinking...' : 'BotButt ready'}
-          </div>
-          <button className={`tts-toggle${ttsEnabled ? ' active' : ''}`} type="button" onClick={() => setTtsEnabled((s) => !s)}>
-            {ttsEnabled ? '🔊 Voice on' : '🔈 Voice off'}
-          </button>
-          <button className="mini-btn" type="button"
-            onClick={() => { setTtsEnabled(true); speakNow("G'day legends, BotButt here — ready to make absolute chaos with you."); }}>
-            Test voice
-          </button>
-        </div>
-
-        <div className="parlor-header__user">
-          <span>Signed in as</span>
-          <strong style={{ color: currentBitch.color }}>{currentBitch.handle}</strong>
-        </div>
-      </header>
-
-      {/* ── MAIN SPLIT: chat + canvas ── */}
-      <div className="parlor-main">
-
-        {/* Chat */}
-        <section className="parlor-chat"
-          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false); }}
-          onDrop={handleDrop}>
-          {isDragging && <div className="chat-drop-overlay">Drop file to send to BotButt</div>}
-          <div className="card chat-card">
-            <div className="chat-card__header">
-              <div>
-                <h2>SSBB Pretendo TV</h2>
-                <p className="chat-subline">
-                  <button className={mode === 'shared'  ? 'mode-btn mode-btn--active' : 'mode-btn'} onClick={() => setMode('shared')}>Shared</button>
-                  <button className={mode === 'private' ? 'mode-btn mode-btn--active' : 'mode-btn'} onClick={() => setMode('private')}>Private 1:1</button>
-                </p>
-              </div>
-              <button className="mini-btn" type="button" onClick={() => sendMessage()}>Ping</button>
-            </div>
-            <div className="chat-feed" ref={chatFeedRef}>
-              {messages.length === 0 && (
-                <div className="chat-empty">Say something to BotButt...</div>
-              )}
-              {messages.map((msg) => (
-                <article key={msg.id} className={`chat-bubble chat-bubble--${msg.author}`}>
-                  <header>
-                    <strong>{msg.author === 'bot' ? 'BotButt' : currentBitch.handle}</strong>
-                    <span>{msg.mode === 'private' ? 'Private' : 'Shared'}</span>
-                    <time>{new Date(msg.createdAt).toLocaleTimeString()}</time>
-                  </header>
-                  <p>{msg.text}</p>
-                </article>
-              ))}
-            </div>
-            <form className="composer" onSubmit={sendMessage}>
-              <input className="command-input" placeholder="Talk to BotButt..." value={input} onChange={(e) => setInput(e.target.value)}/>
-              <button className="send-btn" type="submit">Send</button>
-            </form>
-          </div>
-        </section>
-
-        {/* Parlor Book (canvas) */}
-        <section className="parlor-book">
-          <div className="card parlor-book-card">
-            <div className="book-toolbar">
-              <span className="book-title">✦ Parlor Book</span>
-              <div className="book-tabs">
-                <button className={`book-tab${currentPage.type === 'avatar' ? ' book-tab--active' : ''}`}
-                  onClick={() => {
-                    setSession(s => {
-                      const ai = s.pages.findIndex(p => p.type === 'avatar');
-                      return ai >= 0 ? { ...s, idx: ai } : s;
-                    });
-                    postToAvatar({ type: 'clear-canvas-html' });
-                  }}>
-                  BotButt
-                </button>
-                <button className={`book-tab${currentPage.type === 'edit' ? ' book-tab--active' : ''}`}
-                  onClick={openEdit}>
-                  Editor
-                </button>
-                <button className={`book-tab${currentPage.type === 'gallery' ? ' book-tab--active' : ''}`}
-                  onClick={() => pushPage({ type: 'gallery' })}>
-                  Gallery
-                </button>
-              </div>
-              <div className="book-nav">
-                <button className="book-nav-btn" onClick={goBack} disabled={session.idx === 0} title="Previous">◀</button>
-                <span className="book-nav-pos">{session.idx + 1}/{session.pages.length}</span>
-                <button className="book-nav-btn" onClick={goForward} disabled={session.idx === session.pages.length - 1} title="Next">▶</button>
-              </div>
-              {currentPage.type === 'html' && (
-                currentPage.s3Url ? (
-                  <a className="book-dl" href={currentPage.s3Url} target="_blank" rel="noopener noreferrer" title="Open S3 share link">🔗 S3</a>
-                ) : (
-                  <button className="book-dl" onClick={uploadToS3} disabled={s3Uploading} title="Upload page to S3 for sharing">
-                    {s3Uploading ? '↑…' : '↑ Share'}
-                  </button>
-                )
-              )}
-              {currentPage.type === 'html' && currentPage.s3Url && (
-                <button className="book-dl" onClick={() => showQR(currentPage.s3Url!)} title="Generate QR code">QR</button>
-              )}
-              {currentPage.type === 'html' && (
-                /storyboard|episode/i.test(currentPage.title) || /<table/i.test(currentPage.html)
-              ) && (
-                <button className="book-dl" onClick={saveStoryboard} disabled={sbSaving} title="Save storyboard to gallery">
-                  {sbSaving ? 'Saving...' : 'Save'}
-                </button>
-              )}
-              <button className="book-dl" onClick={downloadCanvas} title="Download current page">⤓ Download</button>
-            </div>
-
-            <div className="book-frame">
-              {/* Avatar iframe — always rendered so the bear stays alive; hidden when not current page */}
-              <iframe
-                ref={canvasIframeRef}
-                title="BotButt avatar"
-                srcDoc={BOTBUTT_SRCDOC}
-                sandbox="allow-scripts"
-                style={{ display: currentPage.type === 'avatar' ? 'block' : 'none', width: '100%', height: '100%', border: 'none' }}
-              />
-              {/* Editor iframe — only when current page is edit type */}
-              {currentPage.type === 'edit' && (
-                <iframe
-                  title="Parlor Book editor"
-                  src={currentPage.src}
-                  sandbox="allow-scripts allow-same-origin allow-forms"
-                  style={{ width: '100%', height: '100%', border: 'none' }}
-                />
-              )}
-              {/* HTML canvas page — BotButt's creations */}
-              {currentPage.type === 'html' && (
-                <div className="canvas-html-page"
-                  dangerouslySetInnerHTML={{ __html: currentPage.html }}
-                />
-              )}
-              {/* Gallery panel */}
-              {currentPage.type === 'gallery' && (
-                <GalleryPanel userEmail={userEmail} onLoadStoryboard={pushPage} />
-              )}
-            </div>
-          </div>
-        </section>
-      </div>
-
-      {/* ── BASEMENT SECTIONS ── */}
-      <div className="parlor-basement">
-
-        {/* Identity */}
-        <div className="basement-section">
-          <button className="basement-header" onClick={() => toggleBasement('identity')}>
-            <span>Who Are You?</span>
-            <span className="basement-chevron">{basement.identity ? '▲' : '▼'}</span>
-          </button>
-          {basement.identity && (
-            <div className="basement-body">
-              <div className="butt-bitch-picker horiz">
-                {BUTT_BITCHES.map((bb) => (
-                  <button key={bb.email}
-                    className={`bb-btn${userEmail === bb.email ? ' bb-btn--active' : ''}`}
-                    style={{ '--bb-color': bb.color } as React.CSSProperties}
-                    onClick={() => setUserEmail(bb.email)}>
-                    {bb.handle}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Memory */}
-        <div className="basement-section">
-          <button className="basement-header" onClick={() => toggleBasement('memory')}>
-            <span>Memory & Threads</span>
-            <span className="basement-chevron">{basement.memory ? '▲' : '▼'}</span>
-          </button>
-          {basement.memory && (
-            <div className="basement-body">
-              {projectMemory ? (
-                <>
-                  <p className="mem-focus"><strong>Episode:</strong> {projectMemory.episodeFocus}</p>
-                  <ul className="mem-threads">
-                    {projectMemory.openThreads.map((t) => <li key={t}>{t}</li>)}
-                  </ul>
-                </>
-              ) : <p style={{color:'var(--muted)',fontSize:'.82rem'}}>Loading…</p>}
-              <button className="kg-button kg-button--harvest" onClick={runHarvest} disabled={harvesting} style={{marginTop:'10px'}}>
-                {harvesting ? 'Scouring...' : 'Harvest SSBB from the web'}
-              </button>
-              {lastHarvest && <p style={{fontSize:'.72rem',color:'var(--teal)',marginTop:'4px'}}>{lastHarvest.count} results via {lastHarvest.backend}</p>}
-            </div>
-          )}
-        </div>
-
-      </div>
-
-      {/* ── QR Code Modal ── */}
-      {qrModal && (
-        <div className="qr-backdrop" onClick={() => setQrModal(null)}>
-          <div className="qr-modal" onClick={(e) => e.stopPropagation()}>
-            <img src={qrModal.dataUrl} alt="QR Code" width={220} height={220}/>
-            <p className="qr-url">{qrModal.url.slice(0, 72)}{qrModal.url.length > 72 ? '…' : ''}</p>
-            <button className="qr-close" onClick={() => setQrModal(null)}>✕ Close</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+            const blob = new Blob([fullHtml], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `ssbb-canvas-${timestamp}.html`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+        else if (currentPage.type === 'avatar') {
+            const blob = new Blob([BOTBUTT_SRCDOC], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `botbutt-${timestamp}.html`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+        else if (currentPage.type === 'edit') {
+            window.open(currentPage.src, '_blank', 'noopener,noreferrer');
+        }
+    };
+    const toggleBasement = (key) => setBasement((prev) => ({ ...prev, [key]: !prev[key] }));
+    const currentBitch = BUTT_BITCHES.find((b) => b.email === userEmail) ?? BUTT_BITCHES[0];
+    // ── Render ────────────────────────────────────────────────────────────────
+    return (_jsxs("div", { className: "parlor", children: [_jsxs("header", { className: "parlor-header", children: [_jsxs("div", { className: "parlor-brand", children: [_jsx("div", { className: "parlor-brand__mark", children: _jsx(BotButtBear, { state: bearState }) }), _jsxs("div", { children: [_jsx("p", { className: "parlor-eyebrow", children: "SSBB // Butt Bitch Parlor" }), _jsx("h1", { className: "parlor-title", children: "Screaming Smoldering Butt Bitches" })] })] }), _jsxs("div", { className: "parlor-header__center", children: [_jsx("div", { className: `status-chip${botStatus === 'thinking' ? ' status-chip--thinking' : ''}`, children: botStatus === 'thinking' ? 'BotButt thinking...' : 'BotButt ready' }), _jsx("button", { className: `tts-toggle${ttsEnabled ? ' active' : ''}`, type: "button", onClick: () => setTtsEnabled((s) => !s), children: ttsEnabled ? '🔊 Voice on' : '🔈 Voice off' }), _jsx("button", { className: "mini-btn", type: "button", onClick: () => { setTtsEnabled(true); speakNow("G'day legends, BotButt here — ready to make absolute chaos with you."); }, children: "Test voice" })] }), _jsxs("div", { className: "parlor-header__user", children: [_jsx("span", { children: "Signed in as" }), _jsx("strong", { style: { color: currentBitch.color }, children: currentBitch.handle })] })] }), _jsxs("div", { className: "parlor-main", children: [_jsx("section", { className: "parlor-chat", children: _jsxs("div", { className: "card chat-card", children: [_jsxs("div", { className: "chat-card__header", children: [_jsxs("div", { children: [_jsx("h2", { children: "SSBB Pretendo TV" }), _jsxs("p", { className: "chat-subline", children: [_jsx("button", { className: mode === 'shared' ? 'mode-btn mode-btn--active' : 'mode-btn', onClick: () => setMode('shared'), children: "Shared" }), _jsx("button", { className: mode === 'private' ? 'mode-btn mode-btn--active' : 'mode-btn', onClick: () => setMode('private'), children: "Private 1:1" })] })] }), _jsx("button", { className: "mini-btn", type: "button", onClick: () => sendMessage(), children: "Ping" })] }), _jsxs("div", { className: "chat-feed", ref: chatFeedRef, children: [messages.length === 0 && (_jsx("div", { className: "chat-empty", children: "Say something to BotButt..." })), messages.map((msg) => (_jsxs("article", { className: `chat-bubble chat-bubble--${msg.author}`, children: [_jsxs("header", { children: [_jsx("strong", { children: msg.author === 'bot' ? 'BotButt' : currentBitch.handle }), _jsx("span", { children: msg.mode === 'private' ? 'Private' : 'Shared' }), _jsx("time", { children: new Date(msg.createdAt).toLocaleTimeString() })] }), _jsx("p", { children: msg.text })] }, msg.id)))] }), _jsxs("form", { className: `composer${isDragging ? ' composer--drag' : ''}`, onSubmit: sendMessage, onDragOver: (e) => { e.preventDefault(); setIsDragging(true); }, onDragLeave: () => setIsDragging(false), onDrop: handleDrop, children: [_jsx("input", { className: "command-input", placeholder: isDragging ? 'Drop file here...' : 'Talk to BotButt...', value: input, onChange: (e) => setInput(e.target.value) }), _jsx("button", { className: "send-btn", type: "submit", children: "Send" })] })] }) }), _jsx("section", { className: "parlor-book", children: _jsxs("div", { className: "card parlor-book-card", children: [_jsxs("div", { className: "book-toolbar", children: [_jsx("span", { className: "book-title", children: "\u2726 Parlor Book" }), _jsxs("div", { className: "book-tabs", children: [_jsx("button", { className: `book-tab${currentPage.type === 'avatar' ? ' book-tab--active' : ''}`, onClick: () => {
+                                                        setSession(s => {
+                                                            const ai = s.pages.findIndex(p => p.type === 'avatar');
+                                                            return ai >= 0 ? { ...s, idx: ai } : s;
+                                                        });
+                                                        postToAvatar({ type: 'clear-canvas-html' });
+                                                    }, children: "BotButt" }), _jsx("button", { className: `book-tab${currentPage.type === 'edit' ? ' book-tab--active' : ''}`, onClick: openEdit, children: "Editor" }), _jsx("button", { className: `book-tab${currentPage.type === 'gallery' ? ' book-tab--active' : ''}`, onClick: () => pushPage({ type: 'gallery' }), children: "Gallery" })] }), _jsxs("div", { className: "book-nav", children: [_jsx("button", { className: "book-nav-btn", onClick: goBack, disabled: session.idx === 0, title: "Previous", children: "\u25C0" }), _jsxs("span", { className: "book-nav-pos", children: [session.idx + 1, "/", session.pages.length] }), _jsx("button", { className: "book-nav-btn", onClick: goForward, disabled: session.idx === session.pages.length - 1, title: "Next", children: "\u25B6" })] }), currentPage.type === 'html' && (currentPage.s3Url ? (_jsx("a", { className: "book-dl", href: currentPage.s3Url, target: "_blank", rel: "noopener noreferrer", title: "Open S3 share link", children: "\uD83D\uDD17 S3" })) : (_jsx("button", { className: "book-dl", onClick: uploadToS3, disabled: s3Uploading, title: "Upload page to S3 for sharing", children: s3Uploading ? '↑…' : '↑ Share' }))), currentPage.type === 'html' && currentPage.s3Url && (_jsx("button", { className: "book-dl", onClick: () => showQR(currentPage.s3Url), title: "Generate QR code", children: "QR" })), currentPage.type === 'html' && (/storyboard|episode/i.test(currentPage.title) || /<table/i.test(currentPage.html)) && (_jsx("button", { className: "book-dl", onClick: saveStoryboard, disabled: sbSaving, title: "Save storyboard to gallery", children: sbSaving ? 'Saving...' : 'Save' })), _jsx("button", { className: "book-dl", onClick: downloadCanvas, title: "Download current page", children: "\u2913 Download" })] }), _jsxs("div", { className: "book-frame", children: [_jsx("iframe", { ref: canvasIframeRef, title: "BotButt avatar", srcDoc: BOTBUTT_SRCDOC, sandbox: "allow-scripts", style: { display: currentPage.type === 'avatar' ? 'block' : 'none', width: '100%', height: '100%', border: 'none' } }), currentPage.type === 'edit' && (_jsx("iframe", { title: "Parlor Book editor", src: currentPage.src, sandbox: "allow-scripts allow-same-origin allow-forms", style: { width: '100%', height: '100%', border: 'none' } })), currentPage.type === 'html' && (_jsx("div", { className: "canvas-html-page", dangerouslySetInnerHTML: { __html: currentPage.html } })), currentPage.type === 'gallery' && (_jsx(GalleryPanel, { userEmail: userEmail, onLoadStoryboard: pushPage }))] })] }) })] }), _jsxs("div", { className: "parlor-basement", children: [_jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('identity'), children: [_jsx("span", { children: "Who Are You?" }), _jsx("span", { className: "basement-chevron", children: basement.identity ? '▲' : '▼' })] }), basement.identity && (_jsx("div", { className: "basement-body", children: _jsx("div", { className: "butt-bitch-picker horiz", children: BUTT_BITCHES.map((bb) => (_jsx("button", { className: `bb-btn${userEmail === bb.email ? ' bb-btn--active' : ''}`, style: { '--bb-color': bb.color }, onClick: () => setUserEmail(bb.email), children: bb.handle }, bb.email))) }) }))] }), _jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('memory'), children: [_jsx("span", { children: "Memory & Threads" }), _jsx("span", { className: "basement-chevron", children: basement.memory ? '▲' : '▼' })] }), basement.memory && (_jsxs("div", { className: "basement-body", children: [projectMemory ? (_jsxs(_Fragment, { children: [_jsxs("p", { className: "mem-focus", children: [_jsx("strong", { children: "Episode:" }), " ", projectMemory.episodeFocus] }), _jsx("ul", { className: "mem-threads", children: projectMemory.openThreads.map((t) => _jsx("li", { children: t }, t)) })] })) : _jsx("p", { style: { color: 'var(--muted)', fontSize: '.82rem' }, children: "Loading\u2026" }), _jsx("button", { className: "kg-button kg-button--harvest", onClick: runHarvest, disabled: harvesting, style: { marginTop: '10px' }, children: harvesting ? 'Scouring...' : 'Harvest SSBB from the web' }), lastHarvest && _jsxs("p", { style: { fontSize: '.72rem', color: 'var(--teal)', marginTop: '4px' }, children: [lastHarvest.count, " results via ", lastHarvest.backend] })] }))] })] }), qrModal && (_jsx("div", { className: "qr-backdrop", onClick: () => setQrModal(null), children: _jsxs("div", { className: "qr-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("img", { src: qrModal.dataUrl, alt: "QR Code", width: 220, height: 220 }), _jsxs("p", { className: "qr-url", children: [qrModal.url.slice(0, 72), qrModal.url.length > 72 ? '…' : ''] }), _jsx("button", { className: "qr-close", onClick: () => setQrModal(null), children: "\u2715 Close" })] }) }))] }));
 }

@@ -1,4 +1,5 @@
-import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, PutObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { config } from '../config';
 
 const s3 = new S3Client({ region: config.awsRegion });
@@ -26,13 +27,45 @@ export async function readObject(bucket: string, key: string): Promise<string | 
   }
 }
 
-export async function writeObject(bucket: string, key: string, body: string) {
+export async function writeObject(bucket: string, key: string, body: string, contentType = 'application/json') {
   await s3.send(
     new PutObjectCommand({
       Bucket: bucket,
       Key: key,
       Body: body,
-      ContentType: 'application/json'
+      ContentType: contentType
     })
   );
+}
+
+export async function writeBuffer(bucket: string, key: string, body: Buffer, contentType: string) {
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: body,
+      ContentType: contentType
+    })
+  );
+}
+
+export async function listObjects(bucket: string, prefix: string): Promise<{ key: string; lastModified: Date }[]> {
+  const results: { key: string; lastModified: Date }[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const res = await s3.send(new ListObjectsV2Command({
+      Bucket: bucket,
+      Prefix: prefix,
+      ContinuationToken: continuationToken
+    }));
+    for (const obj of res.Contents ?? []) {
+      if (obj.Key) results.push({ key: obj.Key, lastModified: obj.LastModified ?? new Date(0) });
+    }
+    continuationToken = res.NextContinuationToken;
+  } while (continuationToken);
+  return results;
+}
+
+export async function getPresignedUrl(bucket: string, key: string, expiresIn = 3600): Promise<string> {
+  return getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn });
 }

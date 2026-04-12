@@ -6,6 +6,7 @@ export type PersonaMemory = {
   profile: { displayName?: string; persona?: string; favoriteColor?: string; lastUpdated?: string };
   facts: MemoryFact[];
   moodBoard: string[];
+  lastSession?: { summary: string; at: string };
 };
 
 export type ProjectMemory = {
@@ -69,6 +70,12 @@ export function rememberUserFact(email: string, text: string, source: string) {
   current.profile.lastUpdated = new Date().toISOString();
   fs.writeFileSync(userPath(email), JSON.stringify(current, null, 2));
   return current;
+}
+
+export function updateLastSession(email: string, summary: string) {
+  const current = getUserMemory(email);
+  current.lastSession = { summary: summary.slice(0, 120), at: new Date().toISOString() };
+  fs.writeFileSync(userPath(email), JSON.stringify(current, null, 2));
 }
 
 export function getProjectMemory(): ProjectMemory {

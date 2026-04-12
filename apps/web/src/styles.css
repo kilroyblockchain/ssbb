@@ -386,6 +386,24 @@ body {
 
 .chat-empty { color: var(--muted); font-size: 0.85rem; font-style: italic; padding: 8px 4px; }
 
+.parlor-chat { position: relative; }
+.chat-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 0, 15, 0.85);
+  border: 2px dashed #ff1493;
+  border-radius: 10px;
+  color: #ff1493;
+  font-size: 1.2rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
 .chat-bubble {
   border-radius: 10px;
   padding: 0.6rem 0.8rem;
