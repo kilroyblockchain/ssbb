@@ -72,11 +72,26 @@ async function getBedrockClient(): Promise<LoadedBedrock | null> {
   return bedrockClientPromise;
 }
 
+export type ImageAttachment = {
+  name: string;
+  contentType: string;  // e.g. "image/jpeg"
+  data: string;         // base64-encoded bytes
+};
+
 type ChatOptions = {
   history: ConversationMessage[];
   prompt: string;
   context?: string;
+  attachments?: ImageAttachment[];
 };
+
+/** Map MIME type to Bedrock image format string */
+function bedrockImageFormat(mime: string): string {
+  if (mime.includes('png'))  return 'png';
+  if (mime.includes('gif'))  return 'gif';
+  if (mime.includes('webp')) return 'webp';
+  return 'jpeg';
+}
 
 export async function converseWithBedrock(opts: ChatOptions): Promise<string> {
   const sdk = await getBedrockClient();
@@ -84,12 +99,24 @@ export async function converseWithBedrock(opts: ChatOptions): Promise<string> {
     return `[mocked BotButt] ${opts.prompt}`;
   }
 
+  // Build the user content: images first, then text
+  const userContent: any[] = [];
+  for (const att of (opts.attachments || [])) {
+    userContent.push({
+      image: {
+        format: bedrockImageFormat(att.contentType),
+        source: { bytes: Buffer.from(att.data, 'base64') }
+      }
+    });
+  }
+  userContent.push({ text: opts.prompt });
+
   const messages = [
     ...opts.history.slice(-10).map((msg) => ({
       role: msg.author === 'bot' ? 'assistant' : 'user',
       content: [{ text: msg.text }]
     })),
-    { role: 'user', content: [{ text: opts.prompt }] }
+    { role: 'user', content: userContent }
   ];
 
   const resp = await sdk.client.send(

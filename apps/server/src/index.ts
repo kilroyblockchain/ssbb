@@ -32,7 +32,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
-app.use(express.json());
+app.use(express.json({ limit: '20mb' }));  // large enough for base64 images
 
 const server = createServer(app);
 const io = new SocketIOServer(server, {
@@ -62,9 +62,16 @@ app.get('/api/memory', (req, res) => {
   });
 });
 
+const imageAttachmentSchema = z.object({
+  name: z.string(),
+  contentType: z.string(),
+  data: z.string()   // base64
+});
+
 const chatSchema = z.object({
-  message: z.string().min(1, 'Message required').max(4000),
-  mode: z.enum(['shared', 'private']).default('shared')
+  message: z.string().min(1, 'Message required').max(8000),
+  mode: z.enum(['shared', 'private']).default('shared'),
+  attachments: z.array(imageAttachmentSchema).max(5).optional()
 });
 
 app.get('/api/chat/history', async (req, res) => {
@@ -81,7 +88,7 @@ app.post('/api/chat', async (req, res) => {
     return res.status(400).json({ error: parse.error.flatten() });
   }
 
-  const { message, mode } = parse.data;
+  const { message, mode, attachments } = parse.data;
   const userEmail = req.user?.email || null;
   const trimmed = message.trim();
   const id = uuid();
@@ -114,7 +121,8 @@ app.post('/api/chat', async (req, res) => {
         project: getProjectMemory(),
         user: userMemory
       },
-      history
+      history,
+      attachments
     });
 
     const userMsg = {
@@ -179,6 +187,15 @@ app.get('/api/song-canvas', (req, res) => {
   const html = buildSongCanvasHtml({ conversationId });
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(html);
+});
+
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.warn(`[server] Port ${PORT} in use — retrying in 1s...`);
+    setTimeout(() => server.listen(PORT), 1000);
+  } else {
+    throw err;
+  }
 });
 
 server.listen(PORT, () => {
