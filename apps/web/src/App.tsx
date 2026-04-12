@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuid } from 'uuid';
 import { create } from 'zustand';
 
@@ -368,25 +368,25 @@ svg{width:100%;height:100%;display:block;}
 </g>
 
 <!-- ── MIC STAND — pivoted at base for lean/drop animation ── -->
-<g id="micstand" style="transform-origin:578px 793px">
+<g id="micstand">
   <!-- Pole -->
   <line x1="578" y1="790" x2="578" y2="310" stroke="#c084fc" stroke-width="4.5" stroke-linecap="round"/>
   <!-- Boom arm angling left toward her face -->
-  <line x1="578" y1="310" x2="505" y2="338" stroke="#c084fc" stroke-width="3.5" stroke-linecap="round"/>
+  <line x1="578" y1="310" x2="505" y2="395" stroke="#c084fc" stroke-width="3.5" stroke-linecap="round"/>
   <!-- Boom knuckle -->
   <circle cx="578" cy="310" r="7" fill="#3a0858" stroke="#c084fc" stroke-width="2"/>
   <!-- Mic connector -->
-  <circle cx="505" cy="338" r="5" fill="#c084fc" filter="url(#pglow)"/>
+  <circle cx="505" cy="395" r="5" fill="#c084fc" filter="url(#pglow)"/>
   <!-- Mic capsule body -->
-  <rect x="490" y="306" width="30" height="44" rx="15" fill="#1a0030" stroke="#c084fc" stroke-width="2.5"/>
+  <rect x="490" y="363" width="30" height="44" rx="15" fill="#1a0030" stroke="#c084fc" stroke-width="2.5"/>
   <!-- Grille mesh lines -->
-  <line x1="496" y1="313" x2="514" y2="313" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
-  <line x1="494" y1="320" x2="516" y2="320" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
-  <line x1="494" y1="327" x2="516" y2="327" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
-  <line x1="494" y1="334" x2="516" y2="334" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
-  <line x1="496" y1="341" x2="514" y2="341" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
+  <line x1="496" y1="370" x2="514" y2="370" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
+  <line x1="494" y1="377" x2="516" y2="377" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
+  <line x1="494" y1="384" x2="516" y2="384" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
+  <line x1="494" y1="391" x2="516" y2="391" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
+  <line x1="496" y1="398" x2="514" y2="398" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
   <!-- Glow ring — pulses when she's speaking -->
-  <ellipse id="micglow" cx="505" cy="328" rx="24" ry="30" fill="none" stroke="#ff1493" stroke-width="2.5" opacity="0" filter="url(#pglow)"/>
+  <ellipse id="micglow" cx="505" cy="385" rx="24" ry="30" fill="none" stroke="#7df9ff" stroke-width="2.5" opacity="0" filter="url(#pglow)"/>
   <!-- Base tripod -->
   <line x1="578" y1="790" x2="548" y2="792" stroke="#c084fc" stroke-width="3" stroke-linecap="round"/>
   <line x1="578" y1="790" x2="608" y2="792" stroke="#c084fc" stroke-width="3" stroke-linecap="round"/>
@@ -683,10 +683,11 @@ svg{width:100%;height:100%;display:block;}
       // Head only moves on loud emphasis — still during normal speech
       var headTilt = amp > 0.2 ? (amp * 25 * Math.sin(t*3.5)).toFixed(2) : '0';
       head.setAttribute('transform','rotate('+headTilt+',400,310)');
-      // Arms — wide, energetic, amplitude-boosted
-      var spkSway = Math.sin(t*2.2)*22 + spkAmp*20;
-      armL.setAttribute('transform','rotate('+(-22+spkSway).toFixed(1)+',294,459)');
-      setArmR(-24+Math.sin(t*1.8)*12 - spkAmp*12);
+      // Arms — rest during normal speech, raise only on loud emphasis
+      var armEmphasis = Math.max(0, (amp - 0.22) * 6);  // silent below 0.22
+      var armSway = Math.sin(t * 2.4) * armEmphasis * 14;
+      armL.setAttribute('transform','rotate('+(-8 + armSway).toFixed(1)+',294,459)');
+      setArmR(-10 - armSway * 0.75);
       // Eyebrows lift subtly with amplitude
       var browRise = -(spkAmp*8 + Math.sin(t*3.5)*2);
       browL.setAttribute('transform','translate(0,'+browRise.toFixed(1)+')');
@@ -703,7 +704,7 @@ svg{width:100%;height:100%;display:block;}
       // Eye glow — blazes with voice
       targetGlow = Math.min(1.0, spkAmp*4.0 + 0.15);
       // Mic leans in while speaking
-      micstand.setAttribute('transform','rotate(-8,578,793)');
+      micstand.setAttribute('transform','rotate(-3,578,793)');
       tgx += (0 - tgx)*0.03;
       tgy += (0 - tgy)*0.03;
 
@@ -724,7 +725,7 @@ svg{width:100%;height:100%;display:block;}
       // Right brow arches up high, left stays flat
       browR.setAttribute('transform','translate(3,-18) rotate(-12,415,233)');
       browL.setAttribute('transform','');
-      micstand.setAttribute('transform','rotate(-4,578,793)');
+      micstand.setAttribute('transform','rotate(-1,578,793)');
       tgx += (-10 - tgx)*0.04;
       tgy += (-8  - tgy)*0.04;
 
@@ -839,6 +840,67 @@ svg{width:100%;height:100%;display:block;}
 </html>`;
 
 // ── Small bear for header ─────────────────────────────────────────────────────
+
+function HotdogRain({ onDone }: { onDone: () => void }) {
+  const [fading, setFading] = useState(false);
+  useEffect(() => {
+    const fadeTimer = setTimeout(() => setFading(true), 55000);
+    const doneTimer = setTimeout(onDone, 60000);
+    return () => { clearTimeout(fadeTimer); clearTimeout(doneTimer); };
+  }, [onDone]);
+
+  const dogs = useMemo(() => Array.from({ length: 45 }, (_, i) => ({
+    id: i,
+    left: Math.random() * 96,
+    duration: (3 + Math.random() * 5).toFixed(2),
+    delay: (Math.random() * 14).toFixed(2),
+    size: (1.4 + Math.random() * 1.6).toFixed(2),
+    rotate: Math.floor(Math.random() * 360),
+    spin: Math.random() > 0.5 ? 360 : -360,
+  })), []);
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 9999,
+      overflow: 'hidden', transition: 'opacity 5s',
+      opacity: fading ? 0 : 1,
+    }}>
+      <style>{`
+        @keyframes hd-fall {
+          0%   { transform: translateY(-90px) rotate(var(--r0)); opacity: 1; }
+          85%  { opacity: 1; }
+          100% { transform: translateY(105vh) rotate(var(--r1)); opacity: 0.3; }
+        }
+      `}</style>
+      {dogs.map(d => (
+        <div key={d.id} style={{
+          position: 'absolute',
+          left: `${d.left}vw`,
+          top: 0,
+          fontSize: `${d.size}rem`,
+          '--r0': `${d.rotate}deg`,
+          '--r1': `${d.rotate + d.spin}deg`,
+          animation: `hd-fall ${d.duration}s ${d.delay}s linear infinite`,
+          userSelect: 'none',
+        } as React.CSSProperties}>
+          🌭
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CanvasHtmlFrame({ html, title }: { html: string; title: string }) {
+  const [src, setSrc] = useState<string>('');
+  useEffect(() => {
+    const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{background:#0d0010;color:#F7F1E8;font-family:sans-serif;padding:24px;margin:0}</style></head><body>${html}</body></html>`;
+    const blob = new Blob([fullHtml], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    setSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [html, title]);
+  return <iframe src={src} style={{ width: '100%', height: '100%', border: 'none' }} title={title} />;
+}
 
 function BotButtBear({ state }: { state: 'idle' | 'listening' | 'speaking' }) {
   return (
@@ -1034,6 +1096,8 @@ export default function App() {
   const [lastHarvest,  setLastHarvest]  = useState<{ count: number; backend: string } | null>(null);
   const [basement,     setBasement]     = useState<Record<string, boolean>>({ identity: true, memory: false });
   const [isDragging,   setIsDragging]   = useState(false);
+  const [hotdogsOn,    setHotdogsOn]    = useState(false);
+  const dragCounterRef = useRef(0);
   const [qrModal,      setQrModal]      = useState<{ url: string; dataUrl: string } | null>(null);
   const [s3Uploading,  setS3Uploading]  = useState(false);
   const [sbSaving,     setSbSaving]     = useState(false);
@@ -1227,6 +1291,12 @@ export default function App() {
       addMessage({ id: uuid(), author: 'bot', text: '🎤 *drops the mic*', createdAt: new Date().toISOString() });
       return;
     }
+    if (/^\/hotdogs\b/i.test(text)) {
+      setInput('');
+      setHotdogsOn(true);
+      addMessage({ id: uuid(), author: 'bot', text: '🌭🌭🌭', createdAt: new Date().toISOString() });
+      return;
+    }
 
     const displayText = text || (attachments?.map(a => `[${a.name}]`).join(' ') ?? '');
     const userMsg: ChatMessage = { id: uuid(), author: 'butt', text: displayText, createdAt: new Date().toISOString() };
@@ -1254,16 +1324,20 @@ export default function App() {
         // Replace [IMG:name] placeholders with actual base64 data URLs from this message's attachments
         for (const att of (attachments ?? [])) {
           const dataUrl = `data:${att.contentType};base64,${att.data}`;
-          html = html.replaceAll(`[IMG:${att.name}]`, dataUrl);
+          html = html.split(`[IMG:${att.name}]`).join(dataUrl);
         }
         pushPage({ type: 'html', html, title: `BotButt made this (${new Date().toLocaleTimeString()})` });
         postToAvatar({ type: 'set-canvas-html', html });
         canvasCount++;
       }
+      // Detect [HOTDOGS] celebration trigger
+      if (/\[HOTDOGS\]/i.test(rawText)) setHotdogsOn(true);
+
       // Strip canvas blocks + any stray HTML tags from chat display text
       botText = rawText
         .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, canvasCount > 0 ? '↳ [see canvas →]' : '')
         .replace(/\[IMG:[^\]]*\]/g, '')       // strip image placeholders
+        .replace(/\[HOTDOGS\]/gi, '')         // strip hotdog trigger tag
         .replace(/<[^>]+>/g, '')              // strip any HTML tags
         .replace(/&[a-z#0-9]+;/gi, ' ')      // strip HTML entities
         .replace(/\s{2,}/g, ' ')
@@ -1424,6 +1498,8 @@ export default function App() {
   return (
     <div className="parlor">
 
+      {hotdogsOn && <HotdogRain onDone={() => setHotdogsOn(false)} />}
+
       {/* ── HEADER ── */}
       <header className="parlor-header">
         <div className="parlor-brand">
@@ -1458,9 +1534,10 @@ export default function App() {
 
         {/* Chat */}
         <section className="parlor-chat"
-          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false); }}
-          onDrop={handleDrop}>
+          onDragOver={(e) => e.preventDefault()}
+          onDragEnter={(e) => { e.preventDefault(); dragCounterRef.current++; setIsDragging(true); }}
+          onDragLeave={() => { dragCounterRef.current--; if (dragCounterRef.current === 0) setIsDragging(false); }}
+          onDrop={(e) => { dragCounterRef.current = 0; setIsDragging(false); handleDrop(e); }}>
           {isDragging && <div className="chat-drop-overlay">Drop file to send to BotButt</div>}
           <div className="card chat-card">
             <div className="chat-card__header">
@@ -1565,10 +1642,12 @@ export default function App() {
                   style={{ width: '100%', height: '100%', border: 'none' }}
                 />
               )}
-              {/* HTML canvas page — BotButt's creations */}
+              {/* HTML canvas page — blob URL so scripts run without sandbox restrictions */}
               {currentPage.type === 'html' && (
-                <div className="canvas-html-page"
-                  dangerouslySetInnerHTML={{ __html: currentPage.html }}
+                <CanvasHtmlFrame
+                  key={session.idx}
+                  html={currentPage.html}
+                  title={currentPage.title}
                 />
               )}
               {/* Gallery panel */}

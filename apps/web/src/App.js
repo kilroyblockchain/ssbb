@@ -17,6 +17,35 @@ const BUTT_BITCHES = [
     { handle: 'Astro Butt', email: 'astro@ssbb.band', color: '#c084fc' },
     { handle: 'Jazzy Butt', email: 'jazzy@ssbb.band', color: '#39ff14' },
 ];
+const CANVAS_IFRAME_PREFIX = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 20px 24px;
+    min-height: 100vh;
+    background: #08000f;
+    color: #F7F1E8;
+    font-family: 'Inter', sans-serif;
+    line-height: 1.7;
+  }
+</style>
+</head>
+<body>`;
+const CANVAS_IFRAME_SUFFIX = '</body></html>';
+const toCanvasSrcDoc = (rawHtml) => {
+    const trimmed = (rawHtml ?? '').trim();
+    if (!trimmed)
+        return `${CANVAS_IFRAME_PREFIX}<p></p>${CANVAS_IFRAME_SUFFIX}`;
+    if (/<(html|body|head)\b/i.test(trimmed) || /<!doctype/i.test(trimmed))
+        return trimmed;
+    return `${CANVAS_IFRAME_PREFIX}${trimmed}${CANVAS_IFRAME_SUFFIX}`;
+};
 // ── BotButt Avatar srcdoc (self-contained — lives inside the Parlor Book iframe) ──
 const BOTBUTT_SRCDOC = `<!DOCTYPE html>
 <html>
@@ -339,25 +368,25 @@ svg{width:100%;height:100%;display:block;}
 </g>
 
 <!-- ── MIC STAND — pivoted at base for lean/drop animation ── -->
-<g id="micstand" style="transform-origin:578px 793px">
+<g id="micstand">
   <!-- Pole -->
   <line x1="578" y1="790" x2="578" y2="310" stroke="#c084fc" stroke-width="4.5" stroke-linecap="round"/>
   <!-- Boom arm angling left toward her face -->
-  <line x1="578" y1="310" x2="505" y2="338" stroke="#c084fc" stroke-width="3.5" stroke-linecap="round"/>
+  <line x1="578" y1="310" x2="505" y2="395" stroke="#c084fc" stroke-width="3.5" stroke-linecap="round"/>
   <!-- Boom knuckle -->
   <circle cx="578" cy="310" r="7" fill="#3a0858" stroke="#c084fc" stroke-width="2"/>
   <!-- Mic connector -->
-  <circle cx="505" cy="338" r="5" fill="#c084fc" filter="url(#pglow)"/>
+  <circle cx="505" cy="395" r="5" fill="#c084fc" filter="url(#pglow)"/>
   <!-- Mic capsule body -->
-  <rect x="490" y="306" width="30" height="44" rx="15" fill="#1a0030" stroke="#c084fc" stroke-width="2.5"/>
+  <rect x="490" y="363" width="30" height="44" rx="15" fill="#1a0030" stroke="#c084fc" stroke-width="2.5"/>
   <!-- Grille mesh lines -->
-  <line x1="496" y1="313" x2="514" y2="313" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
-  <line x1="494" y1="320" x2="516" y2="320" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
-  <line x1="494" y1="327" x2="516" y2="327" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
-  <line x1="494" y1="334" x2="516" y2="334" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
-  <line x1="496" y1="341" x2="514" y2="341" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
+  <line x1="496" y1="370" x2="514" y2="370" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
+  <line x1="494" y1="377" x2="516" y2="377" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
+  <line x1="494" y1="384" x2="516" y2="384" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
+  <line x1="494" y1="391" x2="516" y2="391" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
+  <line x1="496" y1="398" x2="514" y2="398" stroke="rgba(192,132,252,.45)" stroke-width="1.5"/>
   <!-- Glow ring — pulses when she's speaking -->
-  <ellipse id="micglow" cx="505" cy="328" rx="24" ry="30" fill="none" stroke="#ff1493" stroke-width="2.5" opacity="0" filter="url(#pglow)"/>
+  <ellipse id="micglow" cx="505" cy="385" rx="24" ry="30" fill="none" stroke="#7df9ff" stroke-width="2.5" opacity="0" filter="url(#pglow)"/>
   <!-- Base tripod -->
   <line x1="578" y1="790" x2="548" y2="792" stroke="#c084fc" stroke-width="3" stroke-linecap="round"/>
   <line x1="578" y1="790" x2="608" y2="792" stroke="#c084fc" stroke-width="3" stroke-linecap="round"/>
@@ -674,7 +703,7 @@ svg{width:100%;height:100%;display:block;}
       // Eye glow — blazes with voice
       targetGlow = Math.min(1.0, spkAmp*4.0 + 0.15);
       // Mic leans in while speaking
-      micstand.setAttribute('transform','rotate(-8,578,793)');
+      micstand.setAttribute('transform','rotate(-3,578,793)');
       tgx += (0 - tgx)*0.03;
       tgy += (0 - tgy)*0.03;
 
@@ -695,7 +724,7 @@ svg{width:100%;height:100%;display:block;}
       // Right brow arches up high, left stays flat
       browR.setAttribute('transform','translate(3,-18) rotate(-12,415,233)');
       browL.setAttribute('transform','');
-      micstand.setAttribute('transform','rotate(-4,578,793)');
+      micstand.setAttribute('transform','rotate(-1,578,793)');
       tgx += (-10 - tgx)*0.04;
       tgy += (-8  - tgy)*0.04;
 
@@ -924,6 +953,7 @@ export default function App() {
     }, []);
     // ── Canvas session helpers ────────────────────────────────────────────────
     const currentPage = session.pages[session.idx];
+    const canvasHtmlDoc = useMemo(() => currentPage?.type === 'html' ? toCanvasSrcDoc(currentPage.html) : '', [currentPage]);
     const pushPage = useCallback((page) => {
         setSession(s => {
             const pages = [...s.pages.slice(0, s.idx + 1), page];
@@ -1295,5 +1325,5 @@ export default function App() {
                                                             return ai >= 0 ? { ...s, idx: ai } : s;
                                                         });
                                                         postToAvatar({ type: 'clear-canvas-html' });
-                                                    }, children: "BotButt" }), _jsx("button", { className: `book-tab${currentPage.type === 'edit' ? ' book-tab--active' : ''}`, onClick: openEdit, children: "Editor" }), _jsx("button", { className: `book-tab${currentPage.type === 'gallery' ? ' book-tab--active' : ''}`, onClick: () => pushPage({ type: 'gallery' }), children: "Gallery" })] }), _jsxs("div", { className: "book-nav", children: [_jsx("button", { className: "book-nav-btn", onClick: goBack, disabled: session.idx === 0, title: "Previous", children: "\u25C0" }), _jsxs("span", { className: "book-nav-pos", children: [session.idx + 1, "/", session.pages.length] }), _jsx("button", { className: "book-nav-btn", onClick: goForward, disabled: session.idx === session.pages.length - 1, title: "Next", children: "\u25B6" })] }), currentPage.type === 'html' && (currentPage.s3Url ? (_jsx("a", { className: "book-dl", href: currentPage.s3Url, target: "_blank", rel: "noopener noreferrer", title: "Open S3 share link", children: "\uD83D\uDD17 S3" })) : (_jsx("button", { className: "book-dl", onClick: uploadToS3, disabled: s3Uploading, title: "Upload page to S3 for sharing", children: s3Uploading ? '↑…' : '↑ Share' }))), currentPage.type === 'html' && currentPage.s3Url && (_jsx("button", { className: "book-dl", onClick: () => showQR(currentPage.s3Url), title: "Generate QR code", children: "QR" })), currentPage.type === 'html' && (/storyboard|episode/i.test(currentPage.title) || /<table/i.test(currentPage.html)) && (_jsx("button", { className: "book-dl", onClick: saveStoryboard, disabled: sbSaving, title: "Save storyboard to gallery", children: sbSaving ? 'Saving...' : 'Save' })), _jsx("button", { className: "book-dl", onClick: downloadCanvas, title: "Download current page", children: "\u2913 Download" })] }), _jsxs("div", { className: "book-frame", children: [_jsx("iframe", { ref: canvasIframeRef, title: "BotButt avatar", srcDoc: BOTBUTT_SRCDOC, sandbox: "allow-scripts", style: { display: currentPage.type === 'avatar' ? 'block' : 'none', width: '100%', height: '100%', border: 'none' } }), currentPage.type === 'edit' && (_jsx("iframe", { title: "Parlor Book editor", src: currentPage.src, sandbox: "allow-scripts allow-same-origin allow-forms", style: { width: '100%', height: '100%', border: 'none' } })), currentPage.type === 'html' && (_jsx("div", { className: "canvas-html-page", dangerouslySetInnerHTML: { __html: currentPage.html } })), currentPage.type === 'gallery' && (_jsx(GalleryPanel, { userEmail: userEmail, onLoadStoryboard: pushPage }))] })] }) })] }), _jsxs("div", { className: "parlor-basement", children: [_jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('identity'), children: [_jsx("span", { children: "Who Are You?" }), _jsx("span", { className: "basement-chevron", children: basement.identity ? '▲' : '▼' })] }), basement.identity && (_jsx("div", { className: "basement-body", children: _jsx("div", { className: "butt-bitch-picker horiz", children: BUTT_BITCHES.map((bb) => (_jsx("button", { className: `bb-btn${userEmail === bb.email ? ' bb-btn--active' : ''}`, style: { '--bb-color': bb.color }, onClick: () => setUserEmail(bb.email), children: bb.handle }, bb.email))) }) }))] }), _jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('memory'), children: [_jsx("span", { children: "Memory & Threads" }), _jsx("span", { className: "basement-chevron", children: basement.memory ? '▲' : '▼' })] }), basement.memory && (_jsxs("div", { className: "basement-body", children: [projectMemory ? (_jsxs(_Fragment, { children: [_jsxs("p", { className: "mem-focus", children: [_jsx("strong", { children: "Episode:" }), " ", projectMemory.episodeFocus] }), _jsx("ul", { className: "mem-threads", children: projectMemory.openThreads.map((t) => _jsx("li", { children: t }, t)) })] })) : _jsx("p", { style: { color: 'var(--muted)', fontSize: '.82rem' }, children: "Loading\u2026" }), _jsx("button", { className: "kg-button kg-button--harvest", onClick: runHarvest, disabled: harvesting, style: { marginTop: '10px' }, children: harvesting ? 'Scouring...' : 'Harvest SSBB from the web' }), lastHarvest && _jsxs("p", { style: { fontSize: '.72rem', color: 'var(--teal)', marginTop: '4px' }, children: [lastHarvest.count, " results via ", lastHarvest.backend] })] }))] })] }), qrModal && (_jsx("div", { className: "qr-backdrop", onClick: () => setQrModal(null), children: _jsxs("div", { className: "qr-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("img", { src: qrModal.dataUrl, alt: "QR Code", width: 220, height: 220 }), _jsxs("p", { className: "qr-url", children: [qrModal.url.slice(0, 72), qrModal.url.length > 72 ? '…' : ''] }), _jsx("button", { className: "qr-close", onClick: () => setQrModal(null), children: "\u2715 Close" })] }) }))] }));
+                                                    }, children: "BotButt" }), _jsx("button", { className: `book-tab${currentPage.type === 'edit' ? ' book-tab--active' : ''}`, onClick: openEdit, children: "Editor" }), _jsx("button", { className: `book-tab${currentPage.type === 'gallery' ? ' book-tab--active' : ''}`, onClick: () => pushPage({ type: 'gallery' }), children: "Gallery" })] }), _jsxs("div", { className: "book-nav", children: [_jsx("button", { className: "book-nav-btn", onClick: goBack, disabled: session.idx === 0, title: "Previous", children: "\u25C0" }), _jsxs("span", { className: "book-nav-pos", children: [session.idx + 1, "/", session.pages.length] }), _jsx("button", { className: "book-nav-btn", onClick: goForward, disabled: session.idx === session.pages.length - 1, title: "Next", children: "\u25B6" })] }), currentPage.type === 'html' && (currentPage.s3Url ? (_jsx("a", { className: "book-dl", href: currentPage.s3Url, target: "_blank", rel: "noopener noreferrer", title: "Open S3 share link", children: "\uD83D\uDD17 S3" })) : (_jsx("button", { className: "book-dl", onClick: uploadToS3, disabled: s3Uploading, title: "Upload page to S3 for sharing", children: s3Uploading ? '↑…' : '↑ Share' }))), currentPage.type === 'html' && currentPage.s3Url && (_jsx("button", { className: "book-dl", onClick: () => showQR(currentPage.s3Url), title: "Generate QR code", children: "QR" })), currentPage.type === 'html' && (/storyboard|episode/i.test(currentPage.title) || /<table/i.test(currentPage.html)) && (_jsx("button", { className: "book-dl", onClick: saveStoryboard, disabled: sbSaving, title: "Save storyboard to gallery", children: sbSaving ? 'Saving...' : 'Save' })), _jsx("button", { className: "book-dl", onClick: downloadCanvas, title: "Download current page", children: "\u2913 Download" })] }), _jsxs("div", { className: "book-frame", children: [_jsx("iframe", { ref: canvasIframeRef, title: "BotButt avatar", srcDoc: BOTBUTT_SRCDOC, sandbox: "allow-scripts", style: { display: currentPage.type === 'avatar' ? 'block' : 'none', width: '100%', height: '100%', border: 'none' } }), currentPage.type === 'edit' && (_jsx("iframe", { title: "Parlor Book editor", src: currentPage.src, sandbox: "allow-scripts allow-same-origin allow-forms", style: { width: '100%', height: '100%', border: 'none' } })), currentPage.type === 'html' && (_jsx("iframe", { className: "canvas-html-page", title: `Canvas page ${session.idx + 1}`, sandbox: "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads", srcDoc: canvasHtmlDoc })), currentPage.type === 'gallery' && (_jsx(GalleryPanel, { userEmail: userEmail, onLoadStoryboard: pushPage }))] })] }) })] }), _jsxs("div", { className: "parlor-basement", children: [_jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('identity'), children: [_jsx("span", { children: "Who Are You?" }), _jsx("span", { className: "basement-chevron", children: basement.identity ? '▲' : '▼' })] }), basement.identity && (_jsx("div", { className: "basement-body", children: _jsx("div", { className: "butt-bitch-picker horiz", children: BUTT_BITCHES.map((bb) => (_jsx("button", { className: `bb-btn${userEmail === bb.email ? ' bb-btn--active' : ''}`, style: { '--bb-color': bb.color }, onClick: () => setUserEmail(bb.email), children: bb.handle }, bb.email))) }) }))] }), _jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('memory'), children: [_jsx("span", { children: "Memory & Threads" }), _jsx("span", { className: "basement-chevron", children: basement.memory ? '▲' : '▼' })] }), basement.memory && (_jsxs("div", { className: "basement-body", children: [projectMemory ? (_jsxs(_Fragment, { children: [_jsxs("p", { className: "mem-focus", children: [_jsx("strong", { children: "Episode:" }), " ", projectMemory.episodeFocus] }), _jsx("ul", { className: "mem-threads", children: projectMemory.openThreads.map((t) => _jsx("li", { children: t }, t)) })] })) : _jsx("p", { style: { color: 'var(--muted)', fontSize: '.82rem' }, children: "Loading\u2026" }), _jsx("button", { className: "kg-button kg-button--harvest", onClick: runHarvest, disabled: harvesting, style: { marginTop: '10px' }, children: harvesting ? 'Scouring...' : 'Harvest SSBB from the web' }), lastHarvest && _jsxs("p", { style: { fontSize: '.72rem', color: 'var(--teal)', marginTop: '4px' }, children: [lastHarvest.count, " results via ", lastHarvest.backend] })] }))] })] }), qrModal && (_jsx("div", { className: "qr-backdrop", onClick: () => setQrModal(null), children: _jsxs("div", { className: "qr-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("img", { src: qrModal.dataUrl, alt: "QR Code", width: 220, height: 220 }), _jsxs("p", { className: "qr-url", children: [qrModal.url.slice(0, 72), qrModal.url.length > 72 ? '…' : ''] }), _jsx("button", { className: "qr-close", onClick: () => setQrModal(null), children: "\u2715 Close" })] }) }))] }));
 }
