@@ -15,7 +15,7 @@ type ChatMessage = {
 
 type CanvasPage =
   | { type: 'avatar' }
-  | { type: 'html'; html: string; title: string }
+  | { type: 'html'; html: string; title: string; s3Url?: string }
   | { type: 'edit'; src: string };
 
 type ChatState = {
@@ -220,72 +220,86 @@ svg{width:100%;height:100%;display:block;}
   <ellipse cx="453" cy="322" rx="30" ry="16" fill="rgba(255,20,147,.18)" transform="rotate(10,453,322)"/>
 
   <!-- Left eyebrow — 1950s thin arched pencil brow -->
-  <path id="browL" d="M338 238 Q362 226 385 233" stroke="#c084fc" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+  <path id="browL" d="M326 238 Q350 226 373 233" stroke="#c084fc" stroke-width="4.5" stroke-linecap="round" fill="none"/>
   <!-- Right eyebrow — raised in thinking mode -->
-  <path id="browR" d="M415 233 Q438 226 462 238" stroke="#c084fc" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+  <path id="browR" d="M427 233 Q450 226 474 238" stroke="#c084fc" stroke-width="4.5" stroke-linecap="round" fill="none"/>
 
-  <!-- Big pretty eyes (default) — 1950s glamour girl -->
+  <!-- Eye glow rings — pulse with TTS amplitude while speaking -->
+  <ellipse id="eyeGlowL" cx="352" cy="279" rx="36" ry="28" fill="none" stroke="rgba(255,79,154,0.85)" stroke-width="7" opacity="0" filter="url(#pglow)"/>
+  <ellipse id="eyeGlowR" cx="448" cy="279" rx="36" ry="28" fill="none" stroke="rgba(255,79,154,0.85)" stroke-width="7" opacity="0" filter="url(#pglow)"/>
+
+  <!-- Big pretty eyes (default) — 1950s glamour girl — eyes fixed, iris group moves with gaze -->
   <g id="eyeLbig">
-    <!-- Eye white -->
-    <ellipse cx="364" cy="279" rx="30" ry="23" fill="#fff5ee"/>
-    <!-- Iris — deep magenta -->
-    <ellipse cx="364" cy="281" rx="18" ry="19" fill="#b5006e"/>
-    <!-- Pupil -->
-    <ellipse cx="364" cy="281" rx="10" ry="11" fill="#06000f"/>
-    <!-- Inner iris ring -->
-    <ellipse cx="364" cy="281" rx="14" ry="15" fill="none" stroke="rgba(200,0,100,.45)" stroke-width="1.5"/>
-    <!-- Sparkles -->
-    <circle cx="356" cy="272" r="5" fill="white" opacity=".92"/>
-    <circle cx="371" cy="276" r="2.5" fill="white" opacity=".65"/>
-    <!-- Upper lid shadow band -->
-    <ellipse cx="364" cy="263" rx="30" ry="9" fill="#3a0858"/>
+    <!-- Eye white — fixed -->
+    <ellipse cx="352" cy="279" rx="30" ry="23" fill="#fff5ee"/>
+    <!-- Iris group — only this translates during gaze -->
+    <g id="irisGroupL">
+      <ellipse cx="352" cy="281" rx="18" ry="19" fill="#b5006e"/>
+      <ellipse cx="352" cy="281" rx="10" ry="11" fill="#06000f"/>
+      <ellipse cx="352" cy="281" rx="14" ry="15" fill="none" stroke="rgba(200,0,100,.45)" stroke-width="1.5"/>
+      <circle cx="344" cy="272" r="5" fill="white" opacity=".92"/>
+      <circle cx="359" cy="276" r="2.5" fill="white" opacity=".65"/>
+    </g>
+    <!-- Upper lid shadow band — fixed, drawn on top of iris -->
+    <ellipse cx="352" cy="263" rx="30" ry="9" fill="#3a0858"/>
+    <!-- Lower lid shadow band — fixed -->
+    <ellipse cx="352" cy="297" rx="30" ry="7" fill="#3a0858"/>
     <!-- Thick cat-eye lash line -->
-    <path d="M336 270 Q364 257 392 270" stroke="#08000f" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <path d="M324 270 Q352 257 380 270" stroke="#08000f" stroke-width="5" fill="none" stroke-linecap="round"/>
     <!-- Dramatic lashes -->
-    <line x1="339" y1="266" x2="333" y2="254" stroke="#08000f" stroke-width="3" stroke-linecap="round"/>
-    <line x1="350" y1="261" x2="346" y2="249" stroke="#08000f" stroke-width="2.5" stroke-linecap="round"/>
-    <line x1="363" y1="258" x2="362" y2="246" stroke="#08000f" stroke-width="2.5" stroke-linecap="round"/>
-    <line x1="376" y1="261" x2="382" y2="250" stroke="#08000f" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="327" y1="266" x2="321" y2="254" stroke="#08000f" stroke-width="3" stroke-linecap="round"/>
+    <line x1="338" y1="261" x2="334" y2="249" stroke="#08000f" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="351" y1="258" x2="350" y2="246" stroke="#08000f" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="364" y1="261" x2="370" y2="250" stroke="#08000f" stroke-width="2.5" stroke-linecap="round"/>
     <!-- Cat-eye flick -->
-    <line x1="388" y1="267" x2="398" y2="257" stroke="#08000f" stroke-width="4" stroke-linecap="round"/>
-    <!-- Bottom lash line (subtle) -->
-    <path d="M338 289 Q364 296 390 289" stroke="#08000f" stroke-width="1.5" fill="none" stroke-linecap="round" opacity=".5"/>
+    <line x1="376" y1="267" x2="386" y2="257" stroke="#08000f" stroke-width="4" stroke-linecap="round"/>
+    <!-- Lower lash line -->
+    <path d="M326 291 Q352 299 378 291" stroke="#3a0858" stroke-width="2.5" fill="none" stroke-linecap="round"/>
   </g>
   <g id="eyeRbig">
-    <ellipse cx="436" cy="279" rx="30" ry="23" fill="#fff5ee"/>
-    <ellipse cx="436" cy="281" rx="18" ry="19" fill="#b5006e"/>
-    <ellipse cx="436" cy="281" rx="10" ry="11" fill="#06000f"/>
-    <ellipse cx="436" cy="281" rx="14" ry="15" fill="none" stroke="rgba(200,0,100,.45)" stroke-width="1.5"/>
-    <circle cx="428" cy="272" r="5" fill="white" opacity=".92"/>
-    <circle cx="443" cy="276" r="2.5" fill="white" opacity=".65"/>
-    <ellipse cx="436" cy="263" rx="30" ry="9" fill="#3a0858"/>
-    <path d="M408 270 Q436 257 464 270" stroke="#08000f" stroke-width="5" fill="none" stroke-linecap="round"/>
-    <line x1="411" y1="266" x2="405" y2="254" stroke="#08000f" stroke-width="4" stroke-linecap="round"/>
-    <line x1="422" y1="261" x2="418" y2="249" stroke="#08000f" stroke-width="2.5" stroke-linecap="round"/>
-    <line x1="435" y1="258" x2="434" y2="246" stroke="#08000f" stroke-width="2.5" stroke-linecap="round"/>
-    <line x1="448" y1="261" x2="454" y2="250" stroke="#08000f" stroke-width="2.5" stroke-linecap="round"/>
-    <line x1="460" y1="267" x2="470" y2="257" stroke="#08000f" stroke-width="3" stroke-linecap="round"/>
-    <path d="M410 289 Q436 296 462 289" stroke="#08000f" stroke-width="1.5" fill="none" stroke-linecap="round" opacity=".5"/>
+    <!-- Eye white — fixed -->
+    <ellipse cx="448" cy="279" rx="30" ry="23" fill="#fff5ee"/>
+    <!-- Iris group — only this translates during gaze -->
+    <g id="irisGroupR">
+      <ellipse cx="448" cy="281" rx="18" ry="19" fill="#b5006e"/>
+      <ellipse cx="448" cy="281" rx="10" ry="11" fill="#06000f"/>
+      <ellipse cx="448" cy="281" rx="14" ry="15" fill="none" stroke="rgba(200,0,100,.45)" stroke-width="1.5"/>
+      <circle cx="440" cy="272" r="5" fill="white" opacity=".92"/>
+      <circle cx="455" cy="276" r="2.5" fill="white" opacity=".65"/>
+    </g>
+    <!-- Upper lid shadow band — fixed, drawn on top of iris -->
+    <ellipse cx="448" cy="263" rx="30" ry="9" fill="#3a0858"/>
+    <!-- Lower lid shadow band — fixed -->
+    <ellipse cx="448" cy="297" rx="30" ry="7" fill="#3a0858"/>
+    <path d="M420 270 Q448 257 476 270" stroke="#08000f" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <line x1="423" y1="266" x2="417" y2="254" stroke="#08000f" stroke-width="4" stroke-linecap="round"/>
+    <line x1="434" y1="261" x2="430" y2="249" stroke="#08000f" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="447" y1="258" x2="446" y2="246" stroke="#08000f" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="460" y1="261" x2="466" y2="250" stroke="#08000f" stroke-width="2.5" stroke-linecap="round"/>
+    <!-- Cat-eye flick -->
+    <line x1="472" y1="267" x2="482" y2="257" stroke="#08000f" stroke-width="3" stroke-linecap="round"/>
+    <!-- Lower lash line -->
+    <path d="M422 291 Q448 299 474 291" stroke="#3a0858" stroke-width="2.5" fill="none" stroke-linecap="round"/>
   </g>
 
-  <!-- X eyes — punk rock mode (hidden by default) -->
+  <!-- X eyes — punk rock mode (hidden by default) — centered on wider eye positions -->
   <g id="eyeL" filter="url(#yglow)" style="display:none">
-    <line x1="350" y1="265" x2="378" y2="293" stroke="#ffe66d" stroke-width="4.5" stroke-linecap="round"/>
-    <line x1="378" y1="265" x2="350" y2="293" stroke="#ffe66d" stroke-width="4.5" stroke-linecap="round"/>
-    <line x1="347" y1="262" x2="342" y2="253" stroke="#ffe66d" stroke-width="2.5" stroke-linecap="round"/>
-    <line x1="357" y1="258" x2="354" y2="248" stroke="#ffe66d" stroke-width="2.5" stroke-linecap="round"/>
-    <line x1="369" y1="256" x2="368" y2="246" stroke="#ffe66d" stroke-width="2.5" stroke-linecap="round"/>
-    <line x1="380" y1="259" x2="385" y2="250" stroke="#ffe66d" stroke-width="2.5" stroke-linecap="round"/>
-    <line x1="383" y1="263" x2="393" y2="255" stroke="#ffe66d" stroke-width="3" stroke-linecap="round"/>
+    <line x1="338" y1="265" x2="366" y2="293" stroke="#ffe66d" stroke-width="4.5" stroke-linecap="round"/>
+    <line x1="366" y1="265" x2="338" y2="293" stroke="#ffe66d" stroke-width="4.5" stroke-linecap="round"/>
+    <line x1="335" y1="262" x2="330" y2="253" stroke="#ffe66d" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="345" y1="258" x2="342" y2="248" stroke="#ffe66d" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="357" y1="256" x2="356" y2="246" stroke="#ffe66d" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="368" y1="259" x2="373" y2="250" stroke="#ffe66d" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="371" y1="263" x2="381" y2="255" stroke="#ffe66d" stroke-width="3" stroke-linecap="round"/>
   </g>
   <g id="eyeR" filter="url(#yglow)" style="display:none">
-    <line x1="422" y1="265" x2="450" y2="293" stroke="#ffe66d" stroke-width="4.5" stroke-linecap="round"/>
-    <line x1="450" y1="265" x2="422" y2="293" stroke="#ffe66d" stroke-width="4.5" stroke-linecap="round"/>
-    <line x1="418" y1="259" x2="413" y2="250" stroke="#ffe66d" stroke-width="2.5" stroke-linecap="round"/>
-    <line x1="430" y1="256" x2="430" y2="246" stroke="#ffe66d" stroke-width="2.5" stroke-linecap="round"/>
-    <line x1="442" y1="258" x2="446" y2="248" stroke="#ffe66d" stroke-width="2.5" stroke-linecap="round"/>
-    <line x1="452" y1="262" x2="458" y2="253" stroke="#ffe66d" stroke-width="2.5" stroke-linecap="round"/>
-    <line x1="417" y1="263" x2="407" y2="255" stroke="#ffe66d" stroke-width="3" stroke-linecap="round"/>
+    <line x1="434" y1="265" x2="462" y2="293" stroke="#ffe66d" stroke-width="4.5" stroke-linecap="round"/>
+    <line x1="462" y1="265" x2="434" y2="293" stroke="#ffe66d" stroke-width="4.5" stroke-linecap="round"/>
+    <line x1="430" y1="259" x2="425" y2="250" stroke="#ffe66d" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="442" y1="256" x2="442" y2="246" stroke="#ffe66d" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="454" y1="258" x2="458" y2="248" stroke="#ffe66d" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="464" y1="262" x2="470" y2="253" stroke="#ffe66d" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="429" y1="263" x2="419" y2="255" stroke="#ffe66d" stroke-width="3" stroke-linecap="round"/>
   </g>
 
   <!-- Nose -->
@@ -302,8 +316,8 @@ svg{width:100%;height:100%;display:block;}
   <!-- Open mouth for speaking — positioned at lip center -->
   <ellipse id="mopen" cx="400" cy="380" rx="26" ry="0" fill="#0a001a" stroke="#ff1493" stroke-width="2.5"/>
   <!-- Blink covers — match head fill, cover eyes during blink -->
-  <ellipse id="blinkL" cx="364" cy="279" rx="34" ry="0" fill="#3a0858"/>
-  <ellipse id="blinkR" cx="436" cy="279" rx="34" ry="0" fill="#3a0858"/>
+  <ellipse id="blinkL" cx="352" cy="279" rx="34" ry="0" fill="#3a0858"/>
+  <ellipse id="blinkR" cx="448" cy="279" rx="34" ry="0" fill="#3a0858"/>
 
   <!-- Bow -->
   <g filter="url(#pglow)">
@@ -403,6 +417,11 @@ svg{width:100%;height:100%;display:block;}
   var eyeR     = document.getElementById('eyeR');
   var eyeLbig  = document.getElementById('eyeLbig');
   var eyeRbig  = document.getElementById('eyeRbig');
+  var eyeGlowL  = document.getElementById('eyeGlowL');
+  var eyeGlowR  = document.getElementById('eyeGlowR');
+  var irisGroupL= document.getElementById('irisGroupL');
+  var irisGroupR= document.getElementById('irisGroupR');
+  var eyeGlow=0, targetGlow=0; // smooth fade — rises fast, dims slowly
   var blinkL   = document.getElementById('blinkL');
   var blinkR   = document.getElementById('blinkR');
   var smile    = document.getElementById('smile');
@@ -603,13 +622,16 @@ svg{width:100%;height:100%;display:block;}
     tickLaser(0.016);
     tickMicDrop(0.016);
 
-    var gxt = gazeX.toFixed(2), gyt = gazeY.toFixed(2);
+    // Iris moves within fixed eye whites — scale down so iris stays inside white
+    var ixt = (gazeX * 0.55).toFixed(2);
+    var iyt = (gazeY * 0.38).toFixed(2);
     if(!blinking){
-      // Gaze applies to whichever eye set is showing
-      eyeL.setAttribute('transform','translate('+gxt+','+gyt+')');
-      eyeR.setAttribute('transform','translate('+gxt+','+gyt+')');
-      eyeLbig.setAttribute('transform','translate('+gxt+','+gyt+')');
-      eyeRbig.setAttribute('transform','translate('+gxt+','+gyt+')');
+      // Only iris groups translate — the eye whites and lids stay fixed
+      irisGroupL.setAttribute('transform','translate('+ixt+','+iyt+')');
+      irisGroupR.setAttribute('transform','translate('+ixt+','+iyt+')');
+      // Punk X eyes also track gaze (they're standalone)
+      eyeL.setAttribute('transform','translate('+ixt+','+iyt+')');
+      eyeR.setAttribute('transform','translate('+ixt+','+iyt+')');
     }
 
     if(emotion==='punk'){
@@ -620,7 +642,8 @@ svg{width:100%;height:100%;display:block;}
       micglow.setAttribute('opacity','0');
       var pk=(Math.sin(t*8)*22).toFixed(1);
       armL.setAttribute('transform','rotate('+(-28+ +pk)+',294,459)');
-      armR.setAttribute('transform','rotate('+(28- +pk)+',506,459)');
+      setArmR(28- +pk);
+      targetGlow=0;
       head.setAttribute('transform','rotate('+(Math.sin(t*7)*6).toFixed(2)+',400,310)');
       adot.setAttribute('r',(10+Math.abs(Math.sin(t*13))*8).toFixed(1));
       ring1.setAttribute('opacity','1');
@@ -643,7 +666,7 @@ svg{width:100%;height:100%;display:block;}
       // Left arm swings out expressively; right arm reaches for mic
       var spkSway = Math.sin(t*2.2)*14;
       armL.setAttribute('transform','rotate('+(-18+spkSway).toFixed(1)+',294,459)');
-      armR.setAttribute('transform','rotate('+(-20+Math.sin(t*1.8)*6).toFixed(1)+',506,459)');
+      setArmR(-20+Math.sin(t*1.8)*6);
       var ap=(Math.sin(t*9)*0.5+0.5);
       adot.setAttribute('r',(8+ap*5).toFixed(1));
       ring1.setAttribute('opacity',(ap*0.75).toFixed(2));
@@ -653,6 +676,8 @@ svg{width:100%;height:100%;display:block;}
       micglow.setAttribute('opacity',(0.35+ap*0.65).toFixed(2));
       bdotG.setAttribute('opacity','1'); bdotO.setAttribute('opacity','1');
       browL.setAttribute('transform',''); browR.setAttribute('transform','');
+      // Eye glow tracks voice amplitude (smoothed in post-emotion block)
+      targetGlow = Math.min(0.9, spkAmp*2.2);
       // Mic leans gently toward her while speaking
       micstand.setAttribute('transform','rotate(-8,578,793)');
       tgx += (0 - tgx)*0.03;
@@ -663,14 +688,15 @@ svg{width:100%;height:100%;display:block;}
       smile.style.opacity='0.55';
       head.setAttribute('transform','rotate('+(Math.sin(t*0.9)*3.5).toFixed(2)+',400,310)');
       armL.setAttribute('transform','rotate(-6,294,459)');
-      armR.setAttribute('transform','rotate(-12,506,459)');
+      setArmR(-12);
+      targetGlow=0;
       adot.setAttribute('r','6');
       ring1.setAttribute('opacity','0');
       ring2.setAttribute('opacity','0');
       micglow.setAttribute('opacity','0');
       bdotG.setAttribute('opacity','1'); bdotO.setAttribute('opacity','1');
-      // Right eyebrow raised quizzically
-      browR.setAttribute('transform','translate(0,-9)');
+      // One eyebrow up — right brow raised high, left stays flat
+      browR.setAttribute('transform','translate(3,-15) rotate(-10,415,233)');
       browL.setAttribute('transform','');
       micstand.setAttribute('transform','rotate(-4,578,793)');
       tgx += (-10 - tgx)*0.04;
@@ -683,7 +709,8 @@ svg{width:100%;height:100%;display:block;}
       micglow.setAttribute('opacity','0');
       var ex=Math.sin(t*6)*18;
       armL.setAttribute('transform','rotate('+(-22+ex).toFixed(1)+',294,459)');
-      armR.setAttribute('transform','rotate('+(22-ex).toFixed(1)+',506,459)');
+      setArmR(22-ex);
+      targetGlow=0;
       head.setAttribute('transform','rotate('+(Math.sin(t*6)*4.5).toFixed(2)+',400,310)');
       adot.setAttribute('r',(8+Math.abs(Math.sin(t*11))*7).toFixed(1));
       ring1.setAttribute('opacity','0.85');
@@ -703,7 +730,8 @@ svg{width:100%;height:100%;display:block;}
       head.setAttribute('transform','rotate('+(Math.sin(t*0.55)*1.2).toFixed(2)+',400,310)');
       var idleSw=Math.sin(t*0.5)*10;
       armL.setAttribute('transform','rotate('+idleSw.toFixed(1)+',294,459)');
-      armR.setAttribute('transform','rotate('+(-idleSw).toFixed(1)+',506,459)');
+      setArmR(-idleSw);
+      targetGlow=0;
       adot.setAttribute('r',(6+Math.sin(t*1.8)*2).toFixed(1));
       ring1.setAttribute('opacity',Math.max(0,Math.sin(t*1.8)*0.28).toFixed(2));
       ring2.setAttribute('opacity','0');
@@ -712,6 +740,12 @@ svg{width:100%;height:100%;display:block;}
       browL.setAttribute('transform',''); browR.setAttribute('transform','');
       micstand.setAttribute('transform','');
     }
+
+    // Eye glow smooth lerp — rises fast toward target, dims slowly after speaking
+    var lerpRate = eyeGlow < targetGlow ? 0.14 : 0.035;
+    eyeGlow += (targetGlow - eyeGlow) * lerpRate;
+    eyeGlowL.setAttribute('opacity', eyeGlow.toFixed(3));
+    eyeGlowR.setAttribute('opacity', eyeGlow.toFixed(3));
 
     requestAnimationFrame(tick);
   }
@@ -818,6 +852,8 @@ export default function App() {
   const [lastHarvest,  setLastHarvest]  = useState<{ count: number; backend: string } | null>(null);
   const [basement,     setBasement]     = useState<Record<string, boolean>>({ identity: true, memory: false });
   const [isDragging,   setIsDragging]   = useState(false);
+  const [qrModal,      setQrModal]      = useState<{ url: string; dataUrl: string } | null>(null);
+  const [s3Uploading,  setS3Uploading]  = useState(false);
 
   const lastSpokenRef    = useRef<string | null>(null);
   const chatFeedRef      = useRef<HTMLDivElement>(null);
@@ -1095,6 +1131,40 @@ export default function App() {
     finally     { setHarvesting(false); }
   }
 
+  // ── Canvas S3 upload + QR ────────────────────────────────────────────────
+  const uploadToS3 = useCallback(async () => {
+    if (currentPage.type !== 'html' || currentPage.s3Url || s3Uploading) return;
+    setS3Uploading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/canvas/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
+        body: JSON.stringify({ html: currentPage.html, title: currentPage.title }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        setSession(s => {
+          const pages = [...s.pages];
+          const p = pages[s.idx];
+          if (p.type === 'html') pages[s.idx] = { ...p, s3Url: data.url };
+          return { ...s, pages };
+        });
+      }
+    } catch (e) { console.warn('[s3 upload]', e); }
+    finally { setS3Uploading(false); }
+  }, [currentPage, s3Uploading, userEmail]);
+
+  const showQR = useCallback(async (url: string) => {
+    try {
+      const QRCode = (await import('qrcode')).default;
+      const dataUrl = await QRCode.toDataURL(url, {
+        width: 240, margin: 2,
+        color: { dark: '#111111', light: '#F7F1E8' },
+      });
+      setQrModal({ url, dataUrl });
+    } catch (e) { console.warn('[qr]', e); }
+  }, []);
+
   // ── Canvas view helpers ──────────────────────────────────────────────────
   const openEdit = useCallback(() => {
     pushPage({ type: 'edit', src: `${canvasBase}&tick=${Date.now()}` });
@@ -1222,7 +1292,10 @@ export default function App() {
               <span className="book-title">✦ Parlor Book</span>
               <div className="book-tabs">
                 <button className={`book-tab${currentPage.type === 'avatar' ? ' book-tab--active' : ''}`}
-                  onClick={() => setSession(s => ({ ...s, idx: 0 }))}>
+                  onClick={() => setSession(s => {
+                    const ai = s.pages.findIndex(p => p.type === 'avatar');
+                    return ai >= 0 ? { ...s, idx: ai } : s;
+                  })}>
                   BotButt
                 </button>
                 <button className={`book-tab${currentPage.type === 'edit' ? ' book-tab--active' : ''}`}
@@ -1235,6 +1308,18 @@ export default function App() {
                 <span className="book-nav-pos">{session.idx + 1}/{session.pages.length}</span>
                 <button className="book-nav-btn" onClick={goForward} disabled={session.idx === session.pages.length - 1} title="Next">▶</button>
               </div>
+              {currentPage.type === 'html' && (
+                currentPage.s3Url ? (
+                  <a className="book-dl" href={currentPage.s3Url} target="_blank" rel="noopener noreferrer" title="Open S3 share link">🔗 S3</a>
+                ) : (
+                  <button className="book-dl" onClick={uploadToS3} disabled={s3Uploading} title="Upload page to S3 for sharing">
+                    {s3Uploading ? '↑…' : '↑ Share'}
+                  </button>
+                )
+              )}
+              {currentPage.type === 'html' && currentPage.s3Url && (
+                <button className="book-dl" onClick={() => showQR(currentPage.s3Url!)} title="Generate QR code">QR</button>
+              )}
               <button className="book-dl" onClick={downloadCanvas} title="Download current page">⤓ Download</button>
             </div>
 
@@ -1317,6 +1402,17 @@ export default function App() {
         </div>
 
       </div>
+
+      {/* ── QR Code Modal ── */}
+      {qrModal && (
+        <div className="qr-backdrop" onClick={() => setQrModal(null)}>
+          <div className="qr-modal" onClick={(e) => e.stopPropagation()}>
+            <img src={qrModal.dataUrl} alt="QR Code" width={220} height={220}/>
+            <p className="qr-url">{qrModal.url.slice(0, 72)}{qrModal.url.length > 72 ? '…' : ''}</p>
+            <button className="qr-close" onClick={() => setQrModal(null)}>✕ Close</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

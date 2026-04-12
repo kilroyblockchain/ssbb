@@ -169,6 +169,42 @@ app.post('/api/tts', async (req, res) => {
   }
 });
 
+// ── Canvas upload: push HTML page to S3, return presigned GET URL ─────────────
+app.post('/api/canvas/upload', async (req, res) => {
+  const html  = typeof req.body?.html  === 'string' ? req.body.html  : '';
+  const title = typeof req.body?.title === 'string' ? req.body.title : 'Canvas';
+  if (!html.trim())         return res.status(400).json({ error: 'html required' });
+  if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
+
+  const safeTitle = title.replace(/[<>"']/g, '').slice(0, 80);
+  const key = `canvas/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.html`;
+  const fullHtml = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SSBB — ${safeTitle}</title>
+<style>body{background:#111111;color:#F7F1E8;font-family:sans-serif;padding:32px;max-width:820px;margin:0 auto;}</style>
+</head>
+<body>${html}</body>
+</html>`;
+
+  try {
+    const { S3Client, PutObjectCommand, GetObjectCommand } = await import('@aws-sdk/client-s3') as any;
+    const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner') as any;
+    const s3c = new S3Client({ region: config.awsRegion });
+    await s3c.send(new PutObjectCommand({
+      Bucket: config.mediaBucket, Key: key,
+      Body: fullHtml, ContentType: 'text/html; charset=utf-8',
+    }));
+    const url = await getSignedUrl(s3c, new GetObjectCommand({ Bucket: config.mediaBucket, Key: key }), { expiresIn: 604800 });
+    res.json({ url, key });
+  } catch (err: any) {
+    console.error('[canvas/upload]', err);
+    res.status(500).json({ error: err.message || 'Upload failed' });
+  }
+});
+
 // ── Harvest: search web for SSBB content, store in S3, add to KG ─────────────
 app.post('/api/harvest', async (req, res) => {
   try {

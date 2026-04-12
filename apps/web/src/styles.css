@@ -719,3 +719,27 @@ body {
   .parlor-book  { flex: none; min-height: 500px; }
   .parlor { height: auto; overflow: auto; }
 }
+
+/* ── QR Code Modal ────────────────────────────────────────────────────────── */
+.qr-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,.75);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 999; backdrop-filter: blur(4px);
+}
+.qr-modal {
+  background: var(--bg1); border: 1px solid var(--pink);
+  border-radius: 14px; padding: 24px 28px;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  box-shadow: 0 0 40px rgba(255,79,154,.35);
+}
+.qr-modal img { border-radius: 8px; }
+.qr-url {
+  font-size: .72rem; color: var(--muted); word-break: break-all;
+  max-width: 240px; text-align: center; line-height: 1.5;
+}
+.qr-close {
+  border: 1px solid var(--border); background: transparent;
+  color: var(--muted); padding: 4px 16px; border-radius: 6px;
+  cursor: pointer; font-size: .78rem; transition: all .15s;
+}
+.qr-close:hover { border-color: var(--pink); color: var(--pink); }
