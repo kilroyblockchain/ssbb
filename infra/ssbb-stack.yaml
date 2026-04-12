@@ -1,0 +1,420 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  SSBB — Screaming Smoldering Butt Bitches collab space
+  Deploys: S3 web bucket, CloudFront, ECS Fargate API, ALB, Cognito
+
+# ── Parameters ───────────────────────────────────────────────────────────────
+Parameters:
+
+  # !! Run `aws acm request-certificate --region us-east-1` FIRST !!
+  # CloudFront requires the cert to be in us-east-1 regardless of deploy region.
+  CertificateArn:
+    Type: String
+    Description: ACM certificate ARN (must be in us-east-1) for ssbb.discountpunk.com
+
+  DomainName:
+    Type: String
+    Default: ssbb.discountpunk.com
+
+  # Container image pushed by CI. Format: 123456789.dkr.ecr.us-east-1.amazonaws.com/ssbb-server:latest
+  ServerImage:
+    Type: String
+    Description: ECR image URI for the SSBB server
+
+  MediaBucket:
+    Type: String
+    Description: Existing S3 bucket for conversations/canvas/harvest (SSBB_MEDIA_BUCKET)
+
+  BedrockModelId:
+    Type: String
+    Default: us.anthropic.claude-sonnet-4-5-20251101-v1:0
+    Description: Bedrock model ID for BotButt's brain
+
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [prod, staging]
+
+# ── Resources ─────────────────────────────────────────────────────────────────
+Resources:
+
+  # ── ECR: container registry ──────────────────────────────────────────────
+  ServerRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: ssbb-server
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules":[{"rulePriority":1,"description":"Keep last 10 images",
+          "selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":10},
+          "action":{"type":"expire"}}]}
+
+  # ── S3: web frontend bucket (private, served via CloudFront OAC) ──────────
+  WebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ssbb-web-${Environment}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  WebBucketOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub ssbb-web-oac-${Environment}
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  WebBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub arn:aws:s3:::${WebBucket}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}
+
+  # ── Cognito: Butt Bitch login ─────────────────────────────────────────────
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: ssbb-users
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: false
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+        - Name: handle
+          AttributeDataType: String
+          Required: false
+          Mutable: true
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: ssbb-web
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_PASSWORD_AUTH
+      PreventUserExistenceErrors: ENABLED
+
+  # ── Networking: security groups (uses default VPC) ────────────────────────
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP/HTTPS from internet to ALB
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow traffic from ALB to ECS tasks on port 4000
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 4000
+          ToPort: 4000
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+
+  # ── ALB: routes /api/* to ECS ─────────────────────────────────────────────
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ssbb-alb-${Environment}
+      Scheme: internet-facing
+      Type: application
+      SecurityGroups: [!Ref ALBSecurityGroup]
+      Subnets: !Split [',', !Sub '{{resolve:ssm:/aws/service/global-infrastructure/regions/${AWS::Region}/azs}}']
+      # Note: replace Subnets above with your actual public subnet IDs, e.g.:
+      # Subnets: [subnet-aaaa, subnet-bbbb]
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ssbb-server-${Environment}
+      Port: 4000
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: /api/health
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+
+  # HTTP → HTTPS redirect
+  ALBListenerHTTP:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: '443'
+            StatusCode: HTTP_301
+
+  ALBListenerHTTPS:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+
+  # ── ECS Fargate: SSBB server ──────────────────────────────────────────────
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ssbb-${Environment}
+      CapacityProviders: [FARGATE]
+
+  # IAM role for ECS task execution (pull image, write logs)
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ssbb-task-execution-${Environment}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ecs-tasks.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  # IAM role for the running task (S3, Bedrock, Polly, Secrets Manager)
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ssbb-task-role-${Environment}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ecs-tasks.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ssbb-task-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${MediaBucket}
+                  - !Sub arn:aws:s3:::${MediaBucket}/*
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - polly:SynthesizeSpeech
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:ssbb/*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  ServerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/ssbb-server-${Environment}
+      RetentionInDays: 14
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ssbb-server-${Environment}
+      Cpu: '512'
+      Memory: '1024'
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: ssbb-server
+          Image: !Ref ServerImage
+          PortMappings:
+            - ContainerPort: 4000
+              Protocol: tcp
+          Environment:
+            - Name: PORT
+              Value: '4000'
+            - Name: CLIENT_ORIGIN
+              Value: !Sub https://${DomainName}
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: SSBB_MEDIA_BUCKET
+              Value: !Ref MediaBucket
+            - Name: BEDROCK_MODEL_ID
+              Value: !Ref BedrockModelId
+            - Name: NODE_ENV
+              Value: production
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ServerLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn: ALBListenerHTTPS
+    Properties:
+      ServiceName: !Sub ssbb-server-${Environment}
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups: [!Ref ECSSecurityGroup]
+          # Replace with your actual public subnet IDs:
+          Subnets: [!Select [0, !GetAZs ''], !Select [1, !GetAZs '']]
+          # e.g. Subnets: [subnet-aaaa, subnet-bbbb]
+      LoadBalancers:
+        - ContainerName: ssbb-server
+          ContainerPort: 4000
+          TargetGroupArn: !Ref ALBTargetGroup
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+
+  # ── CloudFront: CDN + HTTPS ───────────────────────────────────────────────
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub SSBB ${Environment}
+        Aliases: [!Ref DomainName]
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        DefaultRootObject: index.html
+        HttpVersion: http2
+        PriceClass: PriceClass_100   # US + Europe (cheapest)
+
+        Origins:
+          # Origin 1: S3 web frontend
+          - Id: s3-web
+            DomainName: !GetAtt WebBucket.RegionalDomainName
+            S3OriginConfig: {}
+            OriginAccessControlId: !GetAtt WebBucketOAC.Id
+
+          # Origin 2: ALB for /api/* and socket.io
+          - Id: alb-api
+            DomainName: !GetAtt LoadBalancer.DNSName
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+
+        CacheBehaviors:
+          # /api/* — no caching, forward everything
+          - PathPattern: /api/*
+            TargetOriginId: alb-api
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # AllViewerExceptHostHeader
+            Compress: false
+
+          # socket.io — no caching, WebSocket support
+          - PathPattern: /socket.io/*
+            TargetOriginId: alb-api
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+            Compress: false
+
+        # Default: serve from S3
+        DefaultCacheBehavior:
+          TargetOriginId: s3-web
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+          Compress: true
+
+        # SPA: return index.html for any 404 (React Router)
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
+# ── Outputs ───────────────────────────────────────────────────────────────────
+Outputs:
+  CloudFrontDomain:
+    Description: CloudFront domain — add this as CNAME for ssbb.discountpunk.com in GoDaddy
+    Value: !GetAtt CloudFrontDistribution.DomainName
+
+  WebBucketName:
+    Description: S3 bucket to sync Vite build into
+    Value: !Ref WebBucket
+
+  ECRRepository:
+    Description: ECR repo URI for Docker push
+    Value: !GetAtt ServerRepo.RepositoryUri
+
+  CognitoUserPoolId:
+    Description: Cognito User Pool ID (add to app config)
+    Value: !Ref UserPool
+
+  CognitoClientId:
+    Description: Cognito App Client ID (add to app config)
+    Value: !Ref UserPoolClient
+
+  ALBDomainName:
+    Description: ALB DNS name (for debugging — traffic goes via CloudFront)
+    Value: !GetAtt LoadBalancer.DNSName

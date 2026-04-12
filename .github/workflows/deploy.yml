@@ -1,0 +1,132 @@
+name: Deploy SSBB
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:   # allow manual trigger
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: ssbb-server
+  ECS_CLUSTER: ssbb-prod
+  ECS_SERVICE: ssbb-server-prod
+  WEB_BUCKET: ssbb-web-prod
+  CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+  VITE_API_BASE_URL: https://ssbb.discountpunk.com
+
+jobs:
+  # ── Build & deploy server ──────────────────────────────────────────────────
+  deploy-server:
+    name: Build + push server → ECS
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        id: build
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="$REGISTRY/$ECR_REPO:$IMAGE_TAG"
+          LATEST_URI="$REGISTRY/$ECR_REPO:latest"
+
+          docker build -f apps/server/Dockerfile -t "$IMAGE_URI" -t "$LATEST_URI" .
+          docker push "$IMAGE_URI"
+          docker push "$LATEST_URI"
+
+          echo "image=$IMAGE_URI" >> $GITHUB_OUTPUT
+
+      - name: Update ECS service with new image
+        env:
+          IMAGE_URI: ${{ steps.build.outputs.image }}
+        run: |
+          # Get current task definition and swap in the new image
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition ssbb-server-prod \
+            --query 'taskDefinition' --output json)
+
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \
+            --arg IMAGE "$IMAGE_URI" \
+            '.containerDefinitions[0].image = $IMAGE |
+             del(.taskDefinitionArn, .revision, .status,
+                 .requiresAttributes, .compatibilities,
+                 .registeredAt, .registeredBy)')
+
+          NEW_ARN=$(aws ecs register-task-definition \
+            --cli-input-json "$NEW_TASK_DEF" \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --task-definition "$NEW_ARN" \
+            --force-new-deployment
+
+          echo "Deployed task: $NEW_ARN"
+
+      - name: Wait for ECS to stabilize
+        run: |
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE"
+          echo "ECS service is stable"
+
+  # ── Build & deploy web frontend ────────────────────────────────────────────
+  deploy-web:
+    name: Build + sync frontend → S3 + CloudFront
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Vite frontend
+        env:
+          VITE_API_BASE_URL: ${{ env.VITE_API_BASE_URL }}
+          VITE_COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
+          VITE_COGNITO_CLIENT_ID: ${{ secrets.COGNITO_CLIENT_ID }}
+        run: npm run build:web
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync to S3
+        run: |
+          aws s3 sync apps/web/dist s3://${{ env.WEB_BUCKET }}/ \
+            --delete \
+            --cache-control "public,max-age=31536000,immutable" \
+            --exclude "index.html"
+
+          # index.html never cached so users always get the latest shell
+          aws s3 cp apps/web/dist/index.html s3://${{ env.WEB_BUCKET }}/index.html \
+            --cache-control "no-cache,no-store,must-revalidate"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" \
+            --paths "/*"
