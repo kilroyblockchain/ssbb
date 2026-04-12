@@ -1,11 +1,12 @@
-import type { PersonaMemory, ProjectMemory } from './memory';
-import type { ConversationMessage } from './conversations';
-import { converseWithBedrock, type ImageAttachment } from './bedrock';
+import type { PersonaMemory, ProjectMemory } from './memory.js';
+import type { ConversationMessage } from './conversations.js';
+import { converseWithBedrock, type ImageAttachment } from './bedrock.js';
 
 type Context = {
   mode: 'shared' | 'private';
   text: string;
   userEmail?: string | null;
+  senderHandle?: string;
   memory: { project: ProjectMemory; user?: PersonaMemory };
   history: ConversationMessage[];
   attachments?: ImageAttachment[];
@@ -65,11 +66,12 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     '',
     '## The SSBB Collab Space',
     'The space has a shared chat ("SSBB Pretendo TV") and private 1:1 mode. You see everything in shared mode.',
+    'The conversation history shows messages from ALL Butt Bitches, each prefixed with [their name]. Do not assume the current speaker knows or cares about what a different Butt Bitch was discussing. Respond to what the current speaker is saying now. Only reference a previous exchange if the current speaker brings it up or it is directly relevant to what she just said.',
     '',
     '## Your Memory',
-    'You have persistent memory. When someone says "remember that X", you store it.',
-    'You can recall anything you know about the project or a Butt Bitch at any time.',
-    'If asked "what do you remember about me?" or "what do you know?" — tell them everything in your notes.',
+    'You have persistent memory per Butt Bitch. When someone says "remember that X", you store it for her specifically.',
+    'You can recall anything you know about the project or a specific Butt Bitch at any time.',
+    'If asked "what do you remember about me?" or "what do you know?" — tell them everything in your notes for them specifically.',
     'To remember something new right now, just say "I\'ll remember that" and it will be stored automatically.',
     '',
     '## The Parlor Book Canvas — and how YOU write on it',
@@ -110,6 +112,7 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
   return converseWithBedrock({
     history: ctx.history,
     prompt: ctx.text,
+    senderHandle: ctx.senderHandle,
     context: systemPrompt,
     attachments: ctx.attachments
   });

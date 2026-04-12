@@ -430,6 +430,53 @@ body {
 .chat-bubble--butt   header strong { color: var(--pink); }
 .chat-bubble header time { margin-left: auto; }
 
+/* ── Reactions ─────────────────────────────────────────────────────────────── */
+.reaction-bar { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; align-items: center; min-height: 24px; }
+.reaction-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
+  border-radius: 12px; padding: 2px 8px; font-size: .82rem;
+  cursor: pointer; transition: background .12s; user-select: none;
+  color: var(--text);
+}
+.reaction-chip:hover  { background: rgba(255,255,255,.13); }
+.reaction-chip--mine  { background: rgba(255,20,147,.2); border-color: rgba(255,20,147,.55); }
+.reaction-chip span   { font-size: .75rem; opacity: .75; }
+.reaction-add {
+  width: 22px; height: 22px; border-radius: 11px;
+  border: 1px dashed rgba(255,255,255,.22); background: none;
+  color: rgba(255,255,255,.45); font-size: .85rem; line-height: 1;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0;
+  transition: border-color .12s, color .12s;
+}
+.reaction-add:hover { border-color: var(--pink); color: var(--pink); }
+
+.reaction-picker {
+  background: #1a0033; border: 1px solid rgba(255,20,147,.35);
+  border-radius: 12px; padding: 10px; width: 296px;
+  box-shadow: 0 8px 36px rgba(0,0,0,.7);
+}
+.reaction-picker-tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+.reaction-picker-tab {
+  flex: 1; padding: 5px 0; border: 1px solid rgba(255,255,255,.15);
+  background: none; color: rgba(255,255,255,.65); border-radius: 6px;
+  cursor: pointer; font-size: .8rem; transition: background .12s;
+}
+.reaction-picker-tab:hover         { background: rgba(255,255,255,.07); }
+.reaction-picker-tab--active       { background: rgba(255,20,147,.25); border-color: var(--pink); color: #fff; }
+.reaction-emoji-grid               { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.reaction-emoji-btn                { font-size: 1.25rem; padding: 3px; border: none; background: none; cursor: pointer; border-radius: 4px; }
+.reaction-emoji-btn:hover          { background: rgba(255,255,255,.1); }
+.reaction-gif-search {
+  flex: 1; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15);
+  border-radius: 6px; color: #fff; padding: 5px 8px; font-size: .84rem; outline: none;
+}
+.reaction-gif-search:focus         { border-color: var(--pink); }
+.reaction-gif-grid                 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; max-height: 188px; overflow-y: auto; }
+.reaction-gif-item                 { border-radius: 6px; overflow: hidden; cursor: pointer; aspect-ratio: 16/9; background: rgba(255,255,255,.06); }
+.reaction-gif-item img             { width: 100%; height: 100%; object-fit: cover; display: block; }
+.reaction-gif-item:hover           { opacity: .75; }
+
 .composer {
   display: flex;
   gap: 8px;

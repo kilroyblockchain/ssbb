@@ -8,7 +8,7 @@
  */
 
 import { PollyClient, SynthesizeSpeechCommand, Engine, OutputFormat, VoiceId, LanguageCode, TextType } from '@aws-sdk/client-polly';
-import { config } from '../config';
+import { config } from '../config.js';
 
 const polly = new PollyClient({ region: config.awsRegion });
 

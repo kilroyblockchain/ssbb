@@ -1,6 +1,72 @@
 import React, { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuid } from 'uuid';
 import { create } from 'zustand';
+import { io } from 'socket.io-client';
+const COGNITO_ENDPOINT = 'https://cognito-idp.us-east-1.amazonaws.com/';
+const COGNITO_CLIENT_ID = '6nl7u3h2bhv1vtqs6n3upstuqi';
+
+async function cognitoLogin(email: string, password: string): Promise<string> {
+  const res = await fetch(COGNITO_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-amz-json-1.1',
+      'X-Amz-Target': 'AWSCognitoIdentityProviderService.InitiateAuth',
+    },
+    body: JSON.stringify({
+      AuthFlow: 'USER_PASSWORD_AUTH',
+      AuthParameters: { USERNAME: email, PASSWORD: password },
+      ClientId: COGNITO_CLIENT_ID,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || data.__type || 'Login failed.');
+  return data.AuthenticationResult.IdToken;
+}
+
+function LoginScreen({ onLogin }: { onLogin: (idToken: string) => void }) {
+  const [email,    setEmail]    = useState('');
+  const [password, setPassword] = useState('');
+  const [error,    setError]    = useState('');
+  const [loading,  setLoading]  = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const idToken = await cognitoLogin(email, password);
+      onLogin(idToken);
+    } catch (err: any) {
+      setError(err.message || 'Login failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#08000f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '320px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '8px' }}>
+          <p style={{ color: '#ff1493', fontWeight: 700, fontSize: '1.1rem', letterSpacing: '0.1em', margin: 0 }}>SSBB // Butt Bitch Parlor</p>
+          <h1 style={{ color: '#ffe66d', fontSize: '1.4rem', margin: '6px 0 0' }}>Butt Bitches Only.</h1>
+        </div>
+        <input
+          type="email" placeholder="your@email.com" value={email} onChange={(e) => setEmail(e.target.value)} required
+          style={{ background: '#1a0025', border: '1px solid #ff1493', color: '#f0e6ff', padding: '10px 14px', borderRadius: '6px', fontSize: '1rem', outline: 'none' }}
+        />
+        <input
+          type="password" placeholder="password" value={password} onChange={(e) => setPassword(e.target.value)} required
+          style={{ background: '#1a0025', border: '1px solid #ff1493', color: '#f0e6ff', padding: '10px 14px', borderRadius: '6px', fontSize: '1rem', outline: 'none' }}
+        />
+        {error && <p style={{ color: '#ff6b6b', margin: 0, fontSize: '0.9rem' }}>{error}</p>}
+        <button type="submit" disabled={loading}
+          style={{ background: '#ff1493', color: '#08000f', fontWeight: 700, border: 'none', padding: '12px', borderRadius: '6px', fontSize: '1rem', cursor: loading ? 'wait' : 'pointer' }}>
+          {loading ? 'Signing in...' : 'Sign in'}
+        </button>
+      </form>
+    </div>
+  );
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -10,6 +76,7 @@ type ChatMessage = {
   text: string;
   createdAt: string;
   mode?: 'shared' | 'private';
+  userEmail?: string;
   attachments?: { name: string; url: string; contentType: string }[];
 };
 
@@ -29,13 +96,16 @@ type ChatState = {
 
 const useChatStore = create<ChatState>((set) => ({
   messages: [],
-  addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
+  addMessage: (msg) => set((s) =>
+    s.messages.some((m) => m.id === msg.id) ? s : { messages: [...s.messages, msg] }
+  ),
   replaceMessages: (msgs) => set(() => ({ messages: msgs })),
 }));
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000';
+const socket   = io(API_BASE, { transports: ['websocket', 'polling'] });
 
 const BUTT_BITCHES = [
   { handle: 'Spanky Butt', email: 'spanky@ssbb.band', color: '#ff1493' },
@@ -940,14 +1010,14 @@ type GalleryCanvasPage = { key: string; title: string; savedAt: string; url: str
 type GalleryCanvasAsset = { key: string; title: string; savedAt: string; url: string };
 
 function GalleryPanel({
-  userEmail,
+  authHeaders,
   onLoadStoryboard,
   refreshTick,
   recentStoryboards,
   recentParlorBooks,
   onRenameParlorBook,
 }: {
-  userEmail: string;
+  authHeaders: Record<string, string>;
   onLoadStoryboard: (page: { type: 'html'; html: string; title: string }) => void;
   refreshTick: number;
   recentStoryboards: GalleryStoryboard[];
@@ -971,7 +1041,7 @@ function GalleryPanel({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/gallery`, { headers: { 'x-dev-email': userEmail } });
+      const res = await fetch(`${API_BASE}/api/gallery`, { headers: { ...authHeaders } });
       if (!res.ok) throw new Error(`Gallery fetch ${res.status}`);
       const data = await res.json();
       setStoryboards((data.storyboards ?? []).sort((a: GalleryStoryboard, b: GalleryStoryboard) =>
@@ -989,7 +1059,7 @@ function GalleryPanel({
     } finally {
       setLoading(false);
     }
-  }, [userEmail]);
+  }, [authHeaders]);
 
   useEffect(() => { fetchGallery(); }, [fetchGallery, refreshTick]);
 
@@ -1083,7 +1153,7 @@ function GalleryPanel({
   const loadStoryboard = useCallback(async (key: string, title: string) => {
     try {
       const res = await fetch(`${API_BASE}/api/storyboard/fetch?key=${encodeURIComponent(key)}`, {
-        headers: { 'x-dev-email': userEmail },
+        headers: { ...authHeaders },
       });
       if (!res.ok) throw new Error(`Fetch storyboard ${res.status}`);
       const data = await res.json();
@@ -1091,7 +1161,7 @@ function GalleryPanel({
     } catch (e: any) {
       alert(`Could not load storyboard: ${e.message}`);
     }
-  }, [userEmail, onLoadStoryboard]);
+  }, [authHeaders, onLoadStoryboard]);
 
   const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1104,7 +1174,7 @@ function GalleryPanel({
       form.append('name', name);
       const res = await fetch(`${API_BASE}/api/dolls/upload`, {
         method: 'POST',
-        headers: { 'x-dev-email': userEmail },
+        headers: { ...authHeaders },
         body: form,
       });
       if (!res.ok) throw new Error(`Upload ${res.status}`);
@@ -1115,7 +1185,7 @@ function GalleryPanel({
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  }, [userEmail, fetchGallery]);
+  }, [authHeaders, fetchGallery]);
 
   const gBtn: React.CSSProperties = {
     background: 'transparent',
@@ -1144,7 +1214,7 @@ function GalleryPanel({
         form.append('file', file);
         const res = await fetch(`${API_BASE}/api/canvas/assets/upload`, {
           method: 'POST',
-          headers: { 'x-dev-email': userEmail },
+          headers: { ...authHeaders },
           body: form,
         });
         if (!res.ok) throw new Error('Upload failed');
@@ -1165,7 +1235,7 @@ function GalleryPanel({
         if (assetInputRef.current) assetInputRef.current.value = '';
       }
     },
-    [userEmail, copyUrl]
+    [authHeaders, copyUrl]
   );
 
   const handleAssetInput = useCallback(
@@ -1356,6 +1426,162 @@ function GalleryPanel({
   );
 }
 
+// ── Reactions ─────────────────────────────────────────────────────────────────
+
+const QUICK_EMOJIS = [
+  '😂','🤣','😭','😍','🥰','😎','🤩','😤',
+  '🤬','😱','💀','🤡','👏','🙌','🤘','🖕',
+  '👌','🤌','🎸','🎶','🎤','🔥','⚡','💥',
+  '🌭','🍕','🍺','🍾','💣','🪩','🏆','👑',
+  '💎','🖤','💗','❤️‍🔥','🐍','🦄','🎉','✨',
+];
+
+async function searchGifs(query: string) {
+  try {
+    const r = await fetch(
+      `https://api.tenor.com/v1/search?q=${encodeURIComponent(query)}&key=LIVDSRZULELA&limit=6&media_filter=minimal`
+    );
+    const d = await r.json();
+    return (d.results || []).map((item: any) => ({
+      id: item.id as string,
+      url:     (item.media[0]?.gif?.url     || item.media[0]?.tinygif?.url || '') as string,
+      preview: (item.media[0]?.tinygif?.url || item.media[0]?.gif?.url     || '') as string,
+    }));
+  } catch { return []; }
+}
+
+type ReactionMap = Record<string, { type: string; users: string[] }>;
+
+function ReactionPicker({
+  onSelect, onClose,
+}: {
+  onSelect: (value: string, type: 'emoji' | 'gif') => void;
+  onClose: () => void;
+}) {
+  const [tab, setTab]         = useState<'emoji' | 'gif'>('emoji');
+  const [gifQuery, setGifQ]   = useState('');
+  const [gifs, setGifs]       = useState<{ id: string; url: string; preview: string }[]>([]);
+  const [searching, setSrch]  = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    }
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [onClose]);
+
+  async function doGifSearch(q: string) {
+    if (!q.trim()) return;
+    setSrch(true);
+    const results = await searchGifs(q);
+    setGifs(results);
+    setSrch(false);
+  }
+
+  return (
+    <div className="reaction-picker" ref={ref}>
+      <div className="reaction-picker-tabs">
+        <button className={`reaction-picker-tab${tab === 'emoji' ? ' reaction-picker-tab--active' : ''}`} onClick={() => setTab('emoji')}>Emoji</button>
+        <button className={`reaction-picker-tab${tab === 'gif'   ? ' reaction-picker-tab--active' : ''}`} onClick={() => setTab('gif')}>GIF</button>
+      </div>
+      {tab === 'emoji' && (
+        <div className="reaction-emoji-grid">
+          {QUICK_EMOJIS.map((e) => (
+            <button key={e} className="reaction-emoji-btn" onClick={() => onSelect(e, 'emoji')}>{e}</button>
+          ))}
+        </div>
+      )}
+      {tab === 'gif' && (
+        <div>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            <input
+              className="reaction-gif-search"
+              placeholder="Search GIFs…"
+              value={gifQuery}
+              onChange={(e) => setGifQ(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && doGifSearch(gifQuery)}
+              autoFocus
+            />
+            <button className="send-btn" style={{ padding: '4px 10px', fontSize: '.8rem' }} onClick={() => doGifSearch(gifQuery)}>Go</button>
+          </div>
+          {searching && <div style={{ color: 'var(--muted)', fontSize: '.8rem', textAlign: 'center' }}>searching…</div>}
+          <div className="reaction-gif-grid">
+            {gifs.map((g) => (
+              <div key={g.id} className="reaction-gif-item" onClick={() => onSelect(g.url, 'gif')}>
+                <img src={g.preview} alt="gif" loading="lazy" />
+              </div>
+            ))}
+          </div>
+          {!searching && gifs.length === 0 && gifQuery && (
+            <div style={{ color: 'var(--muted)', fontSize: '.8rem', textAlign: 'center' }}>No results.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReactionBar({
+  messageId, reactions, userEmail, authHeaders: ah, onUpdate,
+}: {
+  messageId: string;
+  reactions: ReactionMap;
+  userEmail: string;
+  authHeaders: Record<string, string>;
+  onUpdate: (messageId: string, reactions: ReactionMap) => void;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  async function toggle(value: string, type: 'emoji' | 'gif') {
+    setPickerOpen(false);
+    try {
+      const resp = await fetch(`${API_BASE}/api/reactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...ah },
+        body: JSON.stringify({ messageId, value, type }),
+      });
+      const data = await resp.json();
+      if (data.reactions) onUpdate(messageId, data.reactions);
+    } catch { /* ignore */ }
+  }
+
+  const entries = Object.entries(reactions);
+
+  return (
+    <div className="reaction-bar">
+      {entries.map(([val, { type, users }]) => {
+        const isMine = users.includes(userEmail);
+        return (
+          <button
+            key={val}
+            className={`reaction-chip${isMine ? ' reaction-chip--mine' : ''}`}
+            onClick={() => toggle(val, type as 'emoji' | 'gif')}
+            title={users.map(u => u.split('@')[0]).join(', ')}
+          >
+            {type === 'gif'
+              ? <><img src={val} alt="gif" style={{ height: 20, borderRadius: 3, verticalAlign: 'middle' }} /><span>{users.length}</span></>
+              : <>{val} <span>{users.length}</span></>
+            }
+          </button>
+        );
+      })}
+      <div style={{ position: 'relative', display: 'inline-flex' }}>
+        <button className="reaction-add" onClick={() => setPickerOpen(p => !p)} title="Add reaction">＋</button>
+        {pickerOpen && (
+          <div style={{ position: 'absolute', bottom: '110%', left: 0, zIndex: 1000 }}>
+            <ReactionPicker
+              onSelect={(val, type) => toggle(val, type)}
+              onClose={() => setPickerOpen(false)}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -1363,17 +1589,26 @@ export default function App() {
   const addMessage   = useChatStore((s) => s.addMessage);
   const replaceMessages = useChatStore((s) => s.replaceMessages);
 
+  const [idToken,      setIdToken]      = useState<string | null>(null);
+  const userEmail = useMemo(() => {
+    if (!idToken) return '';
+    try { return JSON.parse(atob(idToken.split('.')[1])).email || ''; } catch { return ''; }
+  }, [idToken]);
+  const authHeaders = useMemo(() =>
+    idToken ? { 'Authorization': `Bearer ${idToken}` } : {} as Record<string, string>,
+    [idToken]
+  );
+
   const [input,        setInput]        = useState('');
   const [mode,         setMode]         = useState<'shared' | 'private'>('shared');
   const [botStatus,    setBotStatus]    = useState<'idle' | 'thinking'>('idle');
-  const [userEmail,    setUserEmail]    = useState('spanky@ssbb.band');
   const [projectMemory, setProjectMemory] = useState<{ episodeFocus: string; openThreads: string[] } | null>(null);
   const [ttsEnabled,   setTtsEnabled]   = useState(true);
   const [isSpeaking,   setIsSpeaking]   = useState(false);
   const [session,      setSession]      = useState<{ pages: CanvasPage[]; idx: number }>({ pages: [{ type: 'avatar' }], idx: 0 });
   const [harvesting,   setHarvesting]   = useState(false);
   const [lastHarvest,  setLastHarvest]  = useState<{ count: number; backend: string } | null>(null);
-  const [basement,     setBasement]     = useState<Record<string, boolean>>({ identity: true, memory: false });
+  const [basement,     setBasement]     = useState<Record<string, boolean>>({ memory: false });
   const [isDragging,   setIsDragging]   = useState(false);
   const [hotdogsOn,    setHotdogsOn]    = useState(false);
   const dragCounterRef = useRef(0);
@@ -1383,8 +1618,10 @@ export default function App() {
   const [recentStoryboards, setRecentStoryboards] = useState<GalleryStoryboard[]>([]);
   const [recentCanvasPages, setRecentCanvasPages] = useState<GalleryCanvasPage[]>([]);
   const [galleryRefreshTick, setGalleryRefreshTick] = useState(0);
+  const [reactions, setReactions] = useState<Record<string, ReactionMap>>({});
 
   const lastSpokenRef    = useRef<string | null>(null);
+  const hasGreetedRef    = useRef(false);
   const chatFeedRef      = useRef<HTMLDivElement>(null);
   const canvasIframeRef  = useRef<HTMLIFrameElement>(null);
   const currentAudioRef  = useRef<HTMLAudioElement | null>(null);
@@ -1395,7 +1632,7 @@ export default function App() {
   );
 
   const canvasBase = useMemo(
-    () => `${API_BASE}/api/song-canvas?conversationId=${encodeURIComponent(conversationId)}&devEmail=${encodeURIComponent(userEmail)}`,
+    () => `${API_BASE}/api/song-canvas?conversationId=${encodeURIComponent(conversationId)}`,
     [conversationId, userEmail]
   );
 
@@ -1444,7 +1681,7 @@ export default function App() {
     try {
       const resp = await fetch(`${API_BASE}/api/tts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ text }),
       });
       if (!resp.ok) throw new Error(`TTS ${resp.status}`);
@@ -1519,29 +1756,74 @@ export default function App() {
   // ── Chat history ─────────────────────────────────────────────────────────
   useEffect(() => {
     fetch(`${API_BASE}/api/chat/history?mode=${mode}`, {
-      headers: userEmail ? { 'x-dev-email': userEmail } : {},
+      headers: userEmail ? { ...authHeaders } : {},
     })
       .then((r) => r.json())
-      .then((d) => replaceMessages((d.history || []).map((msg: ChatMessage) => ({
-        ...msg,
-        text: msg.text
-          .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, '↳ [see canvas →]')
-          .replace(/\[IMG:[^\]]*\]/g, '')
-          .replace(/<[^>]+>/g, '')
-          .replace(/&[a-z#0-9]+;/gi, ' ')
-          .replace(/\s{2,}/g, ' ')
-          .trim()
-      }))))
+      .then((d) => {
+        const msgs: ChatMessage[] = (d.history || []).map((msg: ChatMessage) => ({
+          ...msg,
+          text: (msg.text || '')
+            .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, '↳ [see canvas →]')
+            .replace(/\[IMG:[^\]]*\]/g, '')
+            .replace(/<[^>]+>/g, '')
+            .replace(/&[a-z#0-9]+;/gi, ' ')
+            .replace(/\s{2,}/g, ' ')
+            .trim()
+        }));
+        replaceMessages(msgs);
+        if (d.reactions) setReactions((prev) => ({ ...prev, ...d.reactions }));
+        // Suppress TTS for all existing history — don't read old messages on load
+        const lastBot = [...msgs].reverse().find((m) => m.author === 'bot');
+        if (lastBot) lastSpokenRef.current = lastBot.id;
+
+        // On first shared-mode load, ask BotButt to greet the logged-in user
+        if (!hasGreetedRef.current && mode === 'shared' && userEmail) {
+          hasGreetedRef.current = true;
+          fetch(`${API_BASE}/api/chat/greeting`, { method: 'POST', headers: { ...authHeaders } })
+            .then((r) => r.json())
+            .then((g) => {
+              if (g.id && g.text) {
+                addMessage({ id: g.id, author: 'bot', text: g.text, createdAt: g.createdAt, mode: 'shared' });
+              }
+            })
+            .catch((e) => console.warn('[greeting]', e));
+        }
+      })
       .catch((e) => console.error('history fetch failed', e));
   }, [mode, userEmail, replaceMessages]);
 
+  // ── Real-time socket updates ─────────────────────────────────────────────
+  useEffect(() => {
+    function onChatMessage(msg: ChatMessage & { mode?: string }) {
+      if (msg.mode !== 'shared') return; // only shared messages broadcast; private stays private
+      const text = (msg.text || '')
+        .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, '↳ [see canvas →]')
+        .replace(/\[IMG:[^\]]*\]/g, '')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&[a-z#0-9]+;/gi, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+      useChatStore.getState().addMessage({ ...msg, text });
+    }
+    socket.on('chat:message', onChatMessage);
+    return () => { socket.off('chat:message', onChatMessage); };
+  }, []);
+
+  useEffect(() => {
+    function onReactionsUpdate({ messageId, reactions: r }: { messageId: string; reactions: ReactionMap }) {
+      setReactions((prev) => ({ ...prev, [messageId]: r }));
+    }
+    socket.on('reactions:update', onReactionsUpdate);
+    return () => { socket.off('reactions:update', onReactionsUpdate); };
+  }, []);
+
   // ── Memory ───────────────────────────────────────────────────────────────
   useEffect(() => {
-    fetch(`${API_BASE}/api/memory`, { headers: { 'x-dev-email': userEmail } })
+    fetch(`${API_BASE}/api/memory`, { headers: { ...authHeaders } })
       .then((r) => r.json())
       .then((d) => setProjectMemory(d.project))
       .catch((e) => console.error('memory fetch failed', e));
-  }, [userEmail]);
+  }, [authHeaders]);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -1581,7 +1863,7 @@ export default function App() {
     }
 
     const displayText = text || (attachments?.map(a => `[${a.name}]`).join(' ') ?? '');
-    const userMsg: ChatMessage = { id: uuid(), author: 'butt', text: displayText, createdAt: new Date().toISOString() };
+    const userMsg: ChatMessage = { id: uuid(), author: 'butt', text: displayText, createdAt: new Date().toISOString(), userEmail: userEmail || undefined };
     addMessage(userMsg);
     setInput('');
     setBotStatus('thinking');
@@ -1589,8 +1871,8 @@ export default function App() {
     try {
       const resp = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
-        body: JSON.stringify({ message: displayText, mode, attachments }),
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ message: displayText, mode, attachments, clientMessageId: userMsg.id }),
       });
       if (!resp.ok) throw new Error('Chat failed');
       const data = await resp.json();
@@ -1673,10 +1955,10 @@ export default function App() {
     if (harvesting) return;
     setHarvesting(true);
     try {
-      const r = await fetch(`${API_BASE}/api/harvest`, { method: 'POST', headers: { 'x-dev-email': userEmail } });
+      const r = await fetch(`${API_BASE}/api/harvest`, { method: 'POST', headers: { ...authHeaders } });
       const d = await r.json();
       setLastHarvest({ count: d.totalFound ?? 0, backend: d.backend ?? '?' });
-      const mem = await fetch(`${API_BASE}/api/memory`, { headers: { 'x-dev-email': userEmail } }).then((r) => r.json());
+      const mem = await fetch(`${API_BASE}/api/memory`, { headers: { ...authHeaders } }).then((r) => r.json());
       setProjectMemory(mem.project);
     } catch (e) { console.error('harvest failed', e); }
     finally     { setHarvesting(false); }
@@ -1689,7 +1971,7 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/api/canvas/upload`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ html: currentPage.html, title: currentPage.title }),
       });
       const data = await res.json();
@@ -1719,7 +2001,7 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/api/storyboard`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ html: currentPage.html, title: currentPage.title, conversationId }),
       });
       if (!res.ok) throw new Error(`Save ${res.status}`);
@@ -1740,7 +2022,7 @@ export default function App() {
     try {
       await fetch(`${API_BASE}/api/canvas/title`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ key: page.key, title }),
       });
       setRecentCanvasPages(prev => prev.map(p => (p.key === page.key ? { ...p, title } : p)));
@@ -1749,7 +2031,7 @@ export default function App() {
       console.warn('[canvas rename]', err);
       alert('Could not rename that Parlor Book.');
     }
-  }, [userEmail]);
+  }, [authHeaders]);
 
   const showQR = useCallback(async (url: string) => {
     try {
@@ -1809,6 +2091,8 @@ export default function App() {
   const currentBitch = BUTT_BITCHES.find((b) => b.email === userEmail) ?? BUTT_BITCHES[0];
 
   // ── Render ────────────────────────────────────────────────────────────────
+  if (!idToken) return <LoginScreen onLogin={setIdToken} />;
+
   return (
     <div className="parlor">
 
@@ -1840,6 +2124,7 @@ export default function App() {
         <div className="parlor-header__user">
           <span>Signed in as</span>
           <strong style={{ color: currentBitch.color }}>{currentBitch.handle}</strong>
+          <button className="mini-btn" type="button" onClick={() => setIdToken(null)} style={{ marginLeft: '8px' }}>Sign out</button>
         </div>
       </header>
 
@@ -1868,16 +2153,31 @@ export default function App() {
               {messages.length === 0 && (
                 <div className="chat-empty">Say something to BotButt...</div>
               )}
-              {messages.map((msg) => (
-                <article key={msg.id} className={`chat-bubble chat-bubble--${msg.author}`}>
-                  <header>
-                    <strong>{msg.author === 'bot' ? 'BotButt' : currentBitch.handle}</strong>
-                    <span>{msg.mode === 'private' ? 'Private' : 'Shared'}</span>
-                    <time>{new Date(msg.createdAt).toLocaleTimeString()}</time>
-                  </header>
-                  <p>{msg.text}</p>
-                </article>
-              ))}
+              {messages.map((msg) => {
+                const senderBitch = msg.author === 'butt'
+                  ? (BUTT_BITCHES.find((b) => b.email === msg.userEmail) ?? currentBitch)
+                  : null;
+                const isMine = msg.author === 'bot' ? false : (msg.userEmail === userEmail || !msg.userEmail);
+                return (
+                  <article key={msg.id} className={`chat-bubble chat-bubble--${msg.author}${isMine ? ' chat-bubble--mine' : ' chat-bubble--theirs'}`}>
+                    <header>
+                      <strong style={senderBitch ? { color: senderBitch.color } : undefined}>
+                        {msg.author === 'bot' ? 'BotButt' : senderBitch?.handle ?? 'Butt Bitch'}
+                      </strong>
+                      <span>{msg.mode === 'private' ? 'Private' : 'Shared'}</span>
+                      <time>{new Date(msg.createdAt).toLocaleTimeString()}</time>
+                    </header>
+                    <p>{msg.text}</p>
+                    <ReactionBar
+                      messageId={msg.id}
+                      reactions={reactions[msg.id] ?? {}}
+                      userEmail={userEmail}
+                      authHeaders={authHeaders}
+                      onUpdate={(id, r) => setReactions((prev) => ({ ...prev, [id]: r }))}
+                    />
+                  </article>
+                );
+              })}
             </div>
             <form className="composer" onSubmit={sendMessage}>
               <input className="command-input" placeholder="Talk to BotButt..." value={input} onChange={(e) => setInput(e.target.value)}/>
@@ -1967,7 +2267,7 @@ export default function App() {
               {/* Gallery panel */}
               {currentPage.type === 'gallery' && (
                 <GalleryPanel
-                  userEmail={userEmail}
+                  authHeaders={authHeaders}
                   onLoadStoryboard={pushPage}
                   refreshTick={galleryRefreshTick}
                   recentStoryboards={recentStoryboards}
@@ -1982,28 +2282,6 @@ export default function App() {
 
       {/* ── BASEMENT SECTIONS ── */}
       <div className="parlor-basement">
-
-        {/* Identity */}
-        <div className="basement-section">
-          <button className="basement-header" onClick={() => toggleBasement('identity')}>
-            <span>Who Are You?</span>
-            <span className="basement-chevron">{basement.identity ? '▲' : '▼'}</span>
-          </button>
-          {basement.identity && (
-            <div className="basement-body">
-              <div className="butt-bitch-picker horiz">
-                {BUTT_BITCHES.map((bb) => (
-                  <button key={bb.email}
-                    className={`bb-btn${userEmail === bb.email ? ' bb-btn--active' : ''}`}
-                    style={{ '--bb-color': bb.color } as React.CSSProperties}
-                    onClick={() => setUserEmail(bb.email)}>
-                    {bb.handle}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
 
         {/* Memory */}
         <div className="basement-section">

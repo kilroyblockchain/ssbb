@@ -27,6 +27,9 @@ RUN npm ci --workspace=apps/server --omit=dev
 # Copy compiled output from builder
 COPY --from=builder /app/apps/server/dist ./apps/server/dist
 
+# Copy static assets that tsc doesn't move
+COPY apps/server/src/templates ./apps/server/dist/templates
+
 EXPOSE 4000
 
 # data/memory is ephemeral in ECS — conversations persist in S3

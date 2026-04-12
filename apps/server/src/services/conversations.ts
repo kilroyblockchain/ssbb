@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { config } from '../config';
-import { readObject, writeObject } from './s3';
+import { config } from '../config.js';
+import { readObject, writeObject } from './s3.js';
 
 const LOCAL_DIR = path.join(process.cwd(), 'data', 'conversations');
 
@@ -13,6 +13,7 @@ export type ConversationMessage = {
   createdAt: string;
   mode: ConversationMode;
   conversationId: string;
+  userEmail?: string;   // which Butt Bitch sent this (absent on bot messages and old records)
 };
 
 function localPath(conversationId: string) {

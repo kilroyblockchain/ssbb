@@ -85,7 +85,7 @@ Resources:
           MinimumLength: 8
           RequireUppercase: false
           RequireLowercase: true
-          RequireNumbers: true
+          RequireNumbers: false
           RequireSymbols: false
       Schema:
         - Name: email
@@ -161,7 +161,7 @@ Resources:
       HealthyThresholdCount: 2
       UnhealthyThresholdCount: 3
 
-  # HTTP → HTTPS redirect
+  # HTTP listener — used by CloudFront origin (internal, not user-facing)
   ALBListenerHTTP:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
@@ -169,11 +169,8 @@ Resources:
       Port: 80
       Protocol: HTTP
       DefaultActions:
-        - Type: redirect
-          RedirectConfig:
-            Protocol: HTTPS
-            Port: '443'
-            StatusCode: HTTP_301
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
 
   ALBListenerHTTPS:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -341,13 +338,12 @@ Resources:
             S3OriginConfig: {}
             OriginAccessControlId: !GetAtt WebBucketOAC.Id
 
-          # Origin 2: ALB for /api/* and socket.io
+          # Origin 2: ALB for /api/* and socket.io (HTTP internally — CloudFront handles TLS)
           - Id: alb-api
             DomainName: !GetAtt LoadBalancer.DNSName
             CustomOriginConfig:
-              HTTPSPort: 443
-              OriginProtocolPolicy: https-only
-              OriginSSLProtocols: [TLSv1.2]
+              HTTPPort: 80
+              OriginProtocolPolicy: http-only
 
         CacheBehaviors:
           # /api/* — no caching, forward everything

@@ -15,15 +15,15 @@ import {
   rememberUserFact,
   updateLastSession,
   type PersonaMemory
-} from './services/memory';
-import { generateChatResponse } from './services/provider';
-import { buildSongCanvasHtml } from './services/canvas';
-import { requireAuth } from './middleware/auth';
-import { config, ensureAwsConfig } from './config';
-import { appendToConversation, fetchConversation } from './services/conversations';
-import { runHarvest } from './services/harvest';
-import { synthesizeSpeech } from './services/tts';
-import { readObject, writeObject, writeBuffer, listObjects, getPresignedUrl } from './services/s3';
+} from './services/memory.js';
+import { generateChatResponse } from './services/provider.js';
+import { buildSongCanvasHtml } from './services/canvas.js';
+import { requireAuth } from './middleware/auth.js';
+import { config, ensureAwsConfig } from './config.js';
+import { appendToConversation, fetchConversation } from './services/conversations.js';
+import { runHarvest } from './services/harvest.js';
+import { synthesizeSpeech } from './services/tts.js';
+import { readObject, writeObject, writeBuffer, listObjects, getPresignedUrl } from './services/s3.js';
 
 dotenv.config();
 
@@ -74,15 +74,49 @@ const imageAttachmentSchema = z.object({
 const chatSchema = z.object({
   message: z.string().min(1, 'Message required').max(8000),
   mode: z.enum(['shared', 'private']).default('shared'),
-  attachments: z.array(imageAttachmentSchema).max(5).optional()
+  attachments: z.array(imageAttachmentSchema).max(5).optional(),
+  clientMessageId: z.string().uuid().optional()
 });
+
+// ── Reactions: in-memory store ────────────────────────────────────────────────
+// { messageId → { value → { type: 'emoji'|'gif', users: string[] } } }
+const allReactions: Record<string, Record<string, { type: string; users: string[] }>> = {};
 
 app.get('/api/chat/history', async (req, res) => {
   const mode = req.query.mode === 'private' ? 'private' : 'shared';
   const conversationId =
     mode === 'shared' ? 'butt-bitch-hang' : `private-${(req.user?.email || 'anon').replace(/[^a-z0-9@._-]/gi, '')}`;
   const history = await fetchConversation(conversationId);
-  res.json({ conversationId, history });
+  // Include reactions for every message in this history
+  const reactionsMap: Record<string, Record<string, { type: string; users: string[] }>> = {};
+  for (const msg of history) {
+    if (allReactions[msg.id]) reactionsMap[msg.id] = allReactions[msg.id];
+  }
+  res.json({ conversationId, history, reactions: reactionsMap });
+});
+
+app.post('/api/reactions', async (req, res) => {
+  const messageId = typeof req.body?.messageId === 'string' ? req.body.messageId : '';
+  const value     = typeof req.body?.value     === 'string' ? req.body.value     : '';
+  const type      = req.body?.type === 'gif' ? 'gif' : 'emoji';
+  if (!messageId || !value) return res.status(400).json({ error: 'messageId and value required' });
+
+  const userEmail = req.user?.email || 'anonymous';
+  if (!allReactions[messageId]) allReactions[messageId] = {};
+  if (!allReactions[messageId][value]) allReactions[messageId][value] = { type, users: [] };
+
+  const reaction = allReactions[messageId][value];
+  const idx = reaction.users.indexOf(userEmail);
+  if (idx === -1) {
+    reaction.users.push(userEmail);
+  } else {
+    reaction.users.splice(idx, 1);
+    if (reaction.users.length === 0) delete allReactions[messageId][value];
+  }
+
+  const updated = allReactions[messageId] ?? {};
+  io.emit('reactions:update', { messageId, reactions: updated });
+  res.json({ reactions: updated });
 });
 
 app.post('/api/chat', async (req, res) => {
@@ -91,10 +125,10 @@ app.post('/api/chat', async (req, res) => {
     return res.status(400).json({ error: parse.error.flatten() });
   }
 
-  const { message, mode, attachments } = parse.data;
+  const { message, mode, attachments, clientMessageId } = parse.data;
   const userEmail = req.user?.email || null;
   const trimmed = message.trim();
-  const id = uuid();
+  const id = clientMessageId ?? uuid();
 
   const userMemory = userEmail ? getUserMemory(userEmail) : undefined;
   const conversationId =
@@ -117,10 +151,12 @@ app.post('/api/chat', async (req, res) => {
       }
     }
 
+    const senderHandle = userEmail ? userEmail.split('@')[0] : undefined;
     const responseText = await generateChatResponse({
       mode,
       text: trimmed,
       userEmail,
+      senderHandle,
       memory: {
         project: getProjectMemory(),
         user: userMemory
@@ -140,7 +176,8 @@ app.post('/api/chat', async (req, res) => {
       author: 'butt' as const,
       createdAt: new Date().toISOString(),
       mode,
-      conversationId
+      conversationId,
+      userEmail: userEmail ?? undefined
     };
     const botMsg = {
       id: uuid(),
@@ -155,11 +192,49 @@ app.post('/api/chat', async (req, res) => {
     await appendToConversation(conversationId, botMsg);
 
     const payload = { id: botMsg.id, text: responseText, createdAt: botMsg.createdAt };
-    io.emit('chat:message', { ...payload, author: 'bot', mode, echoOf: trimmed });
+    if (mode === 'shared') {
+      io.emit('chat:message', { id: userMsg.id, text: trimmed, author: 'butt', mode, userEmail: userEmail ?? undefined, createdAt: userMsg.createdAt });
+      io.emit('chat:message', { ...payload, author: 'bot', mode });
+    }
     res.json(payload);
   } catch (err: any) {
     console.error('[chat] error:', err);
     res.status(503).json({ error: err.message || 'BotButt hit a snag' });
+  }
+});
+
+// ── Greeting: personalised welcome when a Butt Bitch logs in ─────────────────
+app.post('/api/chat/greeting', async (req, res) => {
+  const userEmail = req.user?.email || null;
+  const handle = userEmail ? userEmail.split('@')[0] : 'Butt Bitch';
+  const handleCap = handle.replace(/^(.)/, (c: string) => c.toUpperCase());
+
+  try {
+    const userMemory = userEmail ? getUserMemory(userEmail) : undefined;
+    const responseText = await generateChatResponse({
+      mode: 'shared',
+      text: `${handleCap} just logged into the SSBB collab space. Give her a short, punchy one-sentence welcome — like she just walked into the room. Use your personal notes about her if you have any. Be natural, not formal.`,
+      userEmail,
+      senderHandle: undefined,
+      memory: { project: getProjectMemory(), user: userMemory },
+      history: []
+    });
+
+    const botMsg = {
+      id: uuid(),
+      text: responseText,
+      author: 'bot' as const,
+      createdAt: new Date().toISOString(),
+      mode: 'shared' as const,
+      conversationId: 'butt-bitch-hang'
+    };
+
+    await appendToConversation('butt-bitch-hang', botMsg);
+    io.emit('chat:message', { id: botMsg.id, text: responseText, author: 'bot', mode: 'shared', createdAt: botMsg.createdAt });
+    res.json({ id: botMsg.id, text: responseText, createdAt: botMsg.createdAt });
+  } catch (err: any) {
+    console.error('[greeting]', err);
+    res.status(503).json({ error: err.message || 'Greeting failed' });
   }
 });
 

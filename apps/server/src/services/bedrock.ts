@@ -1,5 +1,5 @@
-import { config } from '../config';
-import type { ConversationMessage } from './conversations';
+import { config } from '../config.js';
+import type { ConversationMessage } from './conversations.js';
 
 type BedrockModule = {
   BedrockRuntimeClient: new (...args: any[]) => { send: (command: any) => Promise<any> };
@@ -21,7 +21,8 @@ let credentialLoadPromise: Promise<boolean> | null = null;
 
 async function loadAwsCredentialsFromSecret(): Promise<boolean> {
   if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) return true;
-  if (!config.bedrockSecretArn) return false;
+  // In ECS Fargate the task role provides credentials automatically — no explicit keys needed
+  if (!config.bedrockSecretArn) return true;
 
   if (!credentialLoadPromise) {
     credentialLoadPromise = (async () => {
@@ -81,6 +82,7 @@ export type ImageAttachment = {
 type ChatOptions = {
   history: ConversationMessage[];
   prompt: string;
+  senderHandle?: string;   // prefixed onto current message so BotButt always knows who's talking
   context?: string;
   attachments?: ImageAttachment[];
 };
@@ -109,13 +111,18 @@ export async function converseWithBedrock(opts: ChatOptions): Promise<string> {
       }
     });
   }
-  userContent.push({ text: opts.prompt });
+  const promptText = opts.senderHandle ? `[${opts.senderHandle}]: ${opts.prompt}` : opts.prompt;
+  userContent.push({ text: promptText });
 
   const messages = [
-    ...opts.history.slice(-10).map((msg) => ({
-      role: msg.author === 'bot' ? 'assistant' : 'user',
-      content: [{ text: msg.text }]
-    })),
+    ...opts.history.slice(-10).map((msg) => {
+      const handle = msg.userEmail ? msg.userEmail.split('@')[0] : null;
+      const text = msg.author === 'butt' && handle ? `[${handle}]: ${msg.text}` : msg.text;
+      return {
+        role: msg.author === 'bot' ? 'assistant' : 'user',
+        content: [{ text }]
+      };
+    }),
     { role: 'user', content: userContent }
   ];
 

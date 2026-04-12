@@ -1,15 +1,59 @@
-import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-runtime";
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuid } from 'uuid';
 import { create } from 'zustand';
+import { io } from 'socket.io-client';
+const COGNITO_ENDPOINT = 'https://cognito-idp.us-east-1.amazonaws.com/';
+const COGNITO_CLIENT_ID = '6nl7u3h2bhv1vtqs6n3upstuqi';
+async function cognitoLogin(email, password) {
+    const res = await fetch(COGNITO_ENDPOINT, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-amz-json-1.1',
+            'X-Amz-Target': 'AWSCognitoIdentityProviderService.InitiateAuth',
+        },
+        body: JSON.stringify({
+            AuthFlow: 'USER_PASSWORD_AUTH',
+            AuthParameters: { USERNAME: email, PASSWORD: password },
+            ClientId: COGNITO_CLIENT_ID,
+        }),
+    });
+    const data = await res.json();
+    if (!res.ok)
+        throw new Error(data.message || data.__type || 'Login failed.');
+    return data.AuthenticationResult.IdToken;
+}
+function LoginScreen({ onLogin }) {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
+    const submit = async (e) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+        try {
+            const idToken = await cognitoLogin(email, password);
+            onLogin(idToken);
+        }
+        catch (err) {
+            setError(err.message || 'Login failed.');
+        }
+        finally {
+            setLoading(false);
+        }
+    };
+    return (_jsx("div", { style: { minHeight: '100vh', background: '#08000f', display: 'flex', alignItems: 'center', justifyContent: 'center' }, children: _jsxs("form", { onSubmit: submit, style: { display: 'flex', flexDirection: 'column', gap: '16px', width: '320px' }, children: [_jsxs("div", { style: { textAlign: 'center', marginBottom: '8px' }, children: [_jsx("p", { style: { color: '#ff1493', fontWeight: 700, fontSize: '1.1rem', letterSpacing: '0.1em', margin: 0 }, children: "SSBB // Butt Bitch Parlor" }), _jsx("h1", { style: { color: '#ffe66d', fontSize: '1.4rem', margin: '6px 0 0' }, children: "Butt Bitches Only." })] }), _jsx("input", { type: "email", placeholder: "your@email.com", value: email, onChange: (e) => setEmail(e.target.value), required: true, style: { background: '#1a0025', border: '1px solid #ff1493', color: '#f0e6ff', padding: '10px 14px', borderRadius: '6px', fontSize: '1rem', outline: 'none' } }), _jsx("input", { type: "password", placeholder: "password", value: password, onChange: (e) => setPassword(e.target.value), required: true, style: { background: '#1a0025', border: '1px solid #ff1493', color: '#f0e6ff', padding: '10px 14px', borderRadius: '6px', fontSize: '1rem', outline: 'none' } }), error && _jsx("p", { style: { color: '#ff6b6b', margin: 0, fontSize: '0.9rem' }, children: error }), _jsx("button", { type: "submit", disabled: loading, style: { background: '#ff1493', color: '#08000f', fontWeight: 700, border: 'none', padding: '12px', borderRadius: '6px', fontSize: '1rem', cursor: loading ? 'wait' : 'pointer' }, children: loading ? 'Signing in...' : 'Sign in' })] }) }));
+}
 // ── Store ─────────────────────────────────────────────────────────────────────
 const useChatStore = create((set) => ({
     messages: [],
-    addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
+    addMessage: (msg) => set((s) => s.messages.some((m) => m.id === msg.id) ? s : { messages: [...s.messages, msg] }),
     replaceMessages: (msgs) => set(() => ({ messages: msgs })),
 }));
 // ── Constants ─────────────────────────────────────────────────────────────────
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000';
+const socket = io(API_BASE, { transports: ['websocket', 'polling'] });
 const BUTT_BITCHES = [
     { handle: 'Spanky Butt', email: 'spanky@ssbb.band', color: '#ff1493' },
     { handle: 'Booty Butt', email: 'booty@ssbb.band', color: '#ffe66d' },
@@ -857,7 +901,7 @@ function CanvasHtmlFrame({ html, title }) {
 function BotButtBear({ state }) {
     return (_jsxs("svg", { className: `bear-svg bear-wrap--${state}`, viewBox: "0 0 100 100", fill: "none", xmlns: "http://www.w3.org/2000/svg", "aria-label": "BotButt", children: [_jsx("circle", { cx: "22", cy: "24", r: "14", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("circle", { cx: "78", cy: "24", r: "14", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("circle", { cx: "22", cy: "24", r: "7", fill: "#4a0066" }), _jsx("circle", { cx: "78", cy: "24", r: "7", fill: "#4a0066" }), _jsx("ellipse", { cx: "50", cy: "60", rx: "34", ry: "32", className: "bear-head-fill", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("line", { x1: "30", y1: "47", x2: "40", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "40", y1: "47", x2: "30", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "60", y1: "47", x2: "70", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "70", y1: "47", x2: "60", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("ellipse", { cx: "50", cy: "66", rx: "5", ry: "3.5", fill: "#ff1493" }), _jsx("path", { className: "bear-mouth", d: "M36 75 Q50 83 64 75", stroke: "#ff1493", strokeWidth: "2.5", strokeLinecap: "round", fill: "none" }), _jsx("path", { d: "M38 12 Q50 6 62 12 Q50 18 38 12Z", fill: "#ff1493" }), _jsx("circle", { cx: "50", cy: "12", r: "3.5", fill: "#fff" }), state === 'speaking' && _jsxs(_Fragment, { children: [_jsx("line", { x1: "50", y1: "28", x2: "50", y2: "10", stroke: "#39ff14", strokeWidth: "1.5", strokeLinecap: "round" }), _jsx("circle", { cx: "50", cy: "8", r: "3", fill: "#39ff14", opacity: "0.9" })] })] }));
 }
-function GalleryPanel({ userEmail, onLoadStoryboard, refreshTick, recentStoryboards, recentParlorBooks, onRenameParlorBook, }) {
+function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryboards, recentParlorBooks, onRenameParlorBook, }) {
     const [storyboards, setStoryboards] = useState([]);
     const [canvasPages, setCanvasPages] = useState([]);
     const [canvasAssets, setCanvasAssets] = useState([]);
@@ -874,7 +918,7 @@ function GalleryPanel({ userEmail, onLoadStoryboard, refreshTick, recentStoryboa
         setLoading(true);
         setError(null);
         try {
-            const res = await fetch(`${API_BASE}/api/gallery`, { headers: { 'x-dev-email': userEmail } });
+            const res = await fetch(`${API_BASE}/api/gallery`, { headers: { ...authHeaders } });
             if (!res.ok)
                 throw new Error(`Gallery fetch ${res.status}`);
             const data = await res.json();
@@ -889,7 +933,7 @@ function GalleryPanel({ userEmail, onLoadStoryboard, refreshTick, recentStoryboa
         finally {
             setLoading(false);
         }
-    }, [userEmail]);
+    }, [authHeaders]);
     useEffect(() => { fetchGallery(); }, [fetchGallery, refreshTick]);
     const mergedParlorBooks = useMemo(() => {
         const seen = new Set();
@@ -970,7 +1014,7 @@ function GalleryPanel({ userEmail, onLoadStoryboard, refreshTick, recentStoryboa
     const loadStoryboard = useCallback(async (key, title) => {
         try {
             const res = await fetch(`${API_BASE}/api/storyboard/fetch?key=${encodeURIComponent(key)}`, {
-                headers: { 'x-dev-email': userEmail },
+                headers: { ...authHeaders },
             });
             if (!res.ok)
                 throw new Error(`Fetch storyboard ${res.status}`);
@@ -980,7 +1024,7 @@ function GalleryPanel({ userEmail, onLoadStoryboard, refreshTick, recentStoryboa
         catch (e) {
             alert(`Could not load storyboard: ${e.message}`);
         }
-    }, [userEmail, onLoadStoryboard]);
+    }, [authHeaders, onLoadStoryboard]);
     const handleUpload = useCallback(async (e) => {
         const file = e.target.files?.[0];
         if (!file)
@@ -993,7 +1037,7 @@ function GalleryPanel({ userEmail, onLoadStoryboard, refreshTick, recentStoryboa
             form.append('name', name);
             const res = await fetch(`${API_BASE}/api/dolls/upload`, {
                 method: 'POST',
-                headers: { 'x-dev-email': userEmail },
+                headers: { ...authHeaders },
                 body: form,
             });
             if (!res.ok)
@@ -1008,7 +1052,7 @@ function GalleryPanel({ userEmail, onLoadStoryboard, refreshTick, recentStoryboa
             if (fileInputRef.current)
                 fileInputRef.current.value = '';
         }
-    }, [userEmail, fetchGallery]);
+    }, [authHeaders, fetchGallery]);
     const gBtn = {
         background: 'transparent',
         border: '1px solid #ff1493',
@@ -1034,7 +1078,7 @@ function GalleryPanel({ userEmail, onLoadStoryboard, refreshTick, recentStoryboa
             form.append('file', file);
             const res = await fetch(`${API_BASE}/api/canvas/assets/upload`, {
                 method: 'POST',
-                headers: { 'x-dev-email': userEmail },
+                headers: { ...authHeaders },
                 body: form,
             });
             if (!res.ok)
@@ -1058,7 +1102,7 @@ function GalleryPanel({ userEmail, onLoadStoryboard, refreshTick, recentStoryboa
             if (assetInputRef.current)
                 assetInputRef.current.value = '';
         }
-    }, [userEmail, copyUrl]);
+    }, [authHeaders, copyUrl]);
     const handleAssetInput = useCallback((e) => {
         const file = e.target.files?.[0];
         if (file)
@@ -1094,22 +1138,103 @@ function GalleryPanel({ userEmail, onLoadStoryboard, refreshTick, recentStoryboa
                                                     transformOrigin: 'top left'
                                                 }, sandbox: "allow-same-origin allow-scripts" }) })] }), _jsxs("div", { style: { display: 'flex', gap: 8 }, children: [_jsx("button", { style: gBtn, onClick: () => handleRename(page), children: "Rename" }), _jsx("button", { style: gBtn, onClick: () => copyUrl(page.url), children: "Copy URL" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }, href: page.url, target: "_blank", rel: "noopener noreferrer", children: "Open" })] })] }, page.key))) })] })] }));
 }
+// ── Reactions ─────────────────────────────────────────────────────────────────
+const QUICK_EMOJIS = [
+    '😂', '🤣', '😭', '😍', '🥰', '😎', '🤩', '😤',
+    '🤬', '😱', '💀', '🤡', '👏', '🙌', '🤘', '🖕',
+    '👌', '🤌', '🎸', '🎶', '🎤', '🔥', '⚡', '💥',
+    '🌭', '🍕', '🍺', '🍾', '💣', '🪩', '🏆', '👑',
+    '💎', '🖤', '💗', '❤️‍🔥', '🐍', '🦄', '🎉', '✨',
+];
+async function searchGifs(query) {
+    try {
+        const r = await fetch(`https://api.tenor.com/v1/search?q=${encodeURIComponent(query)}&key=LIVDSRZULELA&limit=6&media_filter=minimal`);
+        const d = await r.json();
+        return (d.results || []).map((item) => ({
+            id: item.id,
+            url: (item.media[0]?.gif?.url || item.media[0]?.tinygif?.url || ''),
+            preview: (item.media[0]?.tinygif?.url || item.media[0]?.gif?.url || ''),
+        }));
+    }
+    catch {
+        return [];
+    }
+}
+function ReactionPicker({ onSelect, onClose, }) {
+    const [tab, setTab] = useState('emoji');
+    const [gifQuery, setGifQ] = useState('');
+    const [gifs, setGifs] = useState([]);
+    const [searching, setSrch] = useState(false);
+    const ref = useRef(null);
+    useEffect(() => {
+        function onClick(e) {
+            if (ref.current && !ref.current.contains(e.target))
+                onClose();
+        }
+        document.addEventListener('mousedown', onClick);
+        return () => document.removeEventListener('mousedown', onClick);
+    }, [onClose]);
+    async function doGifSearch(q) {
+        if (!q.trim())
+            return;
+        setSrch(true);
+        const results = await searchGifs(q);
+        setGifs(results);
+        setSrch(false);
+    }
+    return (_jsxs("div", { className: "reaction-picker", ref: ref, children: [_jsxs("div", { className: "reaction-picker-tabs", children: [_jsx("button", { className: `reaction-picker-tab${tab === 'emoji' ? ' reaction-picker-tab--active' : ''}`, onClick: () => setTab('emoji'), children: "Emoji" }), _jsx("button", { className: `reaction-picker-tab${tab === 'gif' ? ' reaction-picker-tab--active' : ''}`, onClick: () => setTab('gif'), children: "GIF" })] }), tab === 'emoji' && (_jsx("div", { className: "reaction-emoji-grid", children: QUICK_EMOJIS.map((e) => (_jsx("button", { className: "reaction-emoji-btn", onClick: () => onSelect(e, 'emoji'), children: e }, e))) })), tab === 'gif' && (_jsxs("div", { children: [_jsxs("div", { style: { display: 'flex', gap: 6, marginBottom: 8 }, children: [_jsx("input", { className: "reaction-gif-search", placeholder: "Search GIFs\u2026", value: gifQuery, onChange: (e) => setGifQ(e.target.value), onKeyDown: (e) => e.key === 'Enter' && doGifSearch(gifQuery), autoFocus: true }), _jsx("button", { className: "send-btn", style: { padding: '4px 10px', fontSize: '.8rem' }, onClick: () => doGifSearch(gifQuery), children: "Go" })] }), searching && _jsx("div", { style: { color: 'var(--muted)', fontSize: '.8rem', textAlign: 'center' }, children: "searching\u2026" }), _jsx("div", { className: "reaction-gif-grid", children: gifs.map((g) => (_jsx("div", { className: "reaction-gif-item", onClick: () => onSelect(g.url, 'gif'), children: _jsx("img", { src: g.preview, alt: "gif", loading: "lazy" }) }, g.id))) }), !searching && gifs.length === 0 && gifQuery && (_jsx("div", { style: { color: 'var(--muted)', fontSize: '.8rem', textAlign: 'center' }, children: "No results." }))] }))] }));
+}
+function ReactionBar({ messageId, reactions, userEmail, authHeaders: ah, onUpdate, }) {
+    const [pickerOpen, setPickerOpen] = useState(false);
+    async function toggle(value, type) {
+        setPickerOpen(false);
+        try {
+            const resp = await fetch(`${API_BASE}/api/reactions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...ah },
+                body: JSON.stringify({ messageId, value, type }),
+            });
+            const data = await resp.json();
+            if (data.reactions)
+                onUpdate(messageId, data.reactions);
+        }
+        catch { /* ignore */ }
+    }
+    const entries = Object.entries(reactions);
+    return (_jsxs("div", { className: "reaction-bar", children: [entries.map(([val, { type, users }]) => {
+                const isMine = users.includes(userEmail);
+                return (_jsx("button", { className: `reaction-chip${isMine ? ' reaction-chip--mine' : ''}`, onClick: () => toggle(val, type), title: users.map(u => u.split('@')[0]).join(', '), children: type === 'gif'
+                        ? _jsxs(_Fragment, { children: [_jsx("img", { src: val, alt: "gif", style: { height: 20, borderRadius: 3, verticalAlign: 'middle' } }), _jsx("span", { children: users.length })] })
+                        : _jsxs(_Fragment, { children: [val, " ", _jsx("span", { children: users.length })] }) }, val));
+            }), _jsxs("div", { style: { position: 'relative', display: 'inline-flex' }, children: [_jsx("button", { className: "reaction-add", onClick: () => setPickerOpen(p => !p), title: "Add reaction", children: "\uFF0B" }), pickerOpen && (_jsx("div", { style: { position: 'absolute', bottom: '110%', left: 0, zIndex: 1000 }, children: _jsx(ReactionPicker, { onSelect: (val, type) => toggle(val, type), onClose: () => setPickerOpen(false) }) }))] })] }));
+}
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
     const messages = useChatStore((s) => s.messages);
     const addMessage = useChatStore((s) => s.addMessage);
     const replaceMessages = useChatStore((s) => s.replaceMessages);
+    const [idToken, setIdToken] = useState(null);
+    const userEmail = useMemo(() => {
+        if (!idToken)
+            return '';
+        try {
+            return JSON.parse(atob(idToken.split('.')[1])).email || '';
+        }
+        catch {
+            return '';
+        }
+    }, [idToken]);
+    const authHeaders = useMemo(() => idToken ? { 'Authorization': `Bearer ${idToken}` } : {}, [idToken]);
     const [input, setInput] = useState('');
     const [mode, setMode] = useState('shared');
     const [botStatus, setBotStatus] = useState('idle');
-    const [userEmail, setUserEmail] = useState('spanky@ssbb.band');
     const [projectMemory, setProjectMemory] = useState(null);
     const [ttsEnabled, setTtsEnabled] = useState(true);
     const [isSpeaking, setIsSpeaking] = useState(false);
     const [session, setSession] = useState({ pages: [{ type: 'avatar' }], idx: 0 });
     const [harvesting, setHarvesting] = useState(false);
     const [lastHarvest, setLastHarvest] = useState(null);
-    const [basement, setBasement] = useState({ identity: true, memory: false });
+    const [basement, setBasement] = useState({ memory: false });
     const [isDragging, setIsDragging] = useState(false);
     const [hotdogsOn, setHotdogsOn] = useState(false);
     const dragCounterRef = useRef(0);
@@ -1119,12 +1244,14 @@ export default function App() {
     const [recentStoryboards, setRecentStoryboards] = useState([]);
     const [recentCanvasPages, setRecentCanvasPages] = useState([]);
     const [galleryRefreshTick, setGalleryRefreshTick] = useState(0);
+    const [reactions, setReactions] = useState({});
     const lastSpokenRef = useRef(null);
+    const hasGreetedRef = useRef(false);
     const chatFeedRef = useRef(null);
     const canvasIframeRef = useRef(null);
     const currentAudioRef = useRef(null);
     const conversationId = useMemo(() => mode === 'shared' ? 'butt-bitch-hang' : `private-${(userEmail || 'anon').replace(/[^a-z0-9@._-]/gi, '')}`, [mode, userEmail]);
-    const canvasBase = useMemo(() => `${API_BASE}/api/song-canvas?conversationId=${encodeURIComponent(conversationId)}&devEmail=${encodeURIComponent(userEmail)}`, [conversationId, userEmail]);
+    const canvasBase = useMemo(() => `${API_BASE}/api/song-canvas?conversationId=${encodeURIComponent(conversationId)}`, [conversationId, userEmail]);
     // ── postMessage to avatar iframe ─────────────────────────────────────────
     const postToAvatar = useCallback((msg) => {
         canvasIframeRef.current?.contentWindow?.postMessage(msg, '*');
@@ -1165,7 +1292,7 @@ export default function App() {
         try {
             const resp = await fetch(`${API_BASE}/api/tts`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
+                headers: { 'Content-Type': 'application/json', ...authHeaders },
                 body: JSON.stringify({ text }),
             });
             if (!resp.ok)
@@ -1240,28 +1367,73 @@ export default function App() {
     // ── Chat history ─────────────────────────────────────────────────────────
     useEffect(() => {
         fetch(`${API_BASE}/api/chat/history?mode=${mode}`, {
-            headers: userEmail ? { 'x-dev-email': userEmail } : {},
+            headers: userEmail ? { ...authHeaders } : {},
         })
             .then((r) => r.json())
-            .then((d) => replaceMessages((d.history || []).map((msg) => ({
-            ...msg,
-            text: msg.text
+            .then((d) => {
+            const msgs = (d.history || []).map((msg) => ({
+                ...msg,
+                text: (msg.text || '')
+                    .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, '↳ [see canvas →]')
+                    .replace(/\[IMG:[^\]]*\]/g, '')
+                    .replace(/<[^>]+>/g, '')
+                    .replace(/&[a-z#0-9]+;/gi, ' ')
+                    .replace(/\s{2,}/g, ' ')
+                    .trim()
+            }));
+            replaceMessages(msgs);
+            if (d.reactions)
+                setReactions((prev) => ({ ...prev, ...d.reactions }));
+            // Suppress TTS for all existing history — don't read old messages on load
+            const lastBot = [...msgs].reverse().find((m) => m.author === 'bot');
+            if (lastBot)
+                lastSpokenRef.current = lastBot.id;
+            // On first shared-mode load, ask BotButt to greet the logged-in user
+            if (!hasGreetedRef.current && mode === 'shared' && userEmail) {
+                hasGreetedRef.current = true;
+                fetch(`${API_BASE}/api/chat/greeting`, { method: 'POST', headers: { ...authHeaders } })
+                    .then((r) => r.json())
+                    .then((g) => {
+                    if (g.id && g.text) {
+                        addMessage({ id: g.id, author: 'bot', text: g.text, createdAt: g.createdAt, mode: 'shared' });
+                    }
+                })
+                    .catch((e) => console.warn('[greeting]', e));
+            }
+        })
+            .catch((e) => console.error('history fetch failed', e));
+    }, [mode, userEmail, replaceMessages]);
+    // ── Real-time socket updates ─────────────────────────────────────────────
+    useEffect(() => {
+        function onChatMessage(msg) {
+            if (msg.mode !== 'shared')
+                return; // only shared messages broadcast; private stays private
+            const text = (msg.text || '')
                 .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, '↳ [see canvas →]')
                 .replace(/\[IMG:[^\]]*\]/g, '')
                 .replace(/<[^>]+>/g, '')
                 .replace(/&[a-z#0-9]+;/gi, ' ')
                 .replace(/\s{2,}/g, ' ')
-                .trim()
-        }))))
-            .catch((e) => console.error('history fetch failed', e));
-    }, [mode, userEmail, replaceMessages]);
+                .trim();
+            useChatStore.getState().addMessage({ ...msg, text });
+        }
+        socket.on('chat:message', onChatMessage);
+        return () => { socket.off('chat:message', onChatMessage); };
+    }, []);
+    useEffect(() => {
+        function onReactionsUpdate({ messageId, reactions: r }) {
+            setReactions((prev) => ({ ...prev, [messageId]: r }));
+        }
+        socket.on('reactions:update', onReactionsUpdate);
+        return () => { socket.off('reactions:update', onReactionsUpdate); };
+    }, []);
     // ── Memory ───────────────────────────────────────────────────────────────
     useEffect(() => {
-        fetch(`${API_BASE}/api/memory`, { headers: { 'x-dev-email': userEmail } })
+        fetch(`${API_BASE}/api/memory`, { headers: { ...authHeaders } })
             .then((r) => r.json())
             .then((d) => setProjectMemory(d.project))
             .catch((e) => console.error('memory fetch failed', e));
-    }, [userEmail]);
+    }, [authHeaders]);
     // Auto-scroll chat
     useEffect(() => {
         if (chatFeedRef.current)
@@ -1295,7 +1467,7 @@ export default function App() {
             return;
         }
         const displayText = text || (attachments?.map(a => `[${a.name}]`).join(' ') ?? '');
-        const userMsg = { id: uuid(), author: 'butt', text: displayText, createdAt: new Date().toISOString() };
+        const userMsg = { id: uuid(), author: 'butt', text: displayText, createdAt: new Date().toISOString(), userEmail: userEmail || undefined };
         addMessage(userMsg);
         setInput('');
         setBotStatus('thinking');
@@ -1303,8 +1475,8 @@ export default function App() {
         try {
             const resp = await fetch(`${API_BASE}/api/chat`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
-                body: JSON.stringify({ message: displayText, mode, attachments }),
+                headers: { 'Content-Type': 'application/json', ...authHeaders },
+                body: JSON.stringify({ message: displayText, mode, attachments, clientMessageId: userMsg.id }),
             });
             if (!resp.ok)
                 throw new Error('Chat failed');
@@ -1387,10 +1559,10 @@ export default function App() {
             return;
         setHarvesting(true);
         try {
-            const r = await fetch(`${API_BASE}/api/harvest`, { method: 'POST', headers: { 'x-dev-email': userEmail } });
+            const r = await fetch(`${API_BASE}/api/harvest`, { method: 'POST', headers: { ...authHeaders } });
             const d = await r.json();
             setLastHarvest({ count: d.totalFound ?? 0, backend: d.backend ?? '?' });
-            const mem = await fetch(`${API_BASE}/api/memory`, { headers: { 'x-dev-email': userEmail } }).then((r) => r.json());
+            const mem = await fetch(`${API_BASE}/api/memory`, { headers: { ...authHeaders } }).then((r) => r.json());
             setProjectMemory(mem.project);
         }
         catch (e) {
@@ -1408,7 +1580,7 @@ export default function App() {
         try {
             const res = await fetch(`${API_BASE}/api/canvas/upload`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
+                headers: { 'Content-Type': 'application/json', ...authHeaders },
                 body: JSON.stringify({ html: currentPage.html, title: currentPage.title }),
             });
             const data = await res.json();
@@ -1444,7 +1616,7 @@ export default function App() {
         try {
             const res = await fetch(`${API_BASE}/api/storyboard`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
+                headers: { 'Content-Type': 'application/json', ...authHeaders },
                 body: JSON.stringify({ html: currentPage.html, title: currentPage.title, conversationId }),
             });
             if (!res.ok)
@@ -1470,7 +1642,7 @@ export default function App() {
         try {
             await fetch(`${API_BASE}/api/canvas/title`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json', 'x-dev-email': userEmail },
+                headers: { 'Content-Type': 'application/json', ...authHeaders },
                 body: JSON.stringify({ key: page.key, title }),
             });
             setRecentCanvasPages(prev => prev.map(p => (p.key === page.key ? { ...p, title } : p)));
@@ -1480,7 +1652,7 @@ export default function App() {
             console.warn('[canvas rename]', err);
             alert('Could not rename that Parlor Book.');
         }
-    }, [userEmail]);
+    }, [authHeaders]);
     const showQR = useCallback(async (url) => {
         try {
             const QRCode = (await import('qrcode')).default;
@@ -1538,12 +1710,20 @@ export default function App() {
     const toggleBasement = (key) => setBasement((prev) => ({ ...prev, [key]: !prev[key] }));
     const currentBitch = BUTT_BITCHES.find((b) => b.email === userEmail) ?? BUTT_BITCHES[0];
     // ── Render ────────────────────────────────────────────────────────────────
-    return (_jsxs("div", { className: "parlor", children: [hotdogsOn && _jsx(HotdogRain, { onDone: () => setHotdogsOn(false) }), _jsxs("header", { className: "parlor-header", children: [_jsxs("div", { className: "parlor-brand", children: [_jsx("div", { className: "parlor-brand__mark", children: _jsx(BotButtBear, { state: bearState }) }), _jsxs("div", { children: [_jsx("p", { className: "parlor-eyebrow", children: "SSBB // Butt Bitch Parlor" }), _jsx("h1", { className: "parlor-title", children: "Screaming Smoldering Butt Bitches" })] })] }), _jsxs("div", { className: "parlor-header__center", children: [_jsx("div", { className: `status-chip${botStatus === 'thinking' ? ' status-chip--thinking' : ''}`, children: botStatus === 'thinking' ? 'BotButt thinking...' : 'BotButt ready' }), _jsx("button", { className: `tts-toggle${ttsEnabled ? ' active' : ''}`, type: "button", onClick: () => setTtsEnabled((s) => !s), children: ttsEnabled ? '🔊 Voice on' : '🔈 Voice off' }), _jsx("button", { className: "mini-btn", type: "button", onClick: () => { setTtsEnabled(true); speakNow("G'day legends, BotButt here — ready to make absolute chaos with you."); }, children: "Test voice" })] }), _jsxs("div", { className: "parlor-header__user", children: [_jsx("span", { children: "Signed in as" }), _jsx("strong", { style: { color: currentBitch.color }, children: currentBitch.handle })] })] }), _jsxs("div", { className: "parlor-main", children: [_jsxs("section", { className: "parlor-chat", onDragOver: (e) => e.preventDefault(), onDragEnter: (e) => { e.preventDefault(); dragCounterRef.current++; setIsDragging(true); }, onDragLeave: () => { dragCounterRef.current--; if (dragCounterRef.current === 0)
-                            setIsDragging(false); }, onDrop: (e) => { dragCounterRef.current = 0; setIsDragging(false); handleDrop(e); }, children: [isDragging && _jsx("div", { className: "chat-drop-overlay", children: "Drop file to send to BotButt" }), _jsxs("div", { className: "card chat-card", children: [_jsxs("div", { className: "chat-card__header", children: [_jsxs("div", { children: [_jsx("h2", { children: "SSBB Pretendo TV" }), _jsxs("p", { className: "chat-subline", children: [_jsx("button", { className: mode === 'shared' ? 'mode-btn mode-btn--active' : 'mode-btn', onClick: () => setMode('shared'), children: "Shared" }), _jsx("button", { className: mode === 'private' ? 'mode-btn mode-btn--active' : 'mode-btn', onClick: () => setMode('private'), children: "Private 1:1" })] })] }), _jsx("button", { className: "mini-btn", type: "button", onClick: () => sendMessage(), children: "Ping" })] }), _jsxs("div", { className: "chat-feed", ref: chatFeedRef, children: [messages.length === 0 && (_jsx("div", { className: "chat-empty", children: "Say something to BotButt..." })), messages.map((msg) => (_jsxs("article", { className: `chat-bubble chat-bubble--${msg.author}`, children: [_jsxs("header", { children: [_jsx("strong", { children: msg.author === 'bot' ? 'BotButt' : currentBitch.handle }), _jsx("span", { children: msg.mode === 'private' ? 'Private' : 'Shared' }), _jsx("time", { children: new Date(msg.createdAt).toLocaleTimeString() })] }), _jsx("p", { children: msg.text })] }, msg.id)))] }), _jsxs("form", { className: "composer", onSubmit: sendMessage, children: [_jsx("input", { className: "command-input", placeholder: "Talk to BotButt...", value: input, onChange: (e) => setInput(e.target.value) }), _jsx("button", { className: "send-btn", type: "submit", children: "Send" })] })] })] }), _jsx("section", { className: "parlor-book", children: _jsxs("div", { className: "card parlor-book-card", children: [_jsxs("div", { className: "book-toolbar", children: [_jsx("span", { className: "book-title", children: "\u2726 Parlor Book" }), _jsxs("div", { className: "book-tabs", children: [_jsx("button", { className: `book-tab${currentPage.type === 'avatar' ? ' book-tab--active' : ''}`, onClick: () => {
+    if (!idToken)
+        return _jsx(LoginScreen, { onLogin: setIdToken });
+    return (_jsxs("div", { className: "parlor", children: [hotdogsOn && _jsx(HotdogRain, { onDone: () => setHotdogsOn(false) }), _jsxs("header", { className: "parlor-header", children: [_jsxs("div", { className: "parlor-brand", children: [_jsx("div", { className: "parlor-brand__mark", children: _jsx(BotButtBear, { state: bearState }) }), _jsxs("div", { children: [_jsx("p", { className: "parlor-eyebrow", children: "SSBB // Butt Bitch Parlor" }), _jsx("h1", { className: "parlor-title", children: "Screaming Smoldering Butt Bitches" })] })] }), _jsxs("div", { className: "parlor-header__center", children: [_jsx("div", { className: `status-chip${botStatus === 'thinking' ? ' status-chip--thinking' : ''}`, children: botStatus === 'thinking' ? 'BotButt thinking...' : 'BotButt ready' }), _jsx("button", { className: `tts-toggle${ttsEnabled ? ' active' : ''}`, type: "button", onClick: () => setTtsEnabled((s) => !s), children: ttsEnabled ? '🔊 Voice on' : '🔈 Voice off' }), _jsx("button", { className: "mini-btn", type: "button", onClick: () => { setTtsEnabled(true); speakNow("G'day legends, BotButt here — ready to make absolute chaos with you."); }, children: "Test voice" })] }), _jsxs("div", { className: "parlor-header__user", children: [_jsx("span", { children: "Signed in as" }), _jsx("strong", { style: { color: currentBitch.color }, children: currentBitch.handle }), _jsx("button", { className: "mini-btn", type: "button", onClick: () => setIdToken(null), style: { marginLeft: '8px' }, children: "Sign out" })] })] }), _jsxs("div", { className: "parlor-main", children: [_jsxs("section", { className: "parlor-chat", onDragOver: (e) => e.preventDefault(), onDragEnter: (e) => { e.preventDefault(); dragCounterRef.current++; setIsDragging(true); }, onDragLeave: () => { dragCounterRef.current--; if (dragCounterRef.current === 0)
+                            setIsDragging(false); }, onDrop: (e) => { dragCounterRef.current = 0; setIsDragging(false); handleDrop(e); }, children: [isDragging && _jsx("div", { className: "chat-drop-overlay", children: "Drop file to send to BotButt" }), _jsxs("div", { className: "card chat-card", children: [_jsxs("div", { className: "chat-card__header", children: [_jsxs("div", { children: [_jsx("h2", { children: "SSBB Pretendo TV" }), _jsxs("p", { className: "chat-subline", children: [_jsx("button", { className: mode === 'shared' ? 'mode-btn mode-btn--active' : 'mode-btn', onClick: () => setMode('shared'), children: "Shared" }), _jsx("button", { className: mode === 'private' ? 'mode-btn mode-btn--active' : 'mode-btn', onClick: () => setMode('private'), children: "Private 1:1" })] })] }), _jsx("button", { className: "mini-btn", type: "button", onClick: () => sendMessage(), children: "Ping" })] }), _jsxs("div", { className: "chat-feed", ref: chatFeedRef, children: [messages.length === 0 && (_jsx("div", { className: "chat-empty", children: "Say something to BotButt..." })), messages.map((msg) => {
+                                                const senderBitch = msg.author === 'butt'
+                                                    ? (BUTT_BITCHES.find((b) => b.email === msg.userEmail) ?? currentBitch)
+                                                    : null;
+                                                const isMine = msg.author === 'bot' ? false : (msg.userEmail === userEmail || !msg.userEmail);
+                                                return (_jsxs("article", { className: `chat-bubble chat-bubble--${msg.author}${isMine ? ' chat-bubble--mine' : ' chat-bubble--theirs'}`, children: [_jsxs("header", { children: [_jsx("strong", { style: senderBitch ? { color: senderBitch.color } : undefined, children: msg.author === 'bot' ? 'BotButt' : senderBitch?.handle ?? 'Butt Bitch' }), _jsx("span", { children: msg.mode === 'private' ? 'Private' : 'Shared' }), _jsx("time", { children: new Date(msg.createdAt).toLocaleTimeString() })] }), _jsx("p", { children: msg.text }), _jsx(ReactionBar, { messageId: msg.id, reactions: reactions[msg.id] ?? {}, userEmail: userEmail, authHeaders: authHeaders, onUpdate: (id, r) => setReactions((prev) => ({ ...prev, [id]: r })) })] }, msg.id));
+                                            })] }), _jsxs("form", { className: "composer", onSubmit: sendMessage, children: [_jsx("input", { className: "command-input", placeholder: "Talk to BotButt...", value: input, onChange: (e) => setInput(e.target.value) }), _jsx("button", { className: "send-btn", type: "submit", children: "Send" })] })] })] }), _jsx("section", { className: "parlor-book", children: _jsxs("div", { className: "card parlor-book-card", children: [_jsxs("div", { className: "book-toolbar", children: [_jsx("span", { className: "book-title", children: "\u2726 Parlor Book" }), _jsxs("div", { className: "book-tabs", children: [_jsx("button", { className: `book-tab${currentPage.type === 'avatar' ? ' book-tab--active' : ''}`, onClick: () => {
                                                         setSession(s => {
                                                             const ai = s.pages.findIndex(p => p.type === 'avatar');
                                                             return ai >= 0 ? { ...s, idx: ai } : s;
                                                         });
                                                         postToAvatar({ type: 'clear-canvas-html' });
-                                                    }, children: "BotButt" }), _jsx("button", { className: `book-tab${currentPage.type === 'edit' ? ' book-tab--active' : ''}`, onClick: openEdit, children: "Editor" }), _jsx("button", { className: `book-tab${currentPage.type === 'gallery' ? ' book-tab--active' : ''}`, onClick: () => pushPage({ type: 'gallery' }), children: "Gallery" })] }), _jsxs("div", { className: "book-nav", children: [_jsx("button", { className: "book-nav-btn", onClick: goBack, disabled: session.idx === 0, title: "Previous", children: "\u25C0" }), _jsxs("span", { className: "book-nav-pos", children: [session.idx + 1, "/", session.pages.length] }), _jsx("button", { className: "book-nav-btn", onClick: goForward, disabled: session.idx === session.pages.length - 1, title: "Next", children: "\u25B6" })] }), currentPage.type === 'html' && (currentPage.s3Url ? (_jsx("a", { className: "book-dl", href: currentPage.s3Url, target: "_blank", rel: "noopener noreferrer", title: "Open S3 share link", children: "\uD83D\uDD17 S3" })) : (_jsx("button", { className: "book-dl", onClick: uploadToS3, disabled: s3Uploading, title: "Upload page to S3 for sharing", children: s3Uploading ? '↑…' : '↑ Share' }))), currentPage.type === 'html' && currentPage.s3Url && (_jsx("button", { className: "book-dl", onClick: () => showQR(currentPage.s3Url), title: "Generate QR code", children: "QR" })), currentPage.type === 'html' && (/storyboard|episode/i.test(currentPage.title) || /<table/i.test(currentPage.html)) && (_jsx("button", { className: "book-dl", onClick: saveStoryboard, disabled: sbSaving, title: "Save storyboard to gallery", children: sbSaving ? 'Saving...' : 'Save' })), _jsx("button", { className: "book-dl", onClick: downloadCanvas, title: "Download current page", children: "\u2913 Download" })] }), _jsxs("div", { className: "book-frame", children: [_jsx("iframe", { ref: canvasIframeRef, title: "BotButt avatar", srcDoc: BOTBUTT_SRCDOC, sandbox: "allow-scripts", style: { display: currentPage.type === 'avatar' ? 'block' : 'none', width: '100%', height: '100%', border: 'none' } }), currentPage.type === 'edit' && (_jsx("iframe", { title: "Parlor Book editor", src: currentPage.src, sandbox: "allow-scripts allow-same-origin allow-forms", style: { width: '100%', height: '100%', border: 'none' } })), currentPage.type === 'html' && (_jsx(CanvasHtmlFrame, { html: currentPage.html, title: currentPage.title }, session.idx)), currentPage.type === 'gallery' && (_jsx(GalleryPanel, { userEmail: userEmail, onLoadStoryboard: pushPage, refreshTick: galleryRefreshTick, recentStoryboards: recentStoryboards, recentParlorBooks: recentCanvasPages, onRenameParlorBook: renameParlorBook }))] })] }) })] }), _jsxs("div", { className: "parlor-basement", children: [_jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('identity'), children: [_jsx("span", { children: "Who Are You?" }), _jsx("span", { className: "basement-chevron", children: basement.identity ? '▲' : '▼' })] }), basement.identity && (_jsx("div", { className: "basement-body", children: _jsx("div", { className: "butt-bitch-picker horiz", children: BUTT_BITCHES.map((bb) => (_jsx("button", { className: `bb-btn${userEmail === bb.email ? ' bb-btn--active' : ''}`, style: { '--bb-color': bb.color }, onClick: () => setUserEmail(bb.email), children: bb.handle }, bb.email))) }) }))] }), _jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('memory'), children: [_jsx("span", { children: "Memory & Threads" }), _jsx("span", { className: "basement-chevron", children: basement.memory ? '▲' : '▼' })] }), basement.memory && (_jsxs("div", { className: "basement-body", children: [projectMemory ? (_jsxs(_Fragment, { children: [_jsxs("p", { className: "mem-focus", children: [_jsx("strong", { children: "Episode:" }), " ", projectMemory.episodeFocus] }), _jsx("ul", { className: "mem-threads", children: projectMemory.openThreads.map((t) => _jsx("li", { children: t }, t)) })] })) : _jsx("p", { style: { color: 'var(--muted)', fontSize: '.82rem' }, children: "Loading\u2026" }), _jsx("button", { className: "kg-button kg-button--harvest", onClick: runHarvest, disabled: harvesting, style: { marginTop: '10px' }, children: harvesting ? 'Scouring...' : 'Harvest SSBB from the web' }), lastHarvest && _jsxs("p", { style: { fontSize: '.72rem', color: 'var(--teal)', marginTop: '4px' }, children: [lastHarvest.count, " results via ", lastHarvest.backend] })] }))] })] }), qrModal && (_jsx("div", { className: "qr-backdrop", onClick: () => setQrModal(null), children: _jsxs("div", { className: "qr-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("img", { src: qrModal.dataUrl, alt: "QR Code", width: 220, height: 220 }), _jsxs("p", { className: "qr-url", children: [qrModal.url.slice(0, 72), qrModal.url.length > 72 ? '…' : ''] }), _jsx("button", { className: "qr-close", onClick: () => setQrModal(null), children: "\u2715 Close" })] }) }))] }));
+                                                    }, children: "BotButt" }), _jsx("button", { className: `book-tab${currentPage.type === 'edit' ? ' book-tab--active' : ''}`, onClick: openEdit, children: "Editor" }), _jsx("button", { className: `book-tab${currentPage.type === 'gallery' ? ' book-tab--active' : ''}`, onClick: () => pushPage({ type: 'gallery' }), children: "Gallery" })] }), _jsxs("div", { className: "book-nav", children: [_jsx("button", { className: "book-nav-btn", onClick: goBack, disabled: session.idx === 0, title: "Previous", children: "\u25C0" }), _jsxs("span", { className: "book-nav-pos", children: [session.idx + 1, "/", session.pages.length] }), _jsx("button", { className: "book-nav-btn", onClick: goForward, disabled: session.idx === session.pages.length - 1, title: "Next", children: "\u25B6" })] }), currentPage.type === 'html' && (currentPage.s3Url ? (_jsx("a", { className: "book-dl", href: currentPage.s3Url, target: "_blank", rel: "noopener noreferrer", title: "Open S3 share link", children: "\uD83D\uDD17 S3" })) : (_jsx("button", { className: "book-dl", onClick: uploadToS3, disabled: s3Uploading, title: "Upload page to S3 for sharing", children: s3Uploading ? '↑…' : '↑ Share' }))), currentPage.type === 'html' && currentPage.s3Url && (_jsx("button", { className: "book-dl", onClick: () => showQR(currentPage.s3Url), title: "Generate QR code", children: "QR" })), currentPage.type === 'html' && (/storyboard|episode/i.test(currentPage.title) || /<table/i.test(currentPage.html)) && (_jsx("button", { className: "book-dl", onClick: saveStoryboard, disabled: sbSaving, title: "Save storyboard to gallery", children: sbSaving ? 'Saving...' : 'Save' })), _jsx("button", { className: "book-dl", onClick: downloadCanvas, title: "Download current page", children: "\u2913 Download" })] }), _jsxs("div", { className: "book-frame", children: [_jsx("iframe", { ref: canvasIframeRef, title: "BotButt avatar", srcDoc: BOTBUTT_SRCDOC, sandbox: "allow-scripts", style: { display: currentPage.type === 'avatar' ? 'block' : 'none', width: '100%', height: '100%', border: 'none' } }), currentPage.type === 'edit' && (_jsx("iframe", { title: "Parlor Book editor", src: currentPage.src, sandbox: "allow-scripts allow-same-origin allow-forms", style: { width: '100%', height: '100%', border: 'none' } })), currentPage.type === 'html' && (_jsx(CanvasHtmlFrame, { html: currentPage.html, title: currentPage.title }, session.idx)), currentPage.type === 'gallery' && (_jsx(GalleryPanel, { authHeaders: authHeaders, onLoadStoryboard: pushPage, refreshTick: galleryRefreshTick, recentStoryboards: recentStoryboards, recentParlorBooks: recentCanvasPages, onRenameParlorBook: renameParlorBook }))] })] }) })] }), _jsx("div", { className: "parlor-basement", children: _jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('memory'), children: [_jsx("span", { children: "Memory & Threads" }), _jsx("span", { className: "basement-chevron", children: basement.memory ? '▲' : '▼' })] }), basement.memory && (_jsxs("div", { className: "basement-body", children: [projectMemory ? (_jsxs(_Fragment, { children: [_jsxs("p", { className: "mem-focus", children: [_jsx("strong", { children: "Episode:" }), " ", projectMemory.episodeFocus] }), _jsx("ul", { className: "mem-threads", children: projectMemory.openThreads.map((t) => _jsx("li", { children: t }, t)) })] })) : _jsx("p", { style: { color: 'var(--muted)', fontSize: '.82rem' }, children: "Loading\u2026" }), _jsx("button", { className: "kg-button kg-button--harvest", onClick: runHarvest, disabled: harvesting, style: { marginTop: '10px' }, children: harvesting ? 'Scouring...' : 'Harvest SSBB from the web' }), lastHarvest && _jsxs("p", { style: { fontSize: '.72rem', color: 'var(--teal)', marginTop: '4px' }, children: [lastHarvest.count, " results via ", lastHarvest.backend] })] }))] }) }), qrModal && (_jsx("div", { className: "qr-backdrop", onClick: () => setQrModal(null), children: _jsxs("div", { className: "qr-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("img", { src: qrModal.dataUrl, alt: "QR Code", width: 220, height: 220 }), _jsxs("p", { className: "qr-url", children: [qrModal.url.slice(0, 72), qrModal.url.length > 72 ? '…' : ''] }), _jsx("button", { className: "qr-close", onClick: () => setQrModal(null), children: "\u2715 Close" })] }) }))] }));
 }

@@ -11,8 +11,8 @@
  *   (neither)                                  → returns a stub result set
  */
 
-import { config } from '../config';
-import { rememberProjectFact } from './memory';
+import { config } from '../config.js';
+import { rememberProjectFact } from './memory.js';
 
 export type HarvestItem = {
   id: string;
