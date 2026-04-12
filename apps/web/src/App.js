@@ -17,35 +17,6 @@ const BUTT_BITCHES = [
     { handle: 'Astro Butt', email: 'astro@ssbb.band', color: '#c084fc' },
     { handle: 'Jazzy Butt', email: 'jazzy@ssbb.band', color: '#39ff14' },
 ];
-const CANVAS_IFRAME_PREFIX = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    padding: 20px 24px;
-    min-height: 100vh;
-    background: #08000f;
-    color: #F7F1E8;
-    font-family: 'Inter', sans-serif;
-    line-height: 1.7;
-  }
-</style>
-</head>
-<body>`;
-const CANVAS_IFRAME_SUFFIX = '</body></html>';
-const toCanvasSrcDoc = (rawHtml) => {
-    const trimmed = (rawHtml ?? '').trim();
-    if (!trimmed)
-        return `${CANVAS_IFRAME_PREFIX}<p></p>${CANVAS_IFRAME_SUFFIX}`;
-    if (/<(html|body|head)\b/i.test(trimmed) || /<!doctype/i.test(trimmed))
-        return trimmed;
-    return `${CANVAS_IFRAME_PREFIX}${trimmed}${CANVAS_IFRAME_SUFFIX}`;
-};
 // ── BotButt Avatar srcdoc (self-contained — lives inside the Parlor Book iframe) ──
 const BOTBUTT_SRCDOC = `<!DOCTYPE html>
 <html>
@@ -786,8 +757,26 @@ svg{width:100%;height:100%;display:block;}
   var cbody   = document.getElementById('content-body');
   var closeBtn= document.getElementById('close-panel');
 
+  function runCanvasScripts(target){
+    var scripts = target.querySelectorAll('script');
+    for(var i=0;i<scripts.length;i++){
+      var oldScript = scripts[i];
+      var newScript = document.createElement('script');
+      for(var j=0;j<oldScript.attributes.length;j++){
+        var attr = oldScript.attributes[j];
+        newScript.setAttribute(attr.name, attr.value);
+      }
+      newScript.textContent = oldScript.textContent || '';
+      var parent = oldScript.parentNode;
+      if(parent){
+        parent.replaceChild(newScript, oldScript);
+      }
+    }
+  }
+
   function openContent(html){
     cbody.innerHTML = html;
+    runCanvasScripts(cbody);
     panel.style.display = 'block';
     svgEl.style.transition = 'all .45s ease';
     svgEl.style.opacity = '.18';
@@ -837,6 +826,10 @@ svg{width:100%;height:100%;display:block;}
 </script>
 </body>
 </html>`;
+function CanvasHtmlFrame({ html, title }) {
+    const doc = useMemo(() => `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{background:#0d0010;color:#F7F1E8;font-family:sans-serif;padding:24px;margin:0}</style></head><body>${html}</body></html>`, [html, title]);
+    return _jsx("iframe", { title: title, srcDoc: doc, sandbox: "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads", style: { width: '100%', height: '100%', border: 'none' } });
+}
 // ── Small bear for header ─────────────────────────────────────────────────────
 function BotButtBear({ state }) {
     return (_jsxs("svg", { className: `bear-svg bear-wrap--${state}`, viewBox: "0 0 100 100", fill: "none", xmlns: "http://www.w3.org/2000/svg", "aria-label": "BotButt", children: [_jsx("circle", { cx: "22", cy: "24", r: "14", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("circle", { cx: "78", cy: "24", r: "14", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("circle", { cx: "22", cy: "24", r: "7", fill: "#4a0066" }), _jsx("circle", { cx: "78", cy: "24", r: "7", fill: "#4a0066" }), _jsx("ellipse", { cx: "50", cy: "60", rx: "34", ry: "32", className: "bear-head-fill", fill: "#1a0033", stroke: "#ff1493", strokeWidth: "2" }), _jsx("line", { x1: "30", y1: "47", x2: "40", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "40", y1: "47", x2: "30", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "60", y1: "47", x2: "70", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("line", { x1: "70", y1: "47", x2: "60", y2: "57", className: "bear-eye", stroke: "#ffe66d", strokeWidth: "2.5", strokeLinecap: "round" }), _jsx("ellipse", { cx: "50", cy: "66", rx: "5", ry: "3.5", fill: "#ff1493" }), _jsx("path", { className: "bear-mouth", d: "M36 75 Q50 83 64 75", stroke: "#ff1493", strokeWidth: "2.5", strokeLinecap: "round", fill: "none" }), _jsx("path", { d: "M38 12 Q50 6 62 12 Q50 18 38 12Z", fill: "#ff1493" }), _jsx("circle", { cx: "50", cy: "12", r: "3.5", fill: "#fff" }), state === 'speaking' && _jsxs(_Fragment, { children: [_jsx("line", { x1: "50", y1: "28", x2: "50", y2: "10", stroke: "#39ff14", strokeWidth: "1.5", strokeLinecap: "round" }), _jsx("circle", { cx: "50", cy: "8", r: "3", fill: "#39ff14", opacity: "0.9" })] })] }));
@@ -953,7 +946,6 @@ export default function App() {
     }, []);
     // ── Canvas session helpers ────────────────────────────────────────────────
     const currentPage = session.pages[session.idx];
-    const canvasHtmlDoc = useMemo(() => currentPage?.type === 'html' ? toCanvasSrcDoc(currentPage.html) : '', [currentPage]);
     const pushPage = useCallback((page) => {
         setSession(s => {
             const pages = [...s.pages.slice(0, s.idx + 1), page];
@@ -1325,5 +1317,5 @@ export default function App() {
                                                             return ai >= 0 ? { ...s, idx: ai } : s;
                                                         });
                                                         postToAvatar({ type: 'clear-canvas-html' });
-                                                    }, children: "BotButt" }), _jsx("button", { className: `book-tab${currentPage.type === 'edit' ? ' book-tab--active' : ''}`, onClick: openEdit, children: "Editor" }), _jsx("button", { className: `book-tab${currentPage.type === 'gallery' ? ' book-tab--active' : ''}`, onClick: () => pushPage({ type: 'gallery' }), children: "Gallery" })] }), _jsxs("div", { className: "book-nav", children: [_jsx("button", { className: "book-nav-btn", onClick: goBack, disabled: session.idx === 0, title: "Previous", children: "\u25C0" }), _jsxs("span", { className: "book-nav-pos", children: [session.idx + 1, "/", session.pages.length] }), _jsx("button", { className: "book-nav-btn", onClick: goForward, disabled: session.idx === session.pages.length - 1, title: "Next", children: "\u25B6" })] }), currentPage.type === 'html' && (currentPage.s3Url ? (_jsx("a", { className: "book-dl", href: currentPage.s3Url, target: "_blank", rel: "noopener noreferrer", title: "Open S3 share link", children: "\uD83D\uDD17 S3" })) : (_jsx("button", { className: "book-dl", onClick: uploadToS3, disabled: s3Uploading, title: "Upload page to S3 for sharing", children: s3Uploading ? '↑…' : '↑ Share' }))), currentPage.type === 'html' && currentPage.s3Url && (_jsx("button", { className: "book-dl", onClick: () => showQR(currentPage.s3Url), title: "Generate QR code", children: "QR" })), currentPage.type === 'html' && (/storyboard|episode/i.test(currentPage.title) || /<table/i.test(currentPage.html)) && (_jsx("button", { className: "book-dl", onClick: saveStoryboard, disabled: sbSaving, title: "Save storyboard to gallery", children: sbSaving ? 'Saving...' : 'Save' })), _jsx("button", { className: "book-dl", onClick: downloadCanvas, title: "Download current page", children: "\u2913 Download" })] }), _jsxs("div", { className: "book-frame", children: [_jsx("iframe", { ref: canvasIframeRef, title: "BotButt avatar", srcDoc: BOTBUTT_SRCDOC, sandbox: "allow-scripts", style: { display: currentPage.type === 'avatar' ? 'block' : 'none', width: '100%', height: '100%', border: 'none' } }), currentPage.type === 'edit' && (_jsx("iframe", { title: "Parlor Book editor", src: currentPage.src, sandbox: "allow-scripts allow-same-origin allow-forms", style: { width: '100%', height: '100%', border: 'none' } })), currentPage.type === 'html' && (_jsx("iframe", { className: "canvas-html-page", title: `Canvas page ${session.idx + 1}`, sandbox: "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads", srcDoc: canvasHtmlDoc })), currentPage.type === 'gallery' && (_jsx(GalleryPanel, { userEmail: userEmail, onLoadStoryboard: pushPage }))] })] }) })] }), _jsxs("div", { className: "parlor-basement", children: [_jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('identity'), children: [_jsx("span", { children: "Who Are You?" }), _jsx("span", { className: "basement-chevron", children: basement.identity ? '▲' : '▼' })] }), basement.identity && (_jsx("div", { className: "basement-body", children: _jsx("div", { className: "butt-bitch-picker horiz", children: BUTT_BITCHES.map((bb) => (_jsx("button", { className: `bb-btn${userEmail === bb.email ? ' bb-btn--active' : ''}`, style: { '--bb-color': bb.color }, onClick: () => setUserEmail(bb.email), children: bb.handle }, bb.email))) }) }))] }), _jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('memory'), children: [_jsx("span", { children: "Memory & Threads" }), _jsx("span", { className: "basement-chevron", children: basement.memory ? '▲' : '▼' })] }), basement.memory && (_jsxs("div", { className: "basement-body", children: [projectMemory ? (_jsxs(_Fragment, { children: [_jsxs("p", { className: "mem-focus", children: [_jsx("strong", { children: "Episode:" }), " ", projectMemory.episodeFocus] }), _jsx("ul", { className: "mem-threads", children: projectMemory.openThreads.map((t) => _jsx("li", { children: t }, t)) })] })) : _jsx("p", { style: { color: 'var(--muted)', fontSize: '.82rem' }, children: "Loading\u2026" }), _jsx("button", { className: "kg-button kg-button--harvest", onClick: runHarvest, disabled: harvesting, style: { marginTop: '10px' }, children: harvesting ? 'Scouring...' : 'Harvest SSBB from the web' }), lastHarvest && _jsxs("p", { style: { fontSize: '.72rem', color: 'var(--teal)', marginTop: '4px' }, children: [lastHarvest.count, " results via ", lastHarvest.backend] })] }))] })] }), qrModal && (_jsx("div", { className: "qr-backdrop", onClick: () => setQrModal(null), children: _jsxs("div", { className: "qr-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("img", { src: qrModal.dataUrl, alt: "QR Code", width: 220, height: 220 }), _jsxs("p", { className: "qr-url", children: [qrModal.url.slice(0, 72), qrModal.url.length > 72 ? '…' : ''] }), _jsx("button", { className: "qr-close", onClick: () => setQrModal(null), children: "\u2715 Close" })] }) }))] }));
+                                                    }, children: "BotButt" }), _jsx("button", { className: `book-tab${currentPage.type === 'edit' ? ' book-tab--active' : ''}`, onClick: openEdit, children: "Editor" }), _jsx("button", { className: `book-tab${currentPage.type === 'gallery' ? ' book-tab--active' : ''}`, onClick: () => pushPage({ type: 'gallery' }), children: "Gallery" })] }), _jsxs("div", { className: "book-nav", children: [_jsx("button", { className: "book-nav-btn", onClick: goBack, disabled: session.idx === 0, title: "Previous", children: "\u25C0" }), _jsxs("span", { className: "book-nav-pos", children: [session.idx + 1, "/", session.pages.length] }), _jsx("button", { className: "book-nav-btn", onClick: goForward, disabled: session.idx === session.pages.length - 1, title: "Next", children: "\u25B6" })] }), currentPage.type === 'html' && (currentPage.s3Url ? (_jsx("a", { className: "book-dl", href: currentPage.s3Url, target: "_blank", rel: "noopener noreferrer", title: "Open S3 share link", children: "\uD83D\uDD17 S3" })) : (_jsx("button", { className: "book-dl", onClick: uploadToS3, disabled: s3Uploading, title: "Upload page to S3 for sharing", children: s3Uploading ? '↑…' : '↑ Share' }))), currentPage.type === 'html' && currentPage.s3Url && (_jsx("button", { className: "book-dl", onClick: () => showQR(currentPage.s3Url), title: "Generate QR code", children: "QR" })), currentPage.type === 'html' && (/storyboard|episode/i.test(currentPage.title) || /<table/i.test(currentPage.html)) && (_jsx("button", { className: "book-dl", onClick: saveStoryboard, disabled: sbSaving, title: "Save storyboard to gallery", children: sbSaving ? 'Saving...' : 'Save' })), _jsx("button", { className: "book-dl", onClick: downloadCanvas, title: "Download current page", children: "\u2913 Download" })] }), _jsxs("div", { className: "book-frame", children: [_jsx("iframe", { ref: canvasIframeRef, title: "BotButt avatar", srcDoc: BOTBUTT_SRCDOC, sandbox: "allow-scripts", style: { display: currentPage.type === 'avatar' ? 'block' : 'none', width: '100%', height: '100%', border: 'none' } }), currentPage.type === 'edit' && (_jsx("iframe", { title: "Parlor Book editor", src: currentPage.src, sandbox: "allow-scripts allow-same-origin allow-forms", style: { width: '100%', height: '100%', border: 'none' } })), currentPage.type === 'html' && (_jsx(CanvasHtmlFrame, { key: session.idx, html: currentPage.html, title: currentPage.title })), currentPage.type === 'gallery' && (_jsx(GalleryPanel, { userEmail: userEmail, onLoadStoryboard: pushPage }))] })] }) })] }), _jsxs("div", { className: "parlor-basement", children: [_jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('identity'), children: [_jsx("span", { children: "Who Are You?" }), _jsx("span", { className: "basement-chevron", children: basement.identity ? '▲' : '▼' })] }), basement.identity && (_jsx("div", { className: "basement-body", children: _jsx("div", { className: "butt-bitch-picker horiz", children: BUTT_BITCHES.map((bb) => (_jsx("button", { className: `bb-btn${userEmail === bb.email ? ' bb-btn--active' : ''}`, style: { '--bb-color': bb.color }, onClick: () => setUserEmail(bb.email), children: bb.handle }, bb.email))) }) }))] }), _jsxs("div", { className: "basement-section", children: [_jsxs("button", { className: "basement-header", onClick: () => toggleBasement('memory'), children: [_jsx("span", { children: "Memory & Threads" }), _jsx("span", { className: "basement-chevron", children: basement.memory ? '▲' : '▼' })] }), basement.memory && (_jsxs("div", { className: "basement-body", children: [projectMemory ? (_jsxs(_Fragment, { children: [_jsxs("p", { className: "mem-focus", children: [_jsx("strong", { children: "Episode:" }), " ", projectMemory.episodeFocus] }), _jsx("ul", { className: "mem-threads", children: projectMemory.openThreads.map((t) => _jsx("li", { children: t }, t)) })] })) : _jsx("p", { style: { color: 'var(--muted)', fontSize: '.82rem' }, children: "Loading\u2026" }), _jsx("button", { className: "kg-button kg-button--harvest", onClick: runHarvest, disabled: harvesting, style: { marginTop: '10px' }, children: harvesting ? 'Scouring...' : 'Harvest SSBB from the web' }), lastHarvest && _jsxs("p", { style: { fontSize: '.72rem', color: 'var(--teal)', marginTop: '4px' }, children: [lastHarvest.count, " results via ", lastHarvest.backend] })] }))] })] }), qrModal && (_jsx("div", { className: "qr-backdrop", onClick: () => setQrModal(null), children: _jsxs("div", { className: "qr-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("img", { src: qrModal.dataUrl, alt: "QR Code", width: 220, height: 220 }), _jsxs("p", { className: "qr-url", children: [qrModal.url.slice(0, 72), qrModal.url.length > 72 ? '…' : ''] }), _jsx("button", { className: "qr-close", onClick: () => setQrModal(null), children: "\u2715 Close" })] }) }))] }));
 }

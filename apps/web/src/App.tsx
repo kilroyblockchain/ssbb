@@ -787,8 +787,26 @@ svg{width:100%;height:100%;display:block;}
   var cbody   = document.getElementById('content-body');
   var closeBtn= document.getElementById('close-panel');
 
+  function runCanvasScripts(target){
+    var scripts = target.querySelectorAll('script');
+    for(var i=0;i<scripts.length;i++){
+      var oldScript = scripts[i];
+      var newScript = document.createElement('script');
+      for(var j=0;j<oldScript.attributes.length;j++){
+        var attr = oldScript.attributes[j];
+        newScript.setAttribute(attr.name, attr.value);
+      }
+      newScript.textContent = oldScript.textContent || '';
+      var parent = oldScript.parentNode;
+      if(parent){
+        parent.replaceChild(newScript, oldScript);
+      }
+    }
+  }
+
   function openContent(html){
     cbody.innerHTML = html;
+    runCanvasScripts(cbody);
     panel.style.display = 'block';
     svgEl.style.transition = 'all .45s ease';
     svgEl.style.opacity = '.18';
@@ -843,46 +861,30 @@ svg{width:100%;height:100%;display:block;}
 
 function HotdogRain({ onDone }: { onDone: () => void }) {
   const [fading, setFading] = useState(false);
+  const handleDone = useCallback(onDone, []); // stable ref so effect doesn't re-fire
   useEffect(() => {
     const fadeTimer = setTimeout(() => setFading(true), 55000);
-    const doneTimer = setTimeout(onDone, 60000);
+    const doneTimer = setTimeout(handleDone, 60000);
     return () => { clearTimeout(fadeTimer); clearTimeout(doneTimer); };
-  }, [onDone]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const dogs = useMemo(() => Array.from({ length: 45 }, (_, i) => ({
     id: i,
-    left: Math.random() * 96,
-    duration: (3 + Math.random() * 5).toFixed(2),
-    delay: (Math.random() * 14).toFixed(2),
-    size: (1.4 + Math.random() * 1.6).toFixed(2),
-    rotate: Math.floor(Math.random() * 360),
-    spin: Math.random() > 0.5 ? 360 : -360,
+    left: `${(Math.random() * 96).toFixed(1)}vw`,
+    duration: `${(3 + Math.random() * 5).toFixed(2)}s`,
+    delay: `${(Math.random() * 14).toFixed(2)}s`,
+    size: `${(1.4 + Math.random() * 1.6).toFixed(2)}rem`,
   })), []);
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 9999,
-      overflow: 'hidden', transition: 'opacity 5s',
-      opacity: fading ? 0 : 1,
-    }}>
-      <style>{`
-        @keyframes hd-fall {
-          0%   { transform: translateY(-90px) rotate(var(--r0)); opacity: 1; }
-          85%  { opacity: 1; }
-          100% { transform: translateY(105vh) rotate(var(--r1)); opacity: 0.3; }
-        }
-      `}</style>
-      {dogs.map(d => (
-        <div key={d.id} style={{
-          position: 'absolute',
-          left: `${d.left}vw`,
-          top: 0,
-          fontSize: `${d.size}rem`,
-          '--r0': `${d.rotate}deg`,
-          '--r1': `${d.rotate + d.spin}deg`,
-          animation: `hd-fall ${d.duration}s ${d.delay}s linear infinite`,
-          userSelect: 'none',
-        } as React.CSSProperties}>
+    <div className="hotdog-rain" style={{ opacity: fading ? 0 : 1 }}>
+      {dogs.map((d, i) => (
+        <div key={i} className="hotdog-rain__dog" style={{
+          left: d.left,
+          fontSize: d.size,
+          animationDuration: d.duration,
+          animationDelay: d.delay,
+        }}>
           🌭
         </div>
       ))}
@@ -891,15 +893,19 @@ function HotdogRain({ onDone }: { onDone: () => void }) {
 }
 
 function CanvasHtmlFrame({ html, title }: { html: string; title: string }) {
-  const [src, setSrc] = useState<string>('');
-  useEffect(() => {
-    const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{background:#0d0010;color:#F7F1E8;font-family:sans-serif;padding:24px;margin:0}</style></head><body>${html}</body></html>`;
-    const blob = new Blob([fullHtml], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    setSrc(url);
-    return () => URL.revokeObjectURL(url);
-  }, [html, title]);
-  return <iframe src={src} style={{ width: '100%', height: '100%', border: 'none' }} title={title} />;
+  const doc = useMemo(
+    () =>
+      `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{background:#0d0010;color:#F7F1E8;font-family:sans-serif;padding:24px;margin:0}</style></head><body>${html}</body></html>`,
+    [html, title]
+  );
+  return (
+    <iframe
+      title={title}
+      srcDoc={doc}
+      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+      style={{ width: '100%', height: '100%', border: 'none' }}
+    />
+  );
 }
 
 function BotButtBear({ state }: { state: 'idle' | 'listening' | 'speaking' }) {

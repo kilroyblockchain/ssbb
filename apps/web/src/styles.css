@@ -758,3 +758,21 @@ body {
   cursor: pointer; font-size: .78rem; transition: all .15s;
 }
 .qr-close:hover { border-color: var(--pink); color: var(--pink); }
+
+
+/* ── Hotdog Rain ─────────────────────────────────────────────────────────── */
+@keyframes hd-fall {
+  0%   { transform: translateY(-90px) rotate(0deg);   opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: translateY(105vh) rotate(360deg); opacity: 0.3; }
+}
+.hotdog-rain {
+  position: fixed; inset: 0; pointer-events: none;
+  z-index: 9999; overflow: hidden;
+  transition: opacity 5s;
+}
+.hotdog-rain__dog {
+  position: absolute; top: 0;
+  user-select: none; line-height: 1;
+  animation: hd-fall linear infinite;
+}
