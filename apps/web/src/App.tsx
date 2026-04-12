@@ -1070,9 +1070,14 @@ export default function App() {
         postToAvatar({ type: 'set-canvas-html', html });
         canvasCount++;
       }
-      if (canvasCount > 0) {
-        botText = rawText.replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, '↳ [see canvas →]').trim();
-      }
+      // Strip canvas blocks + any stray HTML tags from chat display text
+      botText = rawText
+        .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, canvasCount > 0 ? '↳ [see canvas →]' : '')
+        .replace(/\[IMG:[^\]]*\]/g, '')       // strip image placeholders
+        .replace(/<[^>]+>/g, '')              // strip any HTML tags
+        .replace(/&[a-z#0-9]+;/gi, ' ')      // strip HTML entities
+        .replace(/\s{2,}/g, ' ')
+        .trim();
 
       addMessage({ id: data.id ?? uuid(), author: 'bot', text: botText, createdAt: data.createdAt ?? new Date().toISOString() });
     } catch (err) {
