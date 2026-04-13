@@ -78,11 +78,27 @@ const imageAttachmentSchema = z.object({
   data: z.string()   // base64
 });
 
+const galleryIndexSchema = z.object({
+  videos: z.array(z.object({
+    name: z.string().max(200),
+    prompt: z.string().max(300).optional(),
+    starred: z.boolean().optional(),
+  })).max(200).optional(),
+  editedVideos: z.array(z.object({
+    name: z.string().max(200),
+    sourceItems: z.array(z.string().max(100)).max(20).optional(),
+    starred: z.boolean().optional(),
+  })).max(200).optional(),
+  characters: z.array(z.string().max(100)).max(200).optional(),
+  canvasAssets: z.array(z.string().max(100)).max(200).optional(),
+}).optional();
+
 const chatSchema = z.object({
   message: z.string().min(1, 'Message required').max(8000),
   mode: z.enum(['shared', 'private']).default('shared'),
   attachments: z.array(imageAttachmentSchema).max(5).optional(),
-  clientMessageId: z.string().uuid().optional()
+  clientMessageId: z.string().uuid().optional(),
+  galleryIndex: galleryIndexSchema,
 });
 
 const soraJobSchema = z.object({
@@ -140,7 +156,7 @@ app.post('/api/chat', async (req, res) => {
     return res.status(400).json({ error: parse.error.flatten() });
   }
 
-  const { message, mode, attachments, clientMessageId } = parse.data;
+  const { message, mode, attachments, clientMessageId, galleryIndex } = parse.data;
   const userEmail = req.user?.email || null;
   const trimmed = message.trim();
   const id = clientMessageId ?? uuid();
@@ -177,7 +193,8 @@ app.post('/api/chat', async (req, res) => {
         user: userMemory
       },
       history,
-      attachments
+      attachments,
+      galleryIndex
     });
 
     // Track last conversation topic per user so BotButt can pick up where they left off

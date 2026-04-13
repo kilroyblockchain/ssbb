@@ -1045,6 +1045,13 @@ type GalleryVideo = {
   starred?: boolean;
 };
 
+type GalleryIndex = {
+  videos: Array<{ name: string; prompt?: string; starred?: boolean }>;
+  editedVideos: Array<{ name: string; sourceItems?: string[]; starred?: boolean }>;
+  characters: string[];
+  canvasAssets: string[];
+};
+
 function GalleryPanel({
   authHeaders,
   onLoadStoryboard,
@@ -1055,6 +1062,7 @@ function GalleryPanel({
   onDescribeImage,
   onRequestMoviePrompt,
   onRequestMultiMoviePrompt,
+  onGalleryIndex,
 }: {
   authHeaders: Record<string, string>;
   onLoadStoryboard: (page: { type: 'html'; html: string; title: string }) => void;
@@ -1065,6 +1073,7 @@ function GalleryPanel({
   onDescribeImage: (item: { key: string; name: string; url: string }) => Promise<void>;
   onRequestMoviePrompt: (item: { key: string; name: string }) => Promise<void>;
   onRequestMultiMoviePrompt: (items: MultiMovieItem[]) => Promise<void>;
+  onGalleryIndex: (index: GalleryIndex) => void;
 }) {
   const [storyboards, setStoryboards] = useState<GalleryStoryboard[]>([]);
   const [canvasPages, setCanvasPages] = useState<GalleryCanvasPage[]>([]);
@@ -1139,18 +1148,28 @@ function GalleryPanel({
       setCanvasPages((data.canvasPages ?? []).sort((a: GalleryCanvasPage, b: GalleryCanvasPage) =>
         new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
       ));
-      setCanvasAssets((data.canvasAssets ?? []).sort((a: GalleryCanvasAsset, b: GalleryCanvasAsset) =>
-        new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
-      ));
-      setImages(data.images ?? []);
-      setVideos((data.videos ?? []).sort((a: GalleryVideo, b: GalleryVideo) =>
+      const imgs: GalleryImage[] = data.images ?? [];
+      const vids: GalleryVideo[] = (data.videos ?? []).sort((a: GalleryVideo, b: GalleryVideo) =>
         (b.starred ? 1 : 0) - (a.starred ? 1 : 0) ||
         new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
-      ));
-      setEditedVideos((data.editedVideos ?? []).sort((a: GalleryEditedVideo, b: GalleryEditedVideo) =>
+      );
+      const evids: GalleryEditedVideo[] = (data.editedVideos ?? []).sort((a: GalleryEditedVideo, b: GalleryEditedVideo) =>
         (b.starred ? 1 : 0) - (a.starred ? 1 : 0) ||
         new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
-      ));
+      );
+      const assets: GalleryCanvasAsset[] = (data.canvasAssets ?? []).sort((a: GalleryCanvasAsset, b: GalleryCanvasAsset) =>
+        new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
+      );
+      setImages(imgs);
+      setVideos(vids);
+      setEditedVideos(evids);
+      setCanvasAssets(assets);
+      onGalleryIndex({
+        videos: vids.map(v => ({ name: v.name, prompt: v.prompt?.slice(0, 280), starred: v.starred })),
+        editedVideos: evids.map(v => ({ name: v.name, sourceItems: v.sourceItems?.map(i => i.name), starred: v.starred })),
+        characters: imgs.map(i => i.name).filter(Boolean),
+        canvasAssets: assets.map(a => a.title).filter(Boolean),
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load gallery';
       setError(message);
@@ -2228,6 +2247,7 @@ export default function App() {
   const [recentStoryboards, setRecentStoryboards] = useState<GalleryStoryboard[]>([]);
   const [recentCanvasPages, setRecentCanvasPages] = useState<GalleryCanvasPage[]>([]);
   const [galleryRefreshTick, setGalleryRefreshTick] = useState(0);
+  const galleryIndexRef = useRef<GalleryIndex | null>(null);
   const [reactions, setReactions] = useState<Record<string, ReactionMap>>({});
 
   const lastSpokenRef    = useRef<string | null>(null);
@@ -2569,7 +2589,7 @@ async function sendMessage(
       const resp = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ message: displayText, mode, attachments, clientMessageId: userMsg.id }),
+        body: JSON.stringify({ message: displayText, mode, attachments, clientMessageId: userMsg.id, galleryIndex: galleryIndexRef.current ?? undefined }),
       });
       if (!resp.ok) throw new Error('Chat failed');
       const data = await resp.json();
@@ -3059,6 +3079,7 @@ async function sendMessage(
                   onDescribeImage={describeGalleryImage}
                   onRequestMoviePrompt={requestMoviePrompt}
                   onRequestMultiMoviePrompt={requestMultiMoviePrompt}
+                  onGalleryIndex={(idx) => { galleryIndexRef.current = idx; }}
                 />
               )}
             </div>

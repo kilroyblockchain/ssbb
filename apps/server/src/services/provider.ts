@@ -2,6 +2,13 @@ import type { PersonaMemory, ProjectMemory } from './memory.js';
 import type { ConversationMessage } from './conversations.js';
 import { converseWithBedrock, type ImageAttachment } from './bedrock.js';
 
+type GalleryIndex = {
+  videos?: Array<{ name: string; prompt?: string; starred?: boolean }>;
+  editedVideos?: Array<{ name: string; sourceItems?: string[]; starred?: boolean }>;
+  characters?: string[];
+  canvasAssets?: string[];
+};
+
 type Context = {
   mode: 'shared' | 'private';
   text: string;
@@ -10,6 +17,7 @@ type Context = {
   memory: { project: ProjectMemory; user?: PersonaMemory };
   history: ConversationMessage[];
   attachments?: ImageAttachment[];
+  galleryIndex?: GalleryIndex;
 };
 
 export async function generateChatResponse(ctx: Context): Promise<string> {
@@ -30,6 +38,43 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     `Open threads: ${proj.openThreads.slice(0, 10).join(' | ')}`,
     timelineLines.length ? `Timeline (recent):\n${timelineLines.join('\n')}` : ''
   ].filter(Boolean).join('\n');
+
+  // Gallery context — build a compact index so RadioHead knows what's in the gallery
+  const galleryLines: string[] = [];
+  if (ctx.galleryIndex) {
+    const g = ctx.galleryIndex;
+    galleryLines.push('');
+    galleryLines.push('## Gallery');
+    galleryLines.push('Here is everything currently saved in the gallery. You can search and reference these items by name. ★ = starred favourite.');
+    if (g.characters?.length) {
+      galleryLines.push('');
+      galleryLines.push(`### Characters (${g.characters.length})`);
+      galleryLines.push(g.characters.join(', '));
+    }
+    if (g.canvasAssets?.length) {
+      galleryLines.push('');
+      galleryLines.push(`### Canvas Assets (${g.canvasAssets.length})`);
+      galleryLines.push(g.canvasAssets.join(', '));
+    }
+    if (g.videos?.length) {
+      galleryLines.push('');
+      galleryLines.push(`### Sora Movies (${g.videos.length})`);
+      for (const v of g.videos) {
+        const star = v.starred ? '★ ' : '';
+        const prompt = v.prompt ? ` — "${v.prompt}"` : '';
+        galleryLines.push(`  ${star}"${v.name}"${prompt}`);
+      }
+    }
+    if (g.editedVideos?.length) {
+      galleryLines.push('');
+      galleryLines.push(`### Spliced Movies (${g.editedVideos.length})`);
+      for (const v of g.editedVideos) {
+        const star = v.starred ? '★ ' : '';
+        const sources = v.sourceItems?.length ? ` — spliced from: ${v.sourceItems.join(', ')}` : '';
+        galleryLines.push(`  ${star}"${v.name}"${sources}`);
+      }
+    }
+  }
 
   // Attachment context — tell BotButt how to embed images in canvas HTML
   const attachmentLines: string[] = [];
@@ -97,6 +142,7 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     'When something is genuinely worth celebrating — a song is finished, a milestone is hit, great news lands — you can make it rain hotdogs on screen.',
     'To trigger hotdog rain, include the tag [HOTDOGS] anywhere in your response. The UI will launch a 60-second hotdog emoji downpour.',
     'Use it sparingly so it stays special. Do not use it for ordinary responses.',
+    ...galleryLines,
     ...attachmentLines,
     '',
     '## Project State',
