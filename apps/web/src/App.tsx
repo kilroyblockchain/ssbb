@@ -1029,7 +1029,7 @@ type GalleryImage      = { key: string; name: string; url: string };
 type GalleryCanvasPage = { key: string; title: string; savedAt: string; url: string };
 type GalleryCanvasAsset = { key: string; title: string; savedAt: string; url: string };
 type MultiMovieItem = { key: string; name: string; type: 'image' | 'video'; prompt?: string };
-type GalleryEditedVideo = { key: string; url: string; savedAt: string; name: string; startedBy?: string | null; sourceItems: { key: string; name: string; type: string }[]; thumbUrl?: string };
+type GalleryEditedVideo = { key: string; url: string; savedAt: string; name: string; startedBy?: string | null; sourceItems: { key: string; name: string; type: string }[]; thumbUrl?: string; starred?: boolean };
 type GalleryVideo = {
   key: string;
   name: string;
@@ -1042,6 +1042,7 @@ type GalleryVideo = {
   sourceImageKey?: string | null;
   sourceImageName?: string | null;
   thumbUrl?: string;
+  starred?: boolean;
 };
 
 function GalleryPanel({
@@ -1142,9 +1143,11 @@ function GalleryPanel({
       ));
       setImages(data.images ?? []);
       setVideos((data.videos ?? []).sort((a: GalleryVideo, b: GalleryVideo) =>
+        (b.starred ? 1 : 0) - (a.starred ? 1 : 0) ||
         new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
       ));
       setEditedVideos((data.editedVideos ?? []).sort((a: GalleryEditedVideo, b: GalleryEditedVideo) =>
+        (b.starred ? 1 : 0) - (a.starred ? 1 : 0) ||
         new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
       ));
     } catch (err) {
@@ -1179,6 +1182,30 @@ function GalleryPanel({
       setStitching(false);
     }
   }, [movieSel, authHeaders, fetchGallery]);
+
+  const handleStar = useCallback(async (key: string, type: 'video' | 'editedVideo') => {
+    // Optimistic update
+    const toggle = (item: GalleryVideo | GalleryEditedVideo) =>
+      item.key === key ? { ...item, starred: !item.starred } : item;
+    if (type === 'video') {
+      setVideos(prev => {
+        const updated = prev.map(toggle) as GalleryVideo[];
+        return updated.sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
+      });
+    } else {
+      setEditedVideos(prev => {
+        const updated = prev.map(toggle) as GalleryEditedVideo[];
+        return updated.sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
+      });
+    }
+    try {
+      await fetch(`${API_BASE}/api/gallery/star`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ key, type }),
+      });
+    } catch { /* ignore — optimistic update already applied */ }
+  }, [authHeaders]);
 
   const mergedParlorBooks = useMemo(() => {
     const seen = new Set<string>();
@@ -1797,6 +1824,13 @@ function GalleryPanel({
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button
+                    style={{ ...gBtn, fontSize: '1rem', color: video.starred ? '#ffd700' : 'rgba(240,230,255,.4)', borderColor: video.starred ? '#ffd700' : undefined }}
+                    onClick={() => handleStar(video.key, 'video')}
+                    title={video.starred ? 'Unstar' : 'Star this movie'}
+                  >
+                    {video.starred ? '★' : '☆'}
+                  </button>
                   <a style={{ ...gBtn, textDecoration: 'none' }} href={video.url} target="_blank" rel="noopener noreferrer">
                     ▶ Play
                   </a>
@@ -1860,6 +1894,13 @@ function GalleryPanel({
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button
+                      style={{ ...gBtn, fontSize: '1rem', color: video.starred ? '#ffd700' : 'rgba(240,230,255,.4)', borderColor: video.starred ? '#ffd700' : undefined }}
+                      onClick={() => handleStar(video.key, 'editedVideo')}
+                      title={video.starred ? 'Unstar' : 'Star this movie'}
+                    >
+                      {video.starred ? '★' : '☆'}
+                    </button>
                     <a style={{ ...gBtn, textDecoration: 'none', color: '#7df9ff', borderColor: '#7df9ff' }} href={video.url} target="_blank" rel="noopener noreferrer">▶ Play</a>
                     <button style={gBtn} onClick={() => copyUrl(video.url)}>Copy link</button>
                     <button

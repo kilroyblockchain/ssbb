@@ -347,6 +347,34 @@ app.post('/api/stitch', async (req, res) => {
   }
 });
 
+// ── Star / unstar a video ────────────────────────────────────────────────────
+app.patch('/api/gallery/star', async (req, res) => {
+  const key = typeof req.body?.key === 'string' ? req.body.key : '';
+  const type = typeof req.body?.type === 'string' ? req.body.type : '';
+  if (!key || !type) return res.status(400).json({ error: 'key and type required' });
+  if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
+
+  let metaKey: string;
+  if (type === 'video') {
+    metaKey = `videos-meta/${key.replace('videos/', '')}.json`;
+  } else if (type === 'editedVideo') {
+    metaKey = `edited-videos-meta/${key.replace('edited-videos/', '')}.json`;
+  } else {
+    return res.status(400).json({ error: 'unsupported type' });
+  }
+
+  try {
+    const raw = await readObject(config.mediaBucket, metaKey).catch(() => null);
+    const meta = raw ? JSON.parse(raw) : {};
+    meta.starred = !meta.starred;
+    await writeObject(config.mediaBucket, metaKey, JSON.stringify(meta), 'application/json');
+    res.json({ starred: meta.starred });
+  } catch (err: any) {
+    console.error('[star]', err);
+    res.status(500).json({ error: err.message || 'Star failed' });
+  }
+});
+
 // ── TTS: Polly Olivia (en-AU neural) ─────────────────────────────────────────
 app.post('/api/tts', async (req, res) => {
   const text = typeof req.body?.text === 'string' ? req.body.text : '';
@@ -547,6 +575,7 @@ app.get('/api/gallery', async (req, res) => {
           let sourceImageKey: string | null = null;
           let sourceImageName: string | null = null;
           let thumbKey: string | null = null;
+          let starred = false;
           try {
             const rawMeta = await readObject(config.mediaBucket, metaKey);
             if (rawMeta) {
@@ -560,6 +589,7 @@ app.get('/api/gallery', async (req, res) => {
               sourceImageName = parsed.sourceImageName ?? null;
               name = sourceImageName || name;
               thumbKey = parsed.thumbKey ?? null;
+              starred = parsed.starred ?? false;
             }
           } catch {
             // ignore missing metadata
@@ -568,7 +598,7 @@ app.get('/api/gallery', async (req, res) => {
           if (thumbKey) {
             try { thumbUrl = await getPresignedUrl(config.mediaBucket, thumbKey, 3600); } catch { /* ignore */ }
           }
-          return { key, url, savedAt, prompt, startedBy, size, seconds, name, sourceImageKey, sourceImageName, thumbUrl };
+          return { key, url, savedAt, prompt, startedBy, size, seconds, name, sourceImageKey, sourceImageName, thumbUrl, starred };
         } catch (err) {
           console.warn('[gallery] video read failed', err);
           return null;
@@ -586,6 +616,7 @@ app.get('/api/gallery', async (req, res) => {
           let startedBy: string | null = null;
           let sourceItems: { key: string; name: string; type: string }[] = [];
           let thumbKey: string | null = null;
+          let starred = false;
           try {
             const rawMeta = await readObject(config.mediaBucket, metaKey);
             if (rawMeta) {
@@ -595,13 +626,14 @@ app.get('/api/gallery', async (req, res) => {
               startedBy = parsed.startedBy ?? null;
               sourceItems = parsed.sourceItems ?? [];
               thumbKey = parsed.thumbKey ?? null;
+              starred = parsed.starred ?? false;
             }
           } catch { /* ignore */ }
           let thumbUrl: string | undefined;
           if (thumbKey) {
             try { thumbUrl = await getPresignedUrl(config.mediaBucket, thumbKey, 3600); } catch { /* ignore */ }
           }
-          return { key, url, savedAt, name, startedBy, sourceItems, thumbUrl };
+          return { key, url, savedAt, name, startedBy, sourceItems, thumbUrl, starred };
         } catch (err) {
           console.warn('[gallery] edited video read failed', err);
           return null;
