@@ -2,6 +2,14 @@ import React, { FormEvent, useCallback, useEffect, useMemo, useRef, useState } f
 import { v4 as uuid } from 'uuid';
 import { create } from 'zustand';
 import { io } from 'socket.io-client';
+import heic2any from 'heic2any';
+
+async function convertIfHeic(file: File): Promise<File> {
+  const isHeic = /\.hei[cf]$/i.test(file.name) || file.type === 'image/heic' || file.type === 'image/heif';
+  if (!isHeic) return file;
+  const blob = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 }) as Blob;
+  return new File([blob], file.name.replace(/\.hei[cf]$/i, '.jpg'), { type: 'image/jpeg' });
+}
 const COGNITO_ENDPOINT = 'https://cognito-idp.us-east-1.amazonaws.com/';
 const COGNITO_CLIENT_ID = '6nl7u3h2bhv1vtqs6n3upstuqi';
 
@@ -1021,6 +1029,7 @@ type GalleryImage      = { key: string; name: string; url: string };
 type GalleryCanvasPage = { key: string; title: string; savedAt: string; url: string };
 type GalleryCanvasAsset = { key: string; title: string; savedAt: string; url: string };
 type MultiMovieItem = { key: string; name: string; type: 'image' | 'video'; prompt?: string };
+type GalleryEditedVideo = { key: string; url: string; savedAt: string; name: string; startedBy?: string | null; sourceItems: { key: string; name: string; type: string }[]; thumbUrl?: string };
 type GalleryVideo = {
   key: string;
   name: string;
@@ -1032,6 +1041,7 @@ type GalleryVideo = {
   seconds: number;
   sourceImageKey?: string | null;
   sourceImageName?: string | null;
+  thumbUrl?: string;
 };
 
 function GalleryPanel({
@@ -1060,6 +1070,7 @@ function GalleryPanel({
   const [canvasAssets, setCanvasAssets] = useState<GalleryCanvasAsset[]>([]);
   const [images,      setImages]      = useState<GalleryImage[]>([]);
   const [videos,      setVideos]      = useState<GalleryVideo[]>([]);
+  const [editedVideos, setEditedVideos] = useState<GalleryEditedVideo[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState<string | null>(null);
   const [uploading,   setUploading]   = useState(false);
@@ -1073,27 +1084,38 @@ function GalleryPanel({
   const [dragData, setDragData] = useState<{ kind: 'character' | 'canvasAsset'; key: string; title: string } | null>(null);
   const [movingImage, setMovingImage] = useState(false);
   const [moviePromptKey, setMoviePromptKey] = useState<string | null>(null);
-  const [movieSel, setMovieSel] = useState<Map<string, MultiMovieItem>>(new Map());
+  const [charDragActive, setCharDragActive] = useState(false);
+  const [assetDragActive, setAssetDragActive] = useState(false);
+  const [uploadQueue, setUploadQueue] = useState<string[]>([]); // names being uploaded
+  const [movieSel, setMovieSel] = useState<MultiMovieItem[]>([]);
   const [combiningMovie, setCombiningMovie] = useState(false);
+  const [stitching, setStitching] = useState(false);
 
   const toggleMovieSel = useCallback((item: MultiMovieItem) => {
     setMovieSel(prev => {
-      const next = new Map(prev);
-      if (next.has(item.key)) {
-        next.delete(item.key);
-      } else if (next.size < 5) {
-        next.set(item.key, item);
-      }
+      const idx = prev.findIndex(i => i.key === item.key);
+      if (idx >= 0) return prev.filter((_, i) => i !== idx);
+      if (prev.length >= 5) return prev;
+      return [...prev, item];
+    });
+  }, []);
+
+  const moveMovieSel = useCallback((idx: number, delta: -1 | 1) => {
+    setMovieSel(prev => {
+      const next = [...prev];
+      const target = idx + delta;
+      if (target < 0 || target >= next.length) return prev;
+      [next[idx], next[target]] = [next[target], next[idx]];
       return next;
     });
   }, []);
 
   const handleCombineMovie = useCallback(async () => {
-    if (movieSel.size < 2) return;
+    if (movieSel.length < 2) return;
     setCombiningMovie(true);
     try {
-      await onRequestMultiMoviePrompt(Array.from(movieSel.values()));
-      setMovieSel(new Map());
+      await onRequestMultiMoviePrompt(movieSel);
+      setMovieSel([]);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Multi-movie prompt failed';
       alert(msg);
@@ -1122,6 +1144,9 @@ function GalleryPanel({
       setVideos((data.videos ?? []).sort((a: GalleryVideo, b: GalleryVideo) =>
         new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
       ));
+      setEditedVideos((data.editedVideos ?? []).sort((a: GalleryEditedVideo, b: GalleryEditedVideo) =>
+        new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
+      ));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load gallery';
       setError(message);
@@ -1131,6 +1156,29 @@ function GalleryPanel({
   }, [authHeaders]);
 
   useEffect(() => { fetchGallery(); }, [fetchGallery, refreshTick]);
+
+  const handleStitch = useCallback(async () => {
+    if (movieSel.length < 2) return;
+    setStitching(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/stitch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ items: movieSel, outputName: movieSel.map(i => i.name).join(' + ') }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Splice failed' }));
+        throw new Error(err.error || 'Splice failed');
+      }
+      setMovieSel([]);
+      await fetchGallery();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Splice failed';
+      alert(`Splice failed: ${msg}`);
+    } finally {
+      setStitching(false);
+    }
+  }, [movieSel, authHeaders, fetchGallery]);
 
   const mergedParlorBooks = useMemo(() => {
     const seen = new Set<string>();
@@ -1227,8 +1275,8 @@ function GalleryPanel({
     );
   }, [videos, term]);
 
-  const allowDropToCharacters = dragData?.kind === 'canvasAsset';
-  const allowDropToAssets = dragData?.kind === 'character';
+  const allowDropToCharacters = dragData?.kind === 'canvasAsset' || charDragActive;
+  const allowDropToAssets = dragData?.kind === 'character' || assetDragActive;
 
   const loadStoryboard = useCallback(async (key: string, title: string) => {
     try {
@@ -1244,30 +1292,46 @@ function GalleryPanel({
     }
   }, [authHeaders, onLoadStoryboard]);
 
-  const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const name = prompt('Character name?', file.name.replace(/\.[^.]+$/, '')) ?? file.name;
+  const uploadCharacterFiles = useCallback(async (rawFiles: File[]) => {
+    if (!rawFiles.length) return;
+    const isBulk = rawFiles.length > 1;
     setUploading(true);
+    const names: string[] = [];
     try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('name', name);
-      const res = await fetch(`${API_BASE}/api/dolls/upload`, {
-        method: 'POST',
-        headers: { ...authHeaders },
-        body: form,
-      });
-      if (!res.ok) throw new Error(`Upload ${res.status}`);
+      // Convert HEIC and collect names first
+      const files = await Promise.all(rawFiles.map(convertIfHeic));
+      for (const file of files) {
+        const defaultName = file.name.replace(/\.[^.]+$/, '');
+        const name = isBulk ? defaultName : (prompt('Character name?', defaultName) ?? defaultName);
+        names.push(name);
+      }
+      setUploadQueue(names);
+      await Promise.all(files.map(async (file, i) => {
+        const form = new FormData();
+        form.append('file', file);
+        form.append('name', names[i]);
+        const res = await fetch(`${API_BASE}/api/dolls/upload`, {
+          method: 'POST',
+          headers: { ...authHeaders },
+          body: form,
+        });
+        if (!res.ok) throw new Error(`Upload failed for ${names[i]}`);
+      }));
       await fetchGallery();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       alert(`Upload failed: ${message}`);
     } finally {
       setUploading(false);
+      setUploadQueue([]);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   }, [authHeaders, fetchGallery]);
+
+  const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length) await uploadCharacterFiles(files);
+  }, [uploadCharacterFiles]);
 
   const gBtn: React.CSSProperties = {
     background: 'transparent',
@@ -1289,26 +1353,30 @@ function GalleryPanel({
   }, []);
 
   const handleAssetUpload = useCallback(
-    async (file: File) => {
+    async (rawFiles: File[]) => {
+      if (!rawFiles.length) return;
       setAssetUploading(true);
       try {
-        const form = new FormData();
-        form.append('file', file);
-        const res = await fetch(`${API_BASE}/api/canvas/assets/upload`, {
-          method: 'POST',
-          headers: { ...authHeaders },
-          body: form,
-        });
-        if (!res.ok) throw new Error('Upload failed');
-        const data = await res.json();
-        const entry: GalleryCanvasAsset = {
-          key: data.key ?? `asset-${Date.now()}`,
-          title: data.name ?? file.name,
+        const files = await Promise.all(rawFiles.map(convertIfHeic));
+        const results = await Promise.all(files.map(async (file) => {
+          const form = new FormData();
+          form.append('file', file);
+          const res = await fetch(`${API_BASE}/api/canvas/assets/upload`, {
+            method: 'POST',
+            headers: { ...authHeaders },
+            body: form,
+          });
+          if (!res.ok) throw new Error('Upload failed');
+          return res.json();
+        }));
+        const entries: GalleryCanvasAsset[] = results.map((data, i) => ({
+          key: data.key ?? `asset-${Date.now()}-${i}`,
+          title: data.name ?? files[i].name,
           url: data.url,
           savedAt: data.savedAt ?? new Date().toISOString(),
-        };
-        setAssetUploads(prev => [entry, ...prev]);
-        await copyUrl(entry.url);
+        }));
+        setAssetUploads(prev => [...entries, ...prev]);
+        if (entries.length === 1) await copyUrl(entries[0].url);
       } catch (err) {
         console.warn('[canvas asset upload]', err);
         alert('Could not upload that image.');
@@ -1322,10 +1390,29 @@ function GalleryPanel({
 
   const handleAssetInput = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) handleAssetUpload(file);
+      const files = Array.from(e.target.files ?? []);
+      if (files.length) handleAssetUpload(files);
     },
     [handleAssetUpload]
+  );
+
+  const handleRenameCharacter = useCallback(
+    async (img: GalleryImage) => {
+      const next = prompt('Rename character:', img.name)?.trim();
+      if (!next || next === img.name) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/dolls/rename`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ key: img.key, name: next }),
+        });
+        if (!res.ok) throw new Error('Rename failed');
+        await fetchGallery();
+      } catch (err) {
+        alert('Could not rename that character.');
+      }
+    },
+    [authHeaders, fetchGallery]
   );
 
   const handleMoviePrompt = useCallback(
@@ -1345,7 +1432,7 @@ function GalleryPanel({
   );
 
   const handleDelete = useCallback(
-    async (key: string, type: 'storyboard' | 'character' | 'canvasPage' | 'canvasAsset' | 'video') => {
+    async (key: string, type: 'storyboard' | 'character' | 'canvasPage' | 'canvasAsset' | 'video' | 'editedVideo') => {
       if (!window.confirm('Delete this item from the gallery?')) return;
       try {
         const res = await fetch(`${API_BASE}/api/gallery`, {
@@ -1411,22 +1498,36 @@ function GalleryPanel({
 
   const handleDropOnCharacters = useCallback(
     (e: React.DragEvent) => {
-      if (dragData?.kind !== 'canvasAsset') return;
       e.preventDefault();
+      setCharDragActive(false);
+      // External file drop from filesystem
+      if (e.dataTransfer.files.length > 0) {
+        uploadCharacterFiles(Array.from(e.dataTransfer.files));
+        return;
+      }
+      // Internal gallery drag
+      if (dragData?.kind !== 'canvasAsset') return;
       handleMove({ key: dragData.key, from: 'canvasAsset', to: 'character', title: dragData.title });
       setDragData(null);
     },
-    [dragData, handleMove]
+    [dragData, handleMove, uploadCharacterFiles]
   );
 
   const handleDropOnAssets = useCallback(
     (e: React.DragEvent) => {
-      if (dragData?.kind !== 'character') return;
       e.preventDefault();
+      setAssetDragActive(false);
+      // External file drop from filesystem
+      if (e.dataTransfer.files.length > 0) {
+        handleAssetUpload(Array.from(e.dataTransfer.files));
+        return;
+      }
+      // Internal gallery drag
+      if (dragData?.kind !== 'character') return;
       handleMove({ key: dragData.key, from: 'character', to: 'canvasAsset', title: dragData.title });
       setDragData(null);
     },
-    [dragData, handleMove]
+    [dragData, handleMove, handleAssetUpload]
   );
 
   const handleRename = useCallback(
@@ -1467,19 +1568,36 @@ function GalleryPanel({
       {error   && <p style={{ color: '#ffe66d', fontSize: '.8rem' }}>Error: {error}</p>}
 
       {/* ── Multi-movie selection bar ── */}
-      {movieSel.size > 0 && (
-        <div style={{ background: 'rgba(255,140,251,.12)', border: '1px solid #ff8cfb', borderRadius: 8, padding: '8px 12px', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '.78rem', color: '#ff8cfb' }}>
-            🎬 {movieSel.size} selected{movieSel.size < 2 ? ' — pick at least 2 to combine' : ''}
-            {movieSel.size >= 5 ? ' (max)' : ''}
-          </span>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {movieSel.size >= 2 && (
-              <button style={{ ...gBtn, color: '#ff8cfb', borderColor: '#ff8cfb' }} onClick={handleCombineMovie} disabled={combiningMovie}>
-                {combiningMovie ? 'Prompting…' : `Combine ${movieSel.size} into movie`}
+      {movieSel.length > 0 && (
+        <div style={{ background: 'rgba(255,140,251,.12)', border: '1px solid #ff8cfb', borderRadius: 8, padding: '10px 12px', marginBottom: 14 }}>
+          <div style={{ fontSize: '.75rem', color: '#ff8cfb', marginBottom: 6, fontWeight: 600 }}>
+            🎬 Selection {movieSel.length >= 5 ? '(max 5)' : `(${movieSel.length})`}
+            {movieSel.length < 2 ? ' — pick at least 2' : ''}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+            {movieSel.map((item, idx) => (
+              <div key={item.key} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ color: 'rgba(255,140,251,.5)', fontSize: '.7rem', minWidth: 14 }}>{idx + 1}.</span>
+                <span style={{ fontSize: '.75rem', color: '#f0e6ff', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
+                <span style={{ fontSize: '.65rem', color: 'rgba(240,230,255,.4)', marginRight: 2 }}>{item.type === 'video' ? '🎬' : '🖼'}</span>
+                <button style={{ ...gBtn, padding: '1px 5px' }} onClick={() => moveMovieSel(idx, -1)} disabled={idx === 0} title="Move up">↑</button>
+                <button style={{ ...gBtn, padding: '1px 5px' }} onClick={() => moveMovieSel(idx, 1)} disabled={idx === movieSel.length - 1} title="Move down">↓</button>
+                <button style={{ ...gBtn, padding: '1px 6px' }} onClick={() => setMovieSel(prev => prev.filter(i => i.key !== item.key))} title="Remove">✕</button>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {movieSel.length >= 2 && (
+              <button style={{ ...gBtn, color: '#ff8cfb', borderColor: '#ff8cfb' }} onClick={handleCombineMovie} disabled={combiningMovie || stitching}>
+                {combiningMovie ? 'Prompting…' : 'Combine into movie prompt'}
               </button>
             )}
-            <button style={gBtn} onClick={() => setMovieSel(new Map())}>Clear</button>
+            {movieSel.length >= 2 && (
+              <button style={{ ...gBtn, color: '#7df9ff', borderColor: '#7df9ff' }} onClick={handleStitch} disabled={stitching || combiningMovie}>
+                {stitching ? 'Splicing…' : `Splice ${movieSel.length} together`}
+              </button>
+            )}
+            <button style={gBtn} onClick={() => setMovieSel([])}>Clear</button>
           </div>
         </div>
       )}
@@ -1519,9 +1637,9 @@ function GalleryPanel({
           <button style={{ ...gBtn, color: '#39ff14', borderColor: '#39ff14' }}
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}>
-            {uploading ? 'Uploading...' : '+ Upload'}
+            {uploading ? (uploadQueue.length > 1 ? `Uploading ${uploadQueue.length}…` : 'Uploading…') : '+ Upload'}
           </button>
-          <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleUpload} />
+          <input ref={fileInputRef} type="file" accept="image/*,.heic,.heif" multiple style={{ display: 'none' }} onChange={handleUpload} />
         </div>
         {!loading && filteredImages.length === 0 && (
           <p style={{ color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }}>No character images yet.</p>
@@ -1535,8 +1653,9 @@ function GalleryPanel({
             padding: allowDropToCharacters ? 8 : 0,
             borderRadius: allowDropToCharacters ? 8 : 0
           }}
-          onDragOver={allowDropToCharacters ? (e) => e.preventDefault() : undefined}
-          onDrop={allowDropToCharacters ? handleDropOnCharacters : undefined}
+          onDragOver={(e) => { e.preventDefault(); if (e.dataTransfer.types.includes('Files')) setCharDragActive(true); }}
+          onDragLeave={() => setCharDragActive(false)}
+          onDrop={handleDropOnCharacters}
         >
           {filteredImages.map(img => (
             <div
@@ -1544,7 +1663,7 @@ function GalleryPanel({
               draggable
               onDragStart={handleDragStart('character', { key: img.key, title: img.name || 'Character' })}
               onDragEnd={handleDragEnd}
-              style={{ border: movieSel.has(img.key) ? '2px solid #ff8cfb' : '1px solid #ff1493', borderRadius: 6, background: '#0d001a', overflow: 'hidden', textAlign: 'center', display: 'flex', flexDirection: 'column' }}
+              style={{ border: movieSel.some(i => i.key === img.key) ? '2px solid #ff8cfb' : '1px solid #ff1493', borderRadius: 6, background: '#0d001a', overflow: 'hidden', textAlign: 'center', display: 'flex', flexDirection: 'column' }}
             >
               <img src={img.url} alt={img.name} style={{ width: '100%', height: 90, objectFit: 'cover', display: 'block' }} />
               <div style={{ padding: '4px 6px', fontSize: '.68rem', color: 'rgba(240,230,255,.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1558,16 +1677,17 @@ function GalleryPanel({
                   {moviePromptKey === img.key ? 'Prompting…' : 'Movie prompt'}
                 </button>
                 <button
-                  style={{ ...gBtn, ...(movieSel.has(img.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }}
+                  style={{ ...gBtn, ...(movieSel.some(i => i.key === img.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }}
                   onClick={() => toggleMovieSel({ key: img.key, name: img.name || 'Character', type: 'image' })}
-                  title={movieSel.has(img.key) ? 'Remove from movie selection' : 'Add to movie selection'}
+                  title={movieSel.some(i => i.key === img.key) ? 'Remove from movie selection' : 'Add to movie selection'}
                 >
-                  {movieSel.has(img.key) ? '🎬✓' : '🎬+'}
+                  {movieSel.some(i => i.key === img.key) ? '🎬✓' : '🎬+'}
                 </button>
                 <button style={gBtn} onClick={() => setPreviewImage({ title: img.name || 'Character', url: img.url })}>View</button>
                 <a style={{ ...gBtn, textDecoration: 'none' }} href={img.url} target="_blank" rel="noopener noreferrer" download={img.name || 'character.png'}>
                   Download
                 </a>
+                <button style={gBtn} onClick={() => handleRenameCharacter(img)}>Rename</button>
                 <button style={gBtn} onClick={() => handleDelete(img.key, 'character')}>Delete</button>
               </div>
             </div>
@@ -1584,7 +1704,7 @@ function GalleryPanel({
           <button style={{ ...gBtn, color: '#39ff14', borderColor: '#39ff14' }} onClick={() => assetInputRef.current?.click()} disabled={assetUploading}>
             {assetUploading ? 'Uploading image...' : '+ Upload image'}
           </button>
-          <input ref={assetInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAssetInput} />
+          <input ref={assetInputRef} type="file" accept="image/*,.heic,.heif" multiple style={{ display: 'none' }} onChange={handleAssetInput} />
           <small style={{ color: 'rgba(240,230,255,.7)' }}>Uploads return shareable URLs for your Parlor Book cards.</small>
         </div>
         {filteredAssets.length === 0 && (
@@ -1601,8 +1721,9 @@ function GalleryPanel({
               padding: allowDropToAssets ? 8 : 0,
               borderRadius: allowDropToAssets ? 8 : 0
             }}
-            onDragOver={allowDropToAssets ? (e) => e.preventDefault() : undefined}
-            onDrop={allowDropToAssets ? handleDropOnAssets : undefined}
+            onDragOver={(e) => { e.preventDefault(); if (e.dataTransfer.types.includes('Files')) setAssetDragActive(true); }}
+            onDragLeave={() => setAssetDragActive(false)}
+            onDrop={handleDropOnAssets}
           >
             {filteredAssets.map((asset) => (
               <div
@@ -1610,7 +1731,7 @@ function GalleryPanel({
                 draggable
                 onDragStart={handleDragStart('canvasAsset', { key: asset.key, title: asset.title })}
                 onDragEnd={handleDragEnd}
-                style={{ border: movieSel.has(asset.key) ? '2px solid #ff8cfb' : '1px solid rgba(57,255,20,.45)', borderRadius: 6, background: '#0f0920', padding: '6px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}
+                style={{ border: movieSel.some(i => i.key === asset.key) ? '2px solid #ff8cfb' : '1px solid rgba(57,255,20,.45)', borderRadius: 6, background: '#0f0920', padding: '6px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}
               >
                 <div>
                   <div style={{ fontWeight: 600, fontSize: '.78rem', color: '#39ff14' }}>{asset.title}</div>
@@ -1625,11 +1746,11 @@ function GalleryPanel({
                     {moviePromptKey === asset.key ? 'Prompting…' : 'Movie prompt'}
                   </button>
                   <button
-                    style={{ ...gBtn, ...(movieSel.has(asset.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }}
+                    style={{ ...gBtn, ...(movieSel.some(i => i.key === asset.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }}
                     onClick={() => toggleMovieSel({ key: asset.key, name: asset.title, type: 'image' })}
-                    title={movieSel.has(asset.key) ? 'Remove from movie selection' : 'Add to movie selection'}
+                    title={movieSel.some(i => i.key === asset.key) ? 'Remove from movie selection' : 'Add to movie selection'}
                   >
-                    {movieSel.has(asset.key) ? '🎬✓' : '🎬+'}
+                    {movieSel.some(i => i.key === asset.key) ? '🎬✓' : '🎬+'}
                   </button>
                   <button style={gBtn} onClick={() => setPreviewImage({ title: asset.title, url: asset.url })}>View</button>
                   <a style={{ ...gBtn, textDecoration: 'none' }} href={asset.url} target="_blank" rel="noopener noreferrer" download={`${(asset.title || 'canvas').replace(/\s+/g, '-')}.png`}>
@@ -1656,19 +1777,24 @@ function GalleryPanel({
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {filteredVideos.map((video) => (
-            <div key={video.key} style={{ border: movieSel.has(video.key) ? '2px solid #ff8cfb' : '1px solid rgba(255,140,251,.5)', borderRadius: 6, background: '#120017', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div key={video.key} style={{ border: movieSel.some(i => i.key === video.key) ? '2px solid #ff8cfb' : '1px solid rgba(255,140,251,.5)', borderRadius: 6, background: '#120017', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: '.82rem', color: '#ff8cfb' }}>{video.name}</div>
-                  <div style={{ fontSize: '.65rem', color: 'rgba(240,230,255,.6)' }}>
-                    {new Date(video.savedAt).toLocaleString()} · {video.seconds}s · {video.size}
-                    {video.startedBy ? <> · {video.startedBy}</> : null}
-                  </div>
-                  {video.sourceImageName && (
-                    <div style={{ fontSize: '.65rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }}>
-                      Ref: {video.sourceImageName}
-                    </div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  {video.thumbUrl && (
+                    <img src={video.thumbUrl} alt="" style={{ width: 80, height: 45, objectFit: 'cover', borderRadius: 4, flexShrink: 0, border: '1px solid rgba(255,140,251,.3)' }} />
                   )}
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '.82rem', color: '#ff8cfb' }}>{video.name}</div>
+                    <div style={{ fontSize: '.65rem', color: 'rgba(240,230,255,.6)' }}>
+                      {new Date(video.savedAt).toLocaleString()} · {video.seconds}s · {video.size}
+                      {video.startedBy ? <> · {video.startedBy}</> : null}
+                    </div>
+                    {video.sourceImageName && (
+                      <div style={{ fontSize: '.65rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }}>
+                        Ref: {video.sourceImageName}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <a style={{ ...gBtn, textDecoration: 'none' }} href={video.url} target="_blank" rel="noopener noreferrer">
@@ -1687,11 +1813,11 @@ function GalleryPanel({
                   </button>
                   <button style={gBtn} onClick={() => copyUrl(video.url)}>Copy link</button>
                   <button
-                    style={{ ...gBtn, ...(movieSel.has(video.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }}
+                    style={{ ...gBtn, ...(movieSel.some(i => i.key === video.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }}
                     onClick={() => toggleMovieSel({ key: video.key, name: video.name, type: 'video', prompt: video.prompt })}
-                    title={movieSel.has(video.key) ? 'Remove from movie selection' : 'Add to movie selection'}
+                    title={movieSel.some(i => i.key === video.key) ? 'Remove from movie selection' : 'Add to movie selection'}
                   >
-                    {movieSel.has(video.key) ? '🎬✓' : '🎬+'}
+                    {movieSel.some(i => i.key === video.key) ? '🎬✓' : '🎬+'}
                   </button>
                   <button style={gBtn} onClick={() => handleDelete(video.key, 'video')}>Delete</button>
                 </div>
@@ -1705,6 +1831,52 @@ function GalleryPanel({
           ))}
         </div>
       </div>
+
+      {/* ── Spliced Movies ── */}
+      {editedVideos.length > 0 && (
+        <div style={{ margin: '20px 0' }}>
+          <h3 style={{ color: '#7df9ff', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }}>
+            Spliced Movies ({editedVideos.length})
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {editedVideos.map((video) => (
+              <div key={video.key} style={{ border: movieSel.some(i => i.key === video.key) ? '2px solid #7df9ff' : '1px solid rgba(125,249,255,.4)', borderRadius: 6, background: '#001217', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    {video.thumbUrl && (
+                      <img src={video.thumbUrl} alt="" style={{ width: 80, height: 45, objectFit: 'cover', borderRadius: 4, flexShrink: 0, border: '1px solid rgba(125,249,255,.3)' }} />
+                    )}
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: '.82rem', color: '#7df9ff' }}>{video.name}</div>
+                      <div style={{ fontSize: '.65rem', color: 'rgba(240,230,255,.6)' }}>
+                        {new Date(video.savedAt).toLocaleString()}
+                        {video.startedBy ? <> · {video.startedBy}</> : null}
+                      </div>
+                      {video.sourceItems?.length > 0 && (
+                        <div style={{ fontSize: '.65rem', color: 'rgba(240,230,255,.4)', marginTop: 2 }}>
+                          {video.sourceItems.map(i => i.name).join(' → ')}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <a style={{ ...gBtn, textDecoration: 'none', color: '#7df9ff', borderColor: '#7df9ff' }} href={video.url} target="_blank" rel="noopener noreferrer">▶ Play</a>
+                    <button style={gBtn} onClick={() => copyUrl(video.url)}>Copy link</button>
+                    <button
+                      style={{ ...gBtn, ...(movieSel.some(i => i.key === video.key) ? { background: 'rgba(125,249,255,.2)', borderColor: '#7df9ff', color: '#7df9ff' } : {}) }}
+                      onClick={() => toggleMovieSel({ key: video.key, name: video.name, type: 'video' })}
+                      title={movieSel.some(i => i.key === video.key) ? 'Remove from selection' : 'Add to selection'}
+                    >
+                      {movieSel.some(i => i.key === video.key) ? '🎬✓' : '🎬+'}
+                    </button>
+                    <button style={gBtn} onClick={() => handleDelete(video.key, 'editedVideo')}>Delete</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Parlor Books ── */}
       <div style={{ marginBottom: 20 }}>

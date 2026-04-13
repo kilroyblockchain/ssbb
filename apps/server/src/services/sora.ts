@@ -1,5 +1,9 @@
+import { mkdtemp, writeFile, readFile, rm } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import { config } from '../config.js';
 import { getPresignedUrl, writeBuffer, writeObject } from './s3.js';
+import { extractThumbnail } from './stitch.js';
 
 const POLL_INTERVAL_MS = 5000;
 const MAX_POLL_ATTEMPTS = 120; // ~10 minutes
@@ -30,6 +34,7 @@ export type GalleryVideo = {
   seconds: number;
   sourceImageKey?: string | null;
   sourceImageName?: string | null;
+  thumbUrl?: string;
 };
 
 type SoraStatusResponse = {
@@ -111,6 +116,26 @@ async function saveVideoToGallery(buffer: Buffer, opts: SoraJobOptions & { jobId
   const slug = slugify(opts.sourceImageName || opts.prompt.slice(0, 32) || 'movie');
   const key = `videos/${Date.now()}-${slug}.mp4`;
   await writeBuffer(config.mediaBucket, key, buffer, 'video/mp4');
+
+  // Extract a thumbnail from the first second of the video
+  let thumbKey: string | null = null;
+  let thumbUrl: string | undefined;
+  const dir = await mkdtemp(join(tmpdir(), 'ssbb-thumb-'));
+  try {
+    const vidPath = join(dir, 'input.mp4');
+    const thumbPath = join(dir, 'thumb.jpg');
+    await writeFile(vidPath, buffer);
+    await extractThumbnail(vidPath, thumbPath);
+    const thumbBuffer = await readFile(thumbPath);
+    thumbKey = `video-thumbs/${key.replace('videos/', '').replace(/\.mp4$/i, '.jpg')}`;
+    await writeBuffer(config.mediaBucket, thumbKey, thumbBuffer, 'image/jpeg');
+    thumbUrl = await getPresignedUrl(config.mediaBucket, thumbKey, 3600);
+  } catch (err) {
+    console.warn('[sora] thumbnail extraction failed:', err instanceof Error ? err.message : err);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+
   const meta = {
     prompt: opts.prompt,
     savedAt: now,
@@ -119,7 +144,8 @@ async function saveVideoToGallery(buffer: Buffer, opts: SoraJobOptions & { jobId
     seconds: opts.seconds,
     sourceImageKey: opts.sourceImageKey ?? null,
     sourceImageName: opts.sourceImageName ?? null,
-    jobId: opts.jobId
+    jobId: opts.jobId,
+    thumbKey
   };
   const metaKey = `videos-meta/${key.replace('videos/', '')}.json`;
   await writeObject(config.mediaBucket, metaKey, JSON.stringify(meta), 'application/json');
@@ -134,7 +160,8 @@ async function saveVideoToGallery(buffer: Buffer, opts: SoraJobOptions & { jobId
     size: opts.size,
     seconds: opts.seconds,
     sourceImageKey: opts.sourceImageKey ?? null,
-    sourceImageName: opts.sourceImageName ?? null
+    sourceImageName: opts.sourceImageName ?? null,
+    thumbUrl
   };
 }
 

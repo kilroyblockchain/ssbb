@@ -26,6 +26,7 @@ import { synthesizeSpeech } from './services/tts.js';
 import { readObject, writeObject, writeBuffer, listObjects, getPresignedUrl, deleteObject, copyObject, readBuffer } from './services/s3.js';
 import { launchSoraJob } from './services/sora.js';
 import { hydrateSoraConfig } from './services/secrets.js';
+import { stitchItems, type StitchItem } from './services/stitch.js';
 
 dotenv.config();
 
@@ -300,6 +301,52 @@ app.post('/api/sora/movie', async (req, res) => {
   }
 });
 
+const stitchSchema = z.object({
+  items: z.array(z.object({
+    key: z.string().min(1),
+    type: z.enum(['image', 'video']),
+    name: z.string().min(1).max(500),
+  })).min(2).max(20),
+  outputName: z.string().min(1).max(500).optional(),
+});
+
+app.post('/api/stitch', async (req, res) => {
+  const parsed = stitchSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!config.mediaBucket) return res.status(503).json({ error: 'Media bucket missing' });
+
+  const { items, outputName } = parsed.data;
+  const now = new Date().toISOString();
+  const slug = (outputName || items.map(i => i.name).join('-'))
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'stitch';
+  const key = `edited-videos/${Date.now()}-${slug}.mp4`;
+  const metaKey = `edited-videos-meta/${key.replace('edited-videos/', '')}.json`;
+
+  try {
+    const thumbBuffer = await stitchItems(config.mediaBucket, items as StitchItem[], key, outputName || slug);
+    let thumbKey: string | null = null;
+    let thumbUrl: string | undefined;
+    if (thumbBuffer) {
+      thumbKey = `video-thumbs/${key.replace('edited-videos/', '').replace(/\.mp4$/i, '.jpg')}`;
+      await writeBuffer(config.mediaBucket, thumbKey, thumbBuffer, 'image/jpeg');
+      thumbUrl = await getPresignedUrl(config.mediaBucket, thumbKey, 3600);
+    }
+    const meta = {
+      name: outputName || slug,
+      savedAt: now,
+      startedBy: req.user?.email ?? null,
+      sourceItems: items.map(i => ({ key: i.key, name: i.name, type: i.type })),
+      thumbKey,
+    };
+    await writeObject(config.mediaBucket, metaKey, JSON.stringify(meta), 'application/json');
+    const url = await getPresignedUrl(config.mediaBucket, key, 3600);
+    res.json({ key, url, name: meta.name, savedAt: now, thumbUrl });
+  } catch (err: any) {
+    console.error('[stitch]', err);
+    res.status(500).json({ error: err.message || 'Stitch failed' });
+  }
+});
+
 // ── TTS: Polly Olivia (en-AU neural) ─────────────────────────────────────────
 app.post('/api/tts', async (req, res) => {
   const text = typeof req.body?.text === 'string' ? req.body.text : '';
@@ -396,12 +443,13 @@ app.get('/api/storyboard/fetch', async (req, res) => {
 app.get('/api/gallery', async (req, res) => {
   if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
   try {
-    const [sbObjects, dollObjects, canvasObjects, canvasAssetObjects, videoObjects] = await Promise.all([
+    const [sbObjects, dollObjects, canvasObjects, canvasAssetObjects, videoObjects, editedVideoObjects] = await Promise.all([
       listObjects(config.mediaBucket, 'storyboards/'),
       listObjects(config.mediaBucket, 'dolls/'),
       listObjects(config.mediaBucket, 'canvas/'),
       listObjects(config.mediaBucket, 'canvas-assets/'),
       listObjects(config.mediaBucket, 'videos/'),
+      listObjects(config.mediaBucket, 'edited-videos/'),
     ]);
 
     // For storyboards, read the JSON metadata (title, savedAt)
@@ -498,6 +546,7 @@ app.get('/api/gallery', async (req, res) => {
           let name = key.split('/').pop()?.replace(/\.mp4$/i, '') ?? 'Sora movie';
           let sourceImageKey: string | null = null;
           let sourceImageName: string | null = null;
+          let thumbKey: string | null = null;
           try {
             const rawMeta = await readObject(config.mediaBucket, metaKey);
             if (rawMeta) {
@@ -510,11 +559,16 @@ app.get('/api/gallery', async (req, res) => {
               sourceImageKey = parsed.sourceImageKey ?? null;
               sourceImageName = parsed.sourceImageName ?? null;
               name = sourceImageName || name;
+              thumbKey = parsed.thumbKey ?? null;
             }
           } catch {
             // ignore missing metadata
           }
-          return { key, url, savedAt, prompt, startedBy, size, seconds, name, sourceImageKey, sourceImageName };
+          let thumbUrl: string | undefined;
+          if (thumbKey) {
+            try { thumbUrl = await getPresignedUrl(config.mediaBucket, thumbKey, 3600); } catch { /* ignore */ }
+          }
+          return { key, url, savedAt, prompt, startedBy, size, seconds, name, sourceImageKey, sourceImageName, thumbUrl };
         } catch (err) {
           console.warn('[gallery] video read failed', err);
           return null;
@@ -522,7 +576,40 @@ app.get('/api/gallery', async (req, res) => {
       })
     ).then((items) => items.filter((x): x is NonNullable<typeof x> => Boolean(x)));
 
-    res.json({ storyboards, images, canvasPages, canvasAssets, videos });
+    const editedVideos = await Promise.all(
+      editedVideoObjects.map(async ({ key, lastModified }) => {
+        try {
+          const url = await getPresignedUrl(config.mediaBucket, key, 3600);
+          const metaKey = `edited-videos-meta/${key.replace('edited-videos/', '')}.json`;
+          let savedAt = lastModified.toISOString();
+          let name = key.split('/').pop()?.replace(/\.mp4$/i, '') ?? 'Edited movie';
+          let startedBy: string | null = null;
+          let sourceItems: { key: string; name: string; type: string }[] = [];
+          let thumbKey: string | null = null;
+          try {
+            const rawMeta = await readObject(config.mediaBucket, metaKey);
+            if (rawMeta) {
+              const parsed = JSON.parse(rawMeta);
+              name = parsed.name ?? name;
+              savedAt = parsed.savedAt ?? savedAt;
+              startedBy = parsed.startedBy ?? null;
+              sourceItems = parsed.sourceItems ?? [];
+              thumbKey = parsed.thumbKey ?? null;
+            }
+          } catch { /* ignore */ }
+          let thumbUrl: string | undefined;
+          if (thumbKey) {
+            try { thumbUrl = await getPresignedUrl(config.mediaBucket, thumbKey, 3600); } catch { /* ignore */ }
+          }
+          return { key, url, savedAt, name, startedBy, sourceItems, thumbUrl };
+        } catch (err) {
+          console.warn('[gallery] edited video read failed', err);
+          return null;
+        }
+      })
+    ).then(items => items.filter((x): x is NonNullable<typeof x> => Boolean(x)));
+
+    res.json({ storyboards, images, canvasPages, canvasAssets, videos, editedVideos });
   } catch (err: any) {
     console.error('[gallery]', err);
     res.status(500).json({ error: err.message || 'Gallery fetch failed' });
@@ -553,6 +640,30 @@ app.put('/api/canvas/title', async (req, res) => {
     res.json({ key, title: safeTitle, savedAt });
   } catch (err: any) {
     console.error('[canvas/title]', err);
+    res.status(500).json({ error: err.message || 'Rename failed' });
+  }
+});
+
+// PUT /api/dolls/rename — rename a character by moving the S3 object to a new slug path
+app.put('/api/dolls/rename', async (req, res) => {
+  const key = typeof req.body?.key === 'string' ? req.body.key.trim() : '';
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  if (!key.startsWith('dolls/')) return res.status(400).json({ error: 'invalid key' });
+  if (!name) return res.status(400).json({ error: 'name required' });
+  if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
+
+  const slug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'character';
+  const filename = key.split('/').pop() ?? 'image';
+  const newKey = `dolls/${slug}/${filename}`;
+  if (newKey === key) return res.json({ key, name });
+
+  try {
+    await copyObject(config.mediaBucket, key, newKey);
+    await deleteObject(config.mediaBucket, key);
+    const url = await getPresignedUrl(config.mediaBucket, newKey, 3600);
+    res.json({ key: newKey, name, url });
+  } catch (err: any) {
+    console.error('[dolls/rename]', err);
     res.status(500).json({ error: err.message || 'Rename failed' });
   }
 });
@@ -620,6 +731,14 @@ app.delete('/api/gallery', async (req, res) => {
       await deleteObject(bucket, key);
       const metaKey = `videos-meta/${key.replace('videos/', '')}.json`;
       try { await deleteObject(bucket, metaKey); } catch { /* ignore */ }
+      const thumbKey = `video-thumbs/${key.replace('videos/', '').replace(/\.mp4$/i, '.jpg')}`;
+      try { await deleteObject(bucket, thumbKey); } catch { /* ignore */ }
+    } else if (type === 'editedVideo') {
+      await deleteObject(bucket, key);
+      const metaKey = `edited-videos-meta/${key.replace('edited-videos/', '')}.json`;
+      try { await deleteObject(bucket, metaKey); } catch { /* ignore */ }
+      const thumbKey = `video-thumbs/${key.replace('edited-videos/', '').replace(/\.mp4$/i, '.jpg')}`;
+      try { await deleteObject(bucket, thumbKey); } catch { /* ignore */ }
     } else {
       return res.status(400).json({ error: 'unsupported type' });
     }
