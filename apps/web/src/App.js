@@ -3,6 +3,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuid } from 'uuid';
 import { create } from 'zustand';
 import { io } from 'socket.io-client';
+import heic2any from 'heic2any';
+async function convertIfHeic(file) {
+    const isHeic = /\.hei[cf]$/i.test(file.name) || file.type === 'image/heic' || file.type === 'image/heif';
+    if (!isHeic)
+        return file;
+    const blob = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
+    return new File([blob], file.name.replace(/\.hei[cf]$/i, '.jpg'), { type: 'image/jpeg' });
+}
 const COGNITO_ENDPOINT = 'https://cognito-idp.us-east-1.amazonaws.com/';
 const COGNITO_CLIENT_ID = '6nl7u3h2bhv1vtqs6n3upstuqi';
 async function cognitoLogin(email, password) {
@@ -918,6 +926,7 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
     const [canvasAssets, setCanvasAssets] = useState([]);
     const [images, setImages] = useState([]);
     const [videos, setVideos] = useState([]);
+    const [editedVideos, setEditedVideos] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [uploading, setUploading] = useState(false);
@@ -931,27 +940,39 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
     const [dragData, setDragData] = useState(null);
     const [movingImage, setMovingImage] = useState(false);
     const [moviePromptKey, setMoviePromptKey] = useState(null);
-    const [movieSel, setMovieSel] = useState(new Map());
+    const [charDragActive, setCharDragActive] = useState(false);
+    const [assetDragActive, setAssetDragActive] = useState(false);
+    const [uploadQueue, setUploadQueue] = useState([]); // names being uploaded
+    const [movieSel, setMovieSel] = useState([]);
     const [combiningMovie, setCombiningMovie] = useState(false);
+    const [stitching, setStitching] = useState(false);
     const toggleMovieSel = useCallback((item) => {
         setMovieSel(prev => {
-            const next = new Map(prev);
-            if (next.has(item.key)) {
-                next.delete(item.key);
-            }
-            else if (next.size < 5) {
-                next.set(item.key, item);
-            }
+            const idx = prev.findIndex(i => i.key === item.key);
+            if (idx >= 0)
+                return prev.filter((_, i) => i !== idx);
+            if (prev.length >= 5)
+                return prev;
+            return [...prev, item];
+        });
+    }, []);
+    const moveMovieSel = useCallback((idx, delta) => {
+        setMovieSel(prev => {
+            const next = [...prev];
+            const target = idx + delta;
+            if (target < 0 || target >= next.length)
+                return prev;
+            [next[idx], next[target]] = [next[target], next[idx]];
             return next;
         });
     }, []);
     const handleCombineMovie = useCallback(async () => {
-        if (movieSel.size < 2)
+        if (movieSel.length < 2)
             return;
         setCombiningMovie(true);
         try {
-            await onRequestMultiMoviePrompt(Array.from(movieSel.values()));
-            setMovieSel(new Map());
+            await onRequestMultiMoviePrompt(movieSel);
+            setMovieSel([]);
         }
         catch (err) {
             const msg = err instanceof Error ? err.message : 'Multi-movie prompt failed';
@@ -974,6 +995,7 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
             setCanvasAssets((data.canvasAssets ?? []).sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()));
             setImages(data.images ?? []);
             setVideos((data.videos ?? []).sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()));
+            setEditedVideos((data.editedVideos ?? []).sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()));
         }
         catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to load gallery';
@@ -984,6 +1006,31 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
         }
     }, [authHeaders]);
     useEffect(() => { fetchGallery(); }, [fetchGallery, refreshTick]);
+    const handleStitch = useCallback(async () => {
+        if (movieSel.length < 2)
+            return;
+        setStitching(true);
+        try {
+            const res = await fetch(`${API_BASE}/api/stitch`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders },
+                body: JSON.stringify({ items: movieSel, outputName: movieSel.map(i => i.name).join(' + ') }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ error: 'Splice failed' }));
+                throw new Error(err.error || 'Splice failed');
+            }
+            setMovieSel([]);
+            await fetchGallery();
+        }
+        catch (err) {
+            const msg = err instanceof Error ? err.message : 'Splice failed';
+            alert(`Splice failed: ${msg}`);
+        }
+        finally {
+            setStitching(false);
+        }
+    }, [movieSel, authHeaders, fetchGallery]);
     const mergedParlorBooks = useMemo(() => {
         const seen = new Set();
         const merged = [];
@@ -1066,8 +1113,8 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
         return videos.filter(video => (video.name ?? '').toLowerCase().includes(term) ||
             (video.prompt ?? '').toLowerCase().includes(term));
     }, [videos, term]);
-    const allowDropToCharacters = dragData?.kind === 'canvasAsset';
-    const allowDropToAssets = dragData?.kind === 'character';
+    const allowDropToCharacters = dragData?.kind === 'canvasAsset' || charDragActive;
+    const allowDropToAssets = dragData?.kind === 'character' || assetDragActive;
     const loadStoryboard = useCallback(async (key, title) => {
         try {
             const res = await fetch(`${API_BASE}/api/storyboard/fetch?key=${encodeURIComponent(key)}`, {
@@ -1083,23 +1130,33 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
             alert(`Could not load storyboard: ${message}`);
         }
     }, [authHeaders, onLoadStoryboard]);
-    const handleUpload = useCallback(async (e) => {
-        const file = e.target.files?.[0];
-        if (!file)
+    const uploadCharacterFiles = useCallback(async (rawFiles) => {
+        if (!rawFiles.length)
             return;
-        const name = prompt('Character name?', file.name.replace(/\.[^.]+$/, '')) ?? file.name;
+        const isBulk = rawFiles.length > 1;
         setUploading(true);
+        const names = [];
         try {
-            const form = new FormData();
-            form.append('file', file);
-            form.append('name', name);
-            const res = await fetch(`${API_BASE}/api/dolls/upload`, {
-                method: 'POST',
-                headers: { ...authHeaders },
-                body: form,
-            });
-            if (!res.ok)
-                throw new Error(`Upload ${res.status}`);
+            // Convert HEIC and collect names first
+            const files = await Promise.all(rawFiles.map(convertIfHeic));
+            for (const file of files) {
+                const defaultName = file.name.replace(/\.[^.]+$/, '');
+                const name = isBulk ? defaultName : (prompt('Character name?', defaultName) ?? defaultName);
+                names.push(name);
+            }
+            setUploadQueue(names);
+            await Promise.all(files.map(async (file, i) => {
+                const form = new FormData();
+                form.append('file', file);
+                form.append('name', names[i]);
+                const res = await fetch(`${API_BASE}/api/dolls/upload`, {
+                    method: 'POST',
+                    headers: { ...authHeaders },
+                    body: form,
+                });
+                if (!res.ok)
+                    throw new Error(`Upload failed for ${names[i]}`);
+            }));
             await fetchGallery();
         }
         catch (err) {
@@ -1108,10 +1165,16 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
         }
         finally {
             setUploading(false);
+            setUploadQueue([]);
             if (fileInputRef.current)
                 fileInputRef.current.value = '';
         }
     }, [authHeaders, fetchGallery]);
+    const handleUpload = useCallback(async (e) => {
+        const files = Array.from(e.target.files ?? []);
+        if (files.length)
+            await uploadCharacterFiles(files);
+    }, [uploadCharacterFiles]);
     const gBtn = {
         background: 'transparent',
         border: '1px solid #ff1493',
@@ -1130,27 +1193,33 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
             alert(url);
         }
     }, []);
-    const handleAssetUpload = useCallback(async (file) => {
+    const handleAssetUpload = useCallback(async (rawFiles) => {
+        if (!rawFiles.length)
+            return;
         setAssetUploading(true);
         try {
-            const form = new FormData();
-            form.append('file', file);
-            const res = await fetch(`${API_BASE}/api/canvas/assets/upload`, {
-                method: 'POST',
-                headers: { ...authHeaders },
-                body: form,
-            });
-            if (!res.ok)
-                throw new Error('Upload failed');
-            const data = await res.json();
-            const entry = {
-                key: data.key ?? `asset-${Date.now()}`,
-                title: data.name ?? file.name,
+            const files = await Promise.all(rawFiles.map(convertIfHeic));
+            const results = await Promise.all(files.map(async (file) => {
+                const form = new FormData();
+                form.append('file', file);
+                const res = await fetch(`${API_BASE}/api/canvas/assets/upload`, {
+                    method: 'POST',
+                    headers: { ...authHeaders },
+                    body: form,
+                });
+                if (!res.ok)
+                    throw new Error('Upload failed');
+                return res.json();
+            }));
+            const entries = results.map((data, i) => ({
+                key: data.key ?? `asset-${Date.now()}-${i}`,
+                title: data.name ?? files[i].name,
                 url: data.url,
                 savedAt: data.savedAt ?? new Date().toISOString(),
-            };
-            setAssetUploads(prev => [entry, ...prev]);
-            await copyUrl(entry.url);
+            }));
+            setAssetUploads(prev => [...entries, ...prev]);
+            if (entries.length === 1)
+                await copyUrl(entries[0].url);
         }
         catch (err) {
             console.warn('[canvas asset upload]', err);
@@ -1163,10 +1232,28 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
         }
     }, [authHeaders, copyUrl]);
     const handleAssetInput = useCallback((e) => {
-        const file = e.target.files?.[0];
-        if (file)
-            handleAssetUpload(file);
+        const files = Array.from(e.target.files ?? []);
+        if (files.length)
+            handleAssetUpload(files);
     }, [handleAssetUpload]);
+    const handleRenameCharacter = useCallback(async (img) => {
+        const next = prompt('Rename character:', img.name)?.trim();
+        if (!next || next === img.name)
+            return;
+        try {
+            const res = await fetch(`${API_BASE}/api/dolls/rename`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', ...authHeaders },
+                body: JSON.stringify({ key: img.key, name: next }),
+            });
+            if (!res.ok)
+                throw new Error('Rename failed');
+            await fetchGallery();
+        }
+        catch (err) {
+            alert('Could not rename that character.');
+        }
+    }, [authHeaders, fetchGallery]);
     const handleMoviePrompt = useCallback(async (item) => {
         setMoviePromptKey(item.key);
         try {
@@ -1238,19 +1325,33 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
     }, []);
     const handleDragEnd = useCallback(() => setDragData(null), []);
     const handleDropOnCharacters = useCallback((e) => {
+        e.preventDefault();
+        setCharDragActive(false);
+        // External file drop from filesystem
+        if (e.dataTransfer.files.length > 0) {
+            uploadCharacterFiles(Array.from(e.dataTransfer.files));
+            return;
+        }
+        // Internal gallery drag
         if (dragData?.kind !== 'canvasAsset')
             return;
-        e.preventDefault();
         handleMove({ key: dragData.key, from: 'canvasAsset', to: 'character', title: dragData.title });
         setDragData(null);
-    }, [dragData, handleMove]);
+    }, [dragData, handleMove, uploadCharacterFiles]);
     const handleDropOnAssets = useCallback((e) => {
+        e.preventDefault();
+        setAssetDragActive(false);
+        // External file drop from filesystem
+        if (e.dataTransfer.files.length > 0) {
+            handleAssetUpload(Array.from(e.dataTransfer.files));
+            return;
+        }
+        // Internal gallery drag
         if (dragData?.kind !== 'character')
             return;
-        e.preventDefault();
         handleMove({ key: dragData.key, from: 'character', to: 'canvasAsset', title: dragData.title });
         setDragData(null);
-    }, [dragData, handleMove]);
+    }, [dragData, handleMove, handleAssetUpload]);
     const handleRename = useCallback(async (page) => {
         const next = prompt('Parlor Book title?', page.title) ?? '';
         const trimmed = next.trim();
@@ -1265,14 +1366,15 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
                         border: '1px solid rgba(255,20,147,.4)',
                         background: '#02000a',
                         color: '#f0e6ff'
-                    } }) }), loading && _jsx("p", { style: { color: '#ff1493', fontSize: '.8rem' }, children: "Loading..." }), error && _jsxs("p", { style: { color: '#ffe66d', fontSize: '.8rem' }, children: ["Error: ", error] }), movieSel.size > 0 && (_jsxs("div", { style: { background: 'rgba(255,140,251,.12)', border: '1px solid #ff8cfb', borderRadius: 8, padding: '8px 12px', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }, children: [_jsxs("span", { style: { fontSize: '.78rem', color: '#ff8cfb' }, children: ["\uD83C\uDFAC ", movieSel.size, " selected", movieSel.size < 2 ? ' — pick at least 2 to combine' : '', movieSel.size >= 5 ? ' (max)' : ''] }), _jsxs("div", { style: { display: 'flex', gap: 6 }, children: [movieSel.size >= 2 && (_jsx("button", { style: { ...gBtn, color: '#ff8cfb', borderColor: '#ff8cfb' }, onClick: handleCombineMovie, disabled: combiningMovie, children: combiningMovie ? 'Prompting…' : `Combine ${movieSel.size} into movie` })), _jsx("button", { style: gBtn, onClick: () => setMovieSel(new Map()), children: "Clear" })] })] })), _jsxs("div", { style: { marginBottom: 20 }, children: [_jsxs("h3", { style: { color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Saved Storyboards (", filteredStoryboards.length, ")"] }), !loading && filteredStoryboards.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No saved storyboards yet." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: filteredStoryboards.map(sb => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }, children: sb.title }), _jsxs("div", { style: { fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: [new Date(sb.savedAt).toLocaleString(), " \u2022 ", sb.conversationId] })] }), _jsxs("div", { style: { display: 'flex', gap: 6 }, children: [_jsx("button", { style: gBtn, onClick: () => loadStoryboard(sb.key, sb.title), children: "Load" }), _jsx("button", { style: gBtn, onClick: () => handleDelete(sb.key, 'storyboard'), children: "Delete" })] })] }, sb.key))) })] }), _jsxs("div", { children: [_jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }, children: [_jsxs("h3", { style: { color: '#39ff14', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', margin: 0 }, children: ["Characters (", filteredImages.length, ")"] }), _jsx("button", { style: { ...gBtn, color: '#39ff14', borderColor: '#39ff14' }, onClick: () => fileInputRef.current?.click(), disabled: uploading, children: uploading ? 'Uploading...' : '+ Upload' }), _jsx("input", { ref: fileInputRef, type: "file", accept: "image/*", style: { display: 'none' }, onChange: handleUpload })] }), !loading && filteredImages.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No character images yet." })), _jsx("div", { style: {
+                    } }) }), loading && _jsx("p", { style: { color: '#ff1493', fontSize: '.8rem' }, children: "Loading..." }), error && _jsxs("p", { style: { color: '#ffe66d', fontSize: '.8rem' }, children: ["Error: ", error] }), movieSel.length > 0 && (_jsxs("div", { style: { background: 'rgba(255,140,251,.12)', border: '1px solid #ff8cfb', borderRadius: 8, padding: '10px 12px', marginBottom: 14 }, children: [_jsxs("div", { style: { fontSize: '.75rem', color: '#ff8cfb', marginBottom: 6, fontWeight: 600 }, children: ["\uD83C\uDFAC Selection ", movieSel.length >= 5 ? '(max 5)' : `(${movieSel.length})`, movieSel.length < 2 ? ' — pick at least 2' : ''] }), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }, children: movieSel.map((item, idx) => (_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 5 }, children: [_jsxs("span", { style: { color: 'rgba(255,140,251,.5)', fontSize: '.7rem', minWidth: 14 }, children: [idx + 1, "."] }), _jsx("span", { style: { fontSize: '.75rem', color: '#f0e6ff', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: item.name }), _jsx("span", { style: { fontSize: '.65rem', color: 'rgba(240,230,255,.4)', marginRight: 2 }, children: item.type === 'video' ? '🎬' : '🖼' }), _jsx("button", { style: { ...gBtn, padding: '1px 5px' }, onClick: () => moveMovieSel(idx, -1), disabled: idx === 0, title: "Move up", children: "\u2191" }), _jsx("button", { style: { ...gBtn, padding: '1px 5px' }, onClick: () => moveMovieSel(idx, 1), disabled: idx === movieSel.length - 1, title: "Move down", children: "\u2193" }), _jsx("button", { style: { ...gBtn, padding: '1px 6px' }, onClick: () => setMovieSel(prev => prev.filter(i => i.key !== item.key)), title: "Remove", children: "\u2715" })] }, item.key))) }), _jsxs("div", { style: { display: 'flex', gap: 6, flexWrap: 'wrap' }, children: [movieSel.length >= 2 && (_jsx("button", { style: { ...gBtn, color: '#ff8cfb', borderColor: '#ff8cfb' }, onClick: handleCombineMovie, disabled: combiningMovie || stitching, children: combiningMovie ? 'Prompting…' : 'Combine into movie prompt' })), movieSel.length >= 2 && (_jsx("button", { style: { ...gBtn, color: '#7df9ff', borderColor: '#7df9ff' }, onClick: handleStitch, disabled: stitching || combiningMovie, children: stitching ? 'Splicing…' : `Splice ${movieSel.length} together` })), _jsx("button", { style: gBtn, onClick: () => setMovieSel([]), children: "Clear" })] })] })), _jsxs("div", { style: { marginBottom: 20 }, children: [_jsxs("h3", { style: { color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Saved Storyboards (", filteredStoryboards.length, ")"] }), !loading && filteredStoryboards.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No saved storyboards yet." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: filteredStoryboards.map(sb => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }, children: sb.title }), _jsxs("div", { style: { fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: [new Date(sb.savedAt).toLocaleString(), " \u2022 ", sb.conversationId] })] }), _jsxs("div", { style: { display: 'flex', gap: 6 }, children: [_jsx("button", { style: gBtn, onClick: () => loadStoryboard(sb.key, sb.title), children: "Load" }), _jsx("button", { style: gBtn, onClick: () => handleDelete(sb.key, 'storyboard'), children: "Delete" })] })] }, sb.key))) })] }), _jsxs("div", { children: [_jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }, children: [_jsxs("h3", { style: { color: '#39ff14', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', margin: 0 }, children: ["Characters (", filteredImages.length, ")"] }), _jsx("button", { style: { ...gBtn, color: '#39ff14', borderColor: '#39ff14' }, onClick: () => fileInputRef.current?.click(), disabled: uploading, children: uploading ? (uploadQueue.length > 1 ? `Uploading ${uploadQueue.length}…` : 'Uploading…') : '+ Upload' }), _jsx("input", { ref: fileInputRef, type: "file", accept: "image/*,.heic,.heif", multiple: true, style: { display: 'none' }, onChange: handleUpload })] }), !loading && filteredImages.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No character images yet." })), _jsx("div", { style: {
                             display: 'grid',
                             gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
                             gap: 10,
                             border: allowDropToCharacters ? '1px dashed rgba(57,255,20,.6)' : undefined,
                             padding: allowDropToCharacters ? 8 : 0,
                             borderRadius: allowDropToCharacters ? 8 : 0
-                        }, onDragOver: allowDropToCharacters ? (e) => e.preventDefault() : undefined, onDrop: allowDropToCharacters ? handleDropOnCharacters : undefined, children: filteredImages.map(img => (_jsxs("div", { draggable: true, onDragStart: handleDragStart('character', { key: img.key, title: img.name || 'Character' }), onDragEnd: handleDragEnd, style: { border: movieSel.has(img.key) ? '2px solid #ff8cfb' : '1px solid #ff1493', borderRadius: 6, background: '#0d001a', overflow: 'hidden', textAlign: 'center', display: 'flex', flexDirection: 'column' }, children: [_jsx("img", { src: img.url, alt: img.name, style: { width: '100%', height: 90, objectFit: 'cover', display: 'block' } }), _jsx("div", { style: { padding: '4px 6px', fontSize: '.68rem', color: 'rgba(240,230,255,.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: img.name }), _jsxs("div", { style: { display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', padding: '6px 4px' }, children: [_jsx("button", { style: gBtn, onClick: () => describeImage({ key: img.key, name: img.name || 'Character', url: img.url }), disabled: talkingKey === img.key, children: talkingKey === img.key ? 'Talking…' : 'Talk' }), _jsx("button", { style: gBtn, onClick: () => handleMoviePrompt({ key: img.key, name: img.name || 'Character' }), disabled: moviePromptKey === img.key, children: moviePromptKey === img.key ? 'Prompting…' : 'Movie prompt' }), _jsx("button", { style: { ...gBtn, ...(movieSel.has(img.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }, onClick: () => toggleMovieSel({ key: img.key, name: img.name || 'Character', type: 'image' }), title: movieSel.has(img.key) ? 'Remove from movie selection' : 'Add to movie selection', children: movieSel.has(img.key) ? '🎬✓' : '🎬+' }), _jsx("button", { style: gBtn, onClick: () => setPreviewImage({ title: img.name || 'Character', url: img.url }), children: "View" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: img.url, target: "_blank", rel: "noopener noreferrer", download: img.name || 'character.png', children: "Download" }), _jsx("button", { style: gBtn, onClick: () => handleDelete(img.key, 'character'), children: "Delete" })] })] }, img.key))) })] }), _jsxs("div", { style: { margin: '20px 0' }, children: [_jsxs("h3", { style: { color: '#7df9ff', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Canvas Images (", filteredAssets.length, ")"] }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }, children: [_jsx("button", { style: { ...gBtn, color: '#39ff14', borderColor: '#39ff14' }, onClick: () => assetInputRef.current?.click(), disabled: assetUploading, children: assetUploading ? 'Uploading image...' : '+ Upload image' }), _jsx("input", { ref: assetInputRef, type: "file", accept: "image/*", style: { display: 'none' }, onChange: handleAssetInput }), _jsx("small", { style: { color: 'rgba(240,230,255,.7)' }, children: "Uploads return shareable URLs for your Parlor Book cards." })] }), filteredAssets.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No canvas image uploads yet." })), filteredAssets.length > 0 && (_jsx("div", { style: {
+                        }, onDragOver: (e) => { e.preventDefault(); if (e.dataTransfer.types.includes('Files'))
+                            setCharDragActive(true); }, onDragLeave: () => setCharDragActive(false), onDrop: handleDropOnCharacters, children: filteredImages.map(img => (_jsxs("div", { draggable: true, onDragStart: handleDragStart('character', { key: img.key, title: img.name || 'Character' }), onDragEnd: handleDragEnd, style: { border: movieSel.some(i => i.key === img.key) ? '2px solid #ff8cfb' : '1px solid #ff1493', borderRadius: 6, background: '#0d001a', overflow: 'hidden', textAlign: 'center', display: 'flex', flexDirection: 'column' }, children: [_jsx("img", { src: img.url, alt: img.name, style: { width: '100%', height: 90, objectFit: 'cover', display: 'block' } }), _jsx("div", { style: { padding: '4px 6px', fontSize: '.68rem', color: 'rgba(240,230,255,.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: img.name }), _jsxs("div", { style: { display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', padding: '6px 4px' }, children: [_jsx("button", { style: gBtn, onClick: () => describeImage({ key: img.key, name: img.name || 'Character', url: img.url }), disabled: talkingKey === img.key, children: talkingKey === img.key ? 'Talking…' : 'Talk' }), _jsx("button", { style: gBtn, onClick: () => handleMoviePrompt({ key: img.key, name: img.name || 'Character' }), disabled: moviePromptKey === img.key, children: moviePromptKey === img.key ? 'Prompting…' : 'Movie prompt' }), _jsx("button", { style: { ...gBtn, ...(movieSel.some(i => i.key === img.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }, onClick: () => toggleMovieSel({ key: img.key, name: img.name || 'Character', type: 'image' }), title: movieSel.some(i => i.key === img.key) ? 'Remove from movie selection' : 'Add to movie selection', children: movieSel.some(i => i.key === img.key) ? '🎬✓' : '🎬+' }), _jsx("button", { style: gBtn, onClick: () => setPreviewImage({ title: img.name || 'Character', url: img.url }), children: "View" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: img.url, target: "_blank", rel: "noopener noreferrer", download: img.name || 'character.png', children: "Download" }), _jsx("button", { style: gBtn, onClick: () => handleRenameCharacter(img), children: "Rename" }), _jsx("button", { style: gBtn, onClick: () => handleDelete(img.key, 'character'), children: "Delete" })] })] }, img.key))) })] }), _jsxs("div", { style: { margin: '20px 0' }, children: [_jsxs("h3", { style: { color: '#7df9ff', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Canvas Images (", filteredAssets.length, ")"] }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }, children: [_jsx("button", { style: { ...gBtn, color: '#39ff14', borderColor: '#39ff14' }, onClick: () => assetInputRef.current?.click(), disabled: assetUploading, children: assetUploading ? 'Uploading image...' : '+ Upload image' }), _jsx("input", { ref: assetInputRef, type: "file", accept: "image/*,.heic,.heif", multiple: true, style: { display: 'none' }, onChange: handleAssetInput }), _jsx("small", { style: { color: 'rgba(240,230,255,.7)' }, children: "Uploads return shareable URLs for your Parlor Book cards." })] }), filteredAssets.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No canvas image uploads yet." })), filteredAssets.length > 0 && (_jsx("div", { style: {
                             marginBottom: 12,
                             display: 'flex',
                             flexDirection: 'column',
@@ -1280,7 +1382,8 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
                             border: allowDropToAssets ? '1px dashed rgba(255,20,147,.6)' : undefined,
                             padding: allowDropToAssets ? 8 : 0,
                             borderRadius: allowDropToAssets ? 8 : 0
-                        }, onDragOver: allowDropToAssets ? (e) => e.preventDefault() : undefined, onDrop: allowDropToAssets ? handleDropOnAssets : undefined, children: filteredAssets.map((asset) => (_jsxs("div", { draggable: true, onDragStart: handleDragStart('canvasAsset', { key: asset.key, title: asset.title }), onDragEnd: handleDragEnd, style: { border: movieSel.has(asset.key) ? '2px solid #ff8cfb' : '1px solid rgba(57,255,20,.45)', borderRadius: 6, background: '#0f0920', padding: '6px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.78rem', color: '#39ff14' }, children: asset.title }), _jsx("div", { style: { fontSize: '.65rem', color: 'rgba(240,230,255,.55)' }, children: new Date(asset.savedAt).toLocaleString() }), _jsx("img", { src: asset.url, alt: asset.title, style: { width: 160, height: 90, objectFit: 'cover', borderRadius: 4, marginTop: 6, border: '1px solid rgba(57,255,20,.35)' } })] }), _jsxs("div", { style: { display: 'flex', gap: 6, flexWrap: 'wrap' }, children: [_jsx("button", { style: gBtn, onClick: () => describeImage({ key: asset.key, name: asset.title, url: asset.url }), disabled: talkingKey === asset.key, children: talkingKey === asset.key ? 'Talking…' : 'Talk' }), _jsx("button", { style: gBtn, onClick: () => handleMoviePrompt({ key: asset.key, name: asset.title }), disabled: moviePromptKey === asset.key, children: moviePromptKey === asset.key ? 'Prompting…' : 'Movie prompt' }), _jsx("button", { style: { ...gBtn, ...(movieSel.has(asset.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }, onClick: () => toggleMovieSel({ key: asset.key, name: asset.title, type: 'image' }), title: movieSel.has(asset.key) ? 'Remove from movie selection' : 'Add to movie selection', children: movieSel.has(asset.key) ? '🎬✓' : '🎬+' }), _jsx("button", { style: gBtn, onClick: () => setPreviewImage({ title: asset.title, url: asset.url }), children: "View" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: asset.url, target: "_blank", rel: "noopener noreferrer", download: `${(asset.title || 'canvas').replace(/\s+/g, '-')}.png`, children: "Download" }), _jsx("button", { style: gBtn, onClick: () => copyUrl(asset.url), children: "Copy URL" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: asset.url, target: "_blank", rel: "noopener noreferrer", children: "Open" }), _jsx("button", { style: gBtn, onClick: () => handleDelete(asset.key, 'canvasAsset'), children: "Delete" })] })] }, asset.key))) })), movingImage && _jsx("p", { style: { color: 'rgba(240,230,255,.7)', fontSize: '.72rem' }, children: "Moving image\u2026" })] }), _jsxs("div", { style: { margin: '20px 0' }, children: [_jsxs("h3", { style: { color: '#ff8cfb', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Sora Movies (", filteredVideos.length, ")"] }), filteredVideos.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No Sora renders yet. Pick a character and hit \u201CMovie prompt\u201D to get started." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 10 }, children: filteredVideos.map((video) => (_jsxs("div", { style: { border: movieSel.has(video.key) ? '2px solid #ff8cfb' : '1px solid rgba(255,140,251,.5)', borderRadius: 6, background: '#120017', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }, children: [_jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.82rem', color: '#ff8cfb' }, children: video.name }), _jsxs("div", { style: { fontSize: '.65rem', color: 'rgba(240,230,255,.6)' }, children: [new Date(video.savedAt).toLocaleString(), " \u00B7 ", video.seconds, "s \u00B7 ", video.size, video.startedBy ? _jsxs(_Fragment, { children: [" \u00B7 ", video.startedBy] }) : null] }), video.sourceImageName && (_jsxs("div", { style: { fontSize: '.65rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: ["Ref: ", video.sourceImageName] }))] }), _jsxs("div", { style: { display: 'flex', gap: 6, flexWrap: 'wrap' }, children: [_jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: video.url, target: "_blank", rel: "noopener noreferrer", children: "\u25B6 Play" }), _jsx("button", { style: gBtn, onClick: async () => {
+                        }, onDragOver: (e) => { e.preventDefault(); if (e.dataTransfer.types.includes('Files'))
+                            setAssetDragActive(true); }, onDragLeave: () => setAssetDragActive(false), onDrop: handleDropOnAssets, children: filteredAssets.map((asset) => (_jsxs("div", { draggable: true, onDragStart: handleDragStart('canvasAsset', { key: asset.key, title: asset.title }), onDragEnd: handleDragEnd, style: { border: movieSel.some(i => i.key === asset.key) ? '2px solid #ff8cfb' : '1px solid rgba(57,255,20,.45)', borderRadius: 6, background: '#0f0920', padding: '6px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.78rem', color: '#39ff14' }, children: asset.title }), _jsx("div", { style: { fontSize: '.65rem', color: 'rgba(240,230,255,.55)' }, children: new Date(asset.savedAt).toLocaleString() }), _jsx("img", { src: asset.url, alt: asset.title, style: { width: 160, height: 90, objectFit: 'cover', borderRadius: 4, marginTop: 6, border: '1px solid rgba(57,255,20,.35)' } })] }), _jsxs("div", { style: { display: 'flex', gap: 6, flexWrap: 'wrap' }, children: [_jsx("button", { style: gBtn, onClick: () => describeImage({ key: asset.key, name: asset.title, url: asset.url }), disabled: talkingKey === asset.key, children: talkingKey === asset.key ? 'Talking…' : 'Talk' }), _jsx("button", { style: gBtn, onClick: () => handleMoviePrompt({ key: asset.key, name: asset.title }), disabled: moviePromptKey === asset.key, children: moviePromptKey === asset.key ? 'Prompting…' : 'Movie prompt' }), _jsx("button", { style: { ...gBtn, ...(movieSel.some(i => i.key === asset.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }, onClick: () => toggleMovieSel({ key: asset.key, name: asset.title, type: 'image' }), title: movieSel.some(i => i.key === asset.key) ? 'Remove from movie selection' : 'Add to movie selection', children: movieSel.some(i => i.key === asset.key) ? '🎬✓' : '🎬+' }), _jsx("button", { style: gBtn, onClick: () => setPreviewImage({ title: asset.title, url: asset.url }), children: "View" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: asset.url, target: "_blank", rel: "noopener noreferrer", download: `${(asset.title || 'canvas').replace(/\s+/g, '-')}.png`, children: "Download" }), _jsx("button", { style: gBtn, onClick: () => copyUrl(asset.url), children: "Copy URL" }), _jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: asset.url, target: "_blank", rel: "noopener noreferrer", children: "Open" }), _jsx("button", { style: gBtn, onClick: () => handleDelete(asset.key, 'canvasAsset'), children: "Delete" })] })] }, asset.key))) })), movingImage && _jsx("p", { style: { color: 'rgba(240,230,255,.7)', fontSize: '.72rem' }, children: "Moving image\u2026" })] }), _jsxs("div", { style: { margin: '20px 0' }, children: [_jsxs("h3", { style: { color: '#ff8cfb', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Sora Movies (", filteredVideos.length, ")"] }), filteredVideos.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No Sora renders yet. Pick a character and hit \u201CMovie prompt\u201D to get started." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 10 }, children: filteredVideos.map((video) => (_jsxs("div", { style: { border: movieSel.some(i => i.key === video.key) ? '2px solid #ff8cfb' : '1px solid rgba(255,140,251,.5)', borderRadius: 6, background: '#120017', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }, children: [_jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }, children: [_jsxs("div", { style: { display: 'flex', gap: 10, alignItems: 'flex-start' }, children: [video.thumbUrl && (_jsx("img", { src: video.thumbUrl, alt: "", style: { width: 80, height: 45, objectFit: 'cover', borderRadius: 4, flexShrink: 0, border: '1px solid rgba(255,140,251,.3)' } })), _jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.82rem', color: '#ff8cfb' }, children: video.name }), _jsxs("div", { style: { fontSize: '.65rem', color: 'rgba(240,230,255,.6)' }, children: [new Date(video.savedAt).toLocaleString(), " \u00B7 ", video.seconds, "s \u00B7 ", video.size, video.startedBy ? _jsxs(_Fragment, { children: [" \u00B7 ", video.startedBy] }) : null] }), video.sourceImageName && (_jsxs("div", { style: { fontSize: '.65rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: ["Ref: ", video.sourceImageName] }))] })] }), _jsxs("div", { style: { display: 'flex', gap: 6, flexWrap: 'wrap' }, children: [_jsx("a", { style: { ...gBtn, textDecoration: 'none' }, href: video.url, target: "_blank", rel: "noopener noreferrer", children: "\u25B6 Play" }), _jsx("button", { style: gBtn, onClick: async () => {
                                                         if (!video.prompt)
                                                             return;
                                                         try {
@@ -1289,7 +1392,7 @@ function GalleryPanel({ authHeaders, onLoadStoryboard, refreshTick, recentStoryb
                                                         catch {
                                                             alert(video.prompt);
                                                         }
-                                                    }, disabled: !video.prompt, children: "Copy prompt" }), _jsx("button", { style: gBtn, onClick: () => copyUrl(video.url), children: "Copy link" }), _jsx("button", { style: { ...gBtn, ...(movieSel.has(video.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }, onClick: () => toggleMovieSel({ key: video.key, name: video.name, type: 'video', prompt: video.prompt }), title: movieSel.has(video.key) ? 'Remove from movie selection' : 'Add to movie selection', children: movieSel.has(video.key) ? '🎬✓' : '🎬+' }), _jsx("button", { style: gBtn, onClick: () => handleDelete(video.key, 'video'), children: "Delete" })] })] }), video.prompt && (_jsx("p", { style: { fontSize: '.75rem', color: 'rgba(240,230,255,.85)', margin: 0 }, children: video.prompt }))] }, video.key))) })] }), _jsxs("div", { style: { marginBottom: 20 }, children: [_jsxs("h3", { style: { color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Saved Parlor Books (", filteredParlorBooks.length, ")"] }), filteredParlorBooks.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No saved Parlor Books yet." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: filteredParlorBooks.map(page => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }, children: page.title }), _jsx("div", { style: { fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: new Date(page.savedAt).toLocaleString() }), _jsx("div", { style: {
+                                                    }, disabled: !video.prompt, children: "Copy prompt" }), _jsx("button", { style: gBtn, onClick: () => copyUrl(video.url), children: "Copy link" }), _jsx("button", { style: { ...gBtn, ...(movieSel.some(i => i.key === video.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }, onClick: () => toggleMovieSel({ key: video.key, name: video.name, type: 'video', prompt: video.prompt }), title: movieSel.some(i => i.key === video.key) ? 'Remove from movie selection' : 'Add to movie selection', children: movieSel.some(i => i.key === video.key) ? '🎬✓' : '🎬+' }), _jsx("button", { style: gBtn, onClick: () => handleDelete(video.key, 'video'), children: "Delete" })] })] }), video.prompt && (_jsx("p", { style: { fontSize: '.75rem', color: 'rgba(240,230,255,.85)', margin: 0 }, children: video.prompt }))] }, video.key))) })] }), editedVideos.length > 0 && (_jsxs("div", { style: { margin: '20px 0' }, children: [_jsxs("h3", { style: { color: '#7df9ff', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Spliced Movies (", editedVideos.length, ")"] }), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 10 }, children: editedVideos.map((video) => (_jsx("div", { style: { border: movieSel.some(i => i.key === video.key) ? '2px solid #7df9ff' : '1px solid rgba(125,249,255,.4)', borderRadius: 6, background: '#001217', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }, children: _jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }, children: [_jsxs("div", { style: { display: 'flex', gap: 10, alignItems: 'flex-start' }, children: [video.thumbUrl && (_jsx("img", { src: video.thumbUrl, alt: "", style: { width: 80, height: 45, objectFit: 'cover', borderRadius: 4, flexShrink: 0, border: '1px solid rgba(125,249,255,.3)' } })), _jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.82rem', color: '#7df9ff' }, children: video.name }), _jsxs("div", { style: { fontSize: '.65rem', color: 'rgba(240,230,255,.6)' }, children: [new Date(video.savedAt).toLocaleString(), video.startedBy ? _jsxs(_Fragment, { children: [" \u00B7 ", video.startedBy] }) : null] }), video.sourceItems?.length > 0 && (_jsx("div", { style: { fontSize: '.65rem', color: 'rgba(240,230,255,.4)', marginTop: 2 }, children: video.sourceItems.map(i => i.name).join(' → ') }))] })] }), _jsxs("div", { style: { display: 'flex', gap: 6, flexWrap: 'wrap' }, children: [_jsx("a", { style: { ...gBtn, textDecoration: 'none', color: '#7df9ff', borderColor: '#7df9ff' }, href: video.url, target: "_blank", rel: "noopener noreferrer", children: "\u25B6 Play" }), _jsx("button", { style: gBtn, onClick: () => copyUrl(video.url), children: "Copy link" }), _jsx("button", { style: { ...gBtn, ...(movieSel.some(i => i.key === video.key) ? { background: 'rgba(125,249,255,.2)', borderColor: '#7df9ff', color: '#7df9ff' } : {}) }, onClick: () => toggleMovieSel({ key: video.key, name: video.name, type: 'video' }), title: movieSel.some(i => i.key === video.key) ? 'Remove from selection' : 'Add to selection', children: movieSel.some(i => i.key === video.key) ? '🎬✓' : '🎬+' }), _jsx("button", { style: gBtn, onClick: () => handleDelete(video.key, 'editedVideo'), children: "Delete" })] })] }) }, video.key))) })] })), _jsxs("div", { style: { marginBottom: 20 }, children: [_jsxs("h3", { style: { color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }, children: ["Saved Parlor Books (", filteredParlorBooks.length, ")"] }), filteredParlorBooks.length === 0 && (_jsx("p", { style: { color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }, children: "No saved Parlor Books yet." })), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: filteredParlorBooks.map(page => (_jsxs("div", { style: { border: '1px solid #ff1493', borderRadius: 6, background: '#0d001a', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, fontSize: '.8rem', color: '#f0e6ff' }, children: page.title }), _jsx("div", { style: { fontSize: '.68rem', color: 'rgba(240,230,255,.5)', marginTop: 2 }, children: new Date(page.savedAt).toLocaleString() }), _jsx("div", { style: {
                                                 width: 420 * 0.45,
                                                 height: 260 * 0.45,
                                                 overflow: 'hidden',

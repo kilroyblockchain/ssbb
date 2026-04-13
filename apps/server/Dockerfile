@@ -15,6 +15,7 @@ RUN npm run build:server
 
 # ── Stage 2: Production image ────────────────────────────────────────────────
 FROM node:20-alpine
+RUN apk add --no-cache ffmpeg
 WORKDIR /app
 
 # Only copy what's needed for prod install
