@@ -80,17 +80,17 @@ const imageAttachmentSchema = z.object({
 
 const galleryIndexSchema = z.object({
   videos: z.array(z.object({
-    name: z.string().max(200),
-    prompt: z.string().max(300).optional(),
+    name: z.string().max(1000),
+    prompt: z.string().max(1000).optional(),
     starred: z.boolean().optional(),
-  })).max(200).optional(),
+  })).max(500).optional(),
   editedVideos: z.array(z.object({
-    name: z.string().max(200),
-    sourceItems: z.array(z.string().max(100)).max(20).optional(),
+    name: z.string().max(1000),
+    sourceItems: z.array(z.string().max(500)).max(50).optional(),
     starred: z.boolean().optional(),
-  })).max(200).optional(),
-  characters: z.array(z.string().max(100)).max(200).optional(),
-  canvasAssets: z.array(z.string().max(100)).max(200).optional(),
+  })).max(500).optional(),
+  characters: z.array(z.string().max(500)).max(500).optional(),
+  canvasAssets: z.array(z.string().max(500)).max(500).optional(),
 }).optional();
 
 const chatSchema = z.object({

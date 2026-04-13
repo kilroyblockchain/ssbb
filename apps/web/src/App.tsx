@@ -1165,10 +1165,10 @@ function GalleryPanel({
       setEditedVideos(evids);
       setCanvasAssets(assets);
       onGalleryIndex({
-        videos: vids.map(v => ({ name: v.name, prompt: v.prompt?.slice(0, 280), starred: v.starred })),
-        editedVideos: evids.map(v => ({ name: v.name, sourceItems: v.sourceItems?.map(i => i.name), starred: v.starred })),
-        characters: imgs.map(i => i.name).filter(Boolean),
-        canvasAssets: assets.map(a => a.title).filter(Boolean),
+        videos: vids.map(v => ({ name: v.name.slice(0, 500), prompt: v.prompt?.slice(0, 400), starred: v.starred })),
+        editedVideos: evids.map(v => ({ name: v.name.slice(0, 500), sourceItems: v.sourceItems?.map(i => i.name.slice(0, 200)), starred: v.starred })),
+        characters: imgs.map(i => i.name).filter(Boolean).map(n => n.slice(0, 200)),
+        canvasAssets: assets.map(a => a.title).filter(Boolean).map(t => t.slice(0, 200)),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load gallery';
