@@ -153,6 +153,7 @@ app.post('/api/reactions', async (req, res) => {
 app.post('/api/chat', async (req, res) => {
   const parse = chatSchema.safeParse(req.body);
   if (!parse.success) {
+    console.error('[chat] schema validation failed:', JSON.stringify(parse.error.flatten()));
     return res.status(400).json({ error: parse.error.flatten() });
   }
 

@@ -2591,7 +2591,11 @@ async function sendMessage(
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ message: displayText, mode, attachments, clientMessageId: userMsg.id, galleryIndex: galleryIndexRef.current ?? undefined }),
       });
-      if (!resp.ok) throw new Error('Chat failed');
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({}));
+        console.error('[chat] server error', resp.status, JSON.stringify(errBody));
+        throw new Error('Chat failed');
+      }
       const data = await resp.json();
       const rawText: string = data.text ?? 'BotButt heard you.';
 
