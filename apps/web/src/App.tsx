@@ -87,6 +87,8 @@ type ChatMessage = {
   mode?: 'shared' | 'private';
   userEmail?: string;
   attachments?: { name: string; url: string; contentType: string }[];
+  moviePrompt?: string;   // extracted [MOVIE_PROMPT] content
+  spliceNames?: string[]; // extracted [SPLICE:...] names
 };
 
 type CanvasPage =
@@ -1046,8 +1048,8 @@ type GalleryVideo = {
 };
 
 type GalleryIndex = {
-  videos: Array<{ name: string; prompt?: string; starred?: boolean }>;
-  editedVideos: Array<{ name: string; sourceItems?: string[]; starred?: boolean }>;
+  videos: Array<{ key: string; name: string; prompt?: string; starred?: boolean }>;
+  editedVideos: Array<{ key: string; name: string; sourceItems?: string[]; starred?: boolean }>;
   characters: string[];
   canvasAssets: string[];
 };
@@ -1165,8 +1167,8 @@ function GalleryPanel({
       setEditedVideos(evids);
       setCanvasAssets(assets);
       onGalleryIndex({
-        videos: vids.map(v => ({ name: v.name.slice(0, 500), prompt: v.prompt?.slice(0, 400), starred: v.starred })),
-        editedVideos: evids.map(v => ({ name: v.name.slice(0, 500), sourceItems: v.sourceItems?.map(i => i.name.slice(0, 200)), starred: v.starred })),
+        videos: vids.map(v => ({ key: v.key, name: v.name.slice(0, 500), prompt: v.prompt?.slice(0, 400), starred: v.starred })),
+        editedVideos: evids.map(v => ({ key: v.key, name: v.name.slice(0, 500), sourceItems: v.sourceItems?.map(i => i.name.slice(0, 200)), starred: v.starred })),
         characters: imgs.map(i => i.name).filter(Boolean).map(n => n.slice(0, 200)),
         canvasAssets: assets.map(a => a.title).filter(Boolean).map(t => t.slice(0, 200)),
       });
@@ -2262,6 +2264,39 @@ export default function App() {
     [mode, userEmail]
   );
 
+  // Splice videos by name — called when user clicks a [SPLICE:...] button in chat
+  const handleSpliceByNames = useCallback(async (names: string[]) => {
+    const idx = galleryIndexRef.current;
+    if (!idx) { alert('Gallery not loaded — open the Gallery tab first.'); return; }
+    const allItems = [...(idx.videos ?? []), ...(idx.editedVideos ?? [])];
+    const matched = names
+      .map(name => {
+        const lower = name.toLowerCase();
+        return allItems.find(v => v.name.toLowerCase() === lower) ??
+               allItems.find(v => v.name.toLowerCase().includes(lower));
+      })
+      .filter((v): v is NonNullable<typeof v> => Boolean(v));
+    if (matched.length < 2) {
+      alert(`Could only find ${matched.length} of those videos in the gallery. Open the Gallery tab and make sure the videos are loaded.`);
+      return;
+    }
+    const items = matched.map(v => ({ key: v.key, name: v.name, type: 'video' as const }));
+    addMessage({ id: uuid(), author: 'bot', text: `Splicing ${items.map(i => i.name).join(' + ')}…`, createdAt: new Date().toISOString() });
+    try {
+      const res = await fetch(`${API_BASE}/api/stitch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ items, outputName: items.map(i => i.name).join(' + ') }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Splice failed'); }
+      const data = await res.json();
+      addMessage({ id: uuid(), author: 'bot', text: `Done. "${data.name}" is in the Spliced Movies section of the Gallery.`, createdAt: new Date().toISOString() });
+      setGalleryRefreshTick(t => t + 1);
+    } catch (err) {
+      addMessage({ id: uuid(), author: 'bot', text: `Splice failed: ${err instanceof Error ? err.message : 'unknown error'}`, createdAt: new Date().toISOString() });
+    }
+  }, [authHeaders, addMessage]);
+
   const canvasBase = useMemo(
     () => `${API_BASE}/api/song-canvas?conversationId=${encodeURIComponent(conversationId)}&devEmail=${encodeURIComponent(userEmail)}`,
     [conversationId, userEmail]
@@ -2396,6 +2431,8 @@ export default function App() {
           text: (msg.text || '')
             .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, '↳ [see canvas →]')
             .replace(/\[IMG:[^\]]*\]/g, '')
+            .replace(/\[MOVIE_PROMPT\][\s\S]*?\[\/MOVIE_PROMPT\]/gi, '↳ [Sora prompt →]')
+            .replace(/\[SPLICE:[^\]]*\]/gi, '↳ [splice →]')
             .replace(/<[^>]+>/g, '')
             .replace(/&[a-z#0-9]+;/gi, ' ')
             .replace(/\s{2,}/g, ' ')
@@ -2430,6 +2467,8 @@ export default function App() {
       const text = (msg.text || '')
         .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, '↳ [see canvas →]')
         .replace(/\[IMG:[^\]]*\]/g, '')
+        .replace(/\[MOVIE_PROMPT\][\s\S]*?\[\/MOVIE_PROMPT\]/gi, '↳ [Sora prompt →]')
+        .replace(/\[SPLICE:[^\]]*\]/gi, '↳ [splice →]')
         .replace(/<[^>]+>/g, '')
         .replace(/&[a-z#0-9]+;/gi, ' ')
         .replace(/\s{2,}/g, ' ')
@@ -2618,17 +2657,34 @@ async function sendMessage(
       // Detect [HOTDOGS] celebration trigger
       if (/\[HOTDOGS\]/i.test(rawText)) setHotdogsOn(true);
 
+      // Extract [MOVIE_PROMPT]...[/MOVIE_PROMPT] — auto-fill the Sora input
+      let moviePrompt: string | undefined;
+      const moviePromptMatch = /\[MOVIE_PROMPT\]([\s\S]*?)\[\/MOVIE_PROMPT\]/i.exec(rawText);
+      if (moviePromptMatch) {
+        moviePrompt = moviePromptMatch[1].trim();
+        setInput(`/movie ${moviePrompt}`);
+      }
+
+      // Extract [SPLICE:name1|name2|...] — show a one-click splice button
+      let spliceNames: string[] | undefined;
+      const spliceMatch = /\[SPLICE:([^\]]+)\]/i.exec(rawText);
+      if (spliceMatch) {
+        spliceNames = spliceMatch[1].split('|').map(s => s.trim()).filter(Boolean);
+      }
+
       // Strip canvas blocks + any stray HTML tags from chat display text
       botText = rawText
         .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, canvasCount > 0 ? '↳ [see canvas →]' : '')
-        .replace(/\[IMG:[^\]]*\]/g, '')       // strip image placeholders
-        .replace(/\[HOTDOGS\]/gi, '')         // strip hotdog trigger tag
-        .replace(/<[^>]+>/g, '')              // strip any HTML tags
-        .replace(/&[a-z#0-9]+;/gi, ' ')      // strip HTML entities
+        .replace(/\[IMG:[^\]]*\]/g, '')
+        .replace(/\[HOTDOGS\]/gi, '')
+        .replace(/\[MOVIE_PROMPT\][\s\S]*?\[\/MOVIE_PROMPT\]/gi, moviePrompt ? '↳ [Sora prompt loaded →]' : '')
+        .replace(/\[SPLICE:[^\]]*\]/gi, '')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&[a-z#0-9]+;/gi, ' ')
         .replace(/\s{2,}/g, ' ')
         .trim();
 
-      addMessage({ id: data.id ?? uuid(), author: 'bot', text: botText, createdAt: data.createdAt ?? new Date().toISOString() });
+      addMessage({ id: data.id ?? uuid(), author: 'bot', text: botText, createdAt: data.createdAt ?? new Date().toISOString(), moviePrompt, spliceNames });
       options?.onBotReply?.(botText);
     } catch (err) {
       console.error('[chat] frontend error:', err);
@@ -2975,6 +3031,20 @@ async function sendMessage(
                       <time>{new Date(msg.createdAt).toLocaleTimeString()}</time>
                     </header>
                     <p>{msg.text}</p>
+                    {msg.spliceNames && msg.spliceNames.length >= 2 && (
+                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '.72rem', color: '#7df9ff' }}>
+                          {msg.spliceNames.join(' + ')}
+                        </span>
+                        <button
+                          className="mini-btn"
+                          style={{ color: '#7df9ff', borderColor: '#7df9ff' }}
+                          onClick={() => handleSpliceByNames(msg.spliceNames!)}
+                        >
+                          Splice these
+                        </button>
+                      </div>
+                    )}
                     <ReactionBar
                       messageId={msg.id}
                       reactions={reactions[msg.id] ?? {}}

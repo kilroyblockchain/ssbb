@@ -3,8 +3,8 @@ import type { ConversationMessage } from './conversations.js';
 import { converseWithBedrock, type ImageAttachment } from './bedrock.js';
 
 type GalleryIndex = {
-  videos?: Array<{ name: string; prompt?: string; starred?: boolean }>;
-  editedVideos?: Array<{ name: string; sourceItems?: string[]; starred?: boolean }>;
+  videos?: Array<{ key?: string; name: string; prompt?: string; starred?: boolean }>;
+  editedVideos?: Array<{ key?: string; name: string; sourceItems?: string[]; starred?: boolean }>;
   characters?: string[];
   canvasAssets?: string[];
 };
@@ -143,6 +143,21 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     'To trigger hotdog rain, include the tag [HOTDOGS] anywhere in your response. The UI will launch a 60-second hotdog emoji downpour.',
     'Use it sparingly so it stays special. Do not use it for ordinary responses.',
     ...galleryLines,
+    '',
+    '## Actions you can trigger from chat',
+    'Beyond writing on canvas, you can trigger two gallery actions directly.',
+    '',
+    'To generate a new Sora movie prompt (e.g. combining ideas from existing movies):',
+    '  Wrap the prompt in [MOVIE_PROMPT]...[/MOVIE_PROMPT] — the UI will instantly load it into the Sora prompt box.',
+    '  Example: Sure, here\'s one: [MOVIE_PROMPT]Karen crowd-surfing at a sunset festival, slow motion confetti, punk band on stage behind her[/MOVIE_PROMPT]',
+    '  Keep the prompt vivid and cinematic. Do not explain what it is outside the tag — just write it.',
+    '',
+    'To splice specific gallery videos together:',
+    '  Use [SPLICE:Exact Name One|Exact Name Two|Exact Name Three] — the UI will show a one-click Splice button.',
+    '  You must use the EXACT names from the Sora Movies or Spliced Movies list in the Gallery section above.',
+    '  Example: I\'d start with those two: [SPLICE:Karen backflip|Stage explosion]',
+    '  Only reference videos that exist in the gallery. You can suggest up to 10.',
+    '',
     ...attachmentLines,
     '',
     '## Project State',

@@ -80,11 +80,13 @@ const imageAttachmentSchema = z.object({
 
 const galleryIndexSchema = z.object({
   videos: z.array(z.object({
+    key: z.string().max(500).optional(),
     name: z.string().max(1000),
     prompt: z.string().max(1000).optional(),
     starred: z.boolean().optional(),
   })).max(500).optional(),
   editedVideos: z.array(z.object({
+    key: z.string().max(500).optional(),
     name: z.string().max(1000),
     sourceItems: z.array(z.string().max(500)).max(50).optional(),
     starred: z.boolean().optional(),
