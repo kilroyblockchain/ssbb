@@ -1080,6 +1080,7 @@ function GalleryPanel({
   const fileInputRef  = useRef<HTMLInputElement>(null);
   const assetInputRef = useRef<HTMLInputElement>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [starredOnly, setStarredOnly] = useState(false);
   const [talkingKey, setTalkingKey] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<{ title: string; url: string } | null>(null);
   const [dragData, setDragData] = useState<{ kind: 'character' | 'canvasAsset'; key: string; title: string } | null>(null);
@@ -1295,12 +1296,25 @@ function GalleryPanel({
   }, [mergedCanvasAssets, term]);
 
   const filteredVideos = useMemo(() => {
-    if (!term) return videos;
-    return videos.filter(video =>
+    let list = videos;
+    if (starredOnly) list = list.filter(v => v.starred);
+    if (!term) return list;
+    return list.filter(video =>
       (video.name ?? '').toLowerCase().includes(term) ||
-      (video.prompt ?? '').toLowerCase().includes(term)
+      (video.prompt ?? '').toLowerCase().includes(term) ||
+      (video.sourceImageName ?? '').toLowerCase().includes(term)
     );
-  }, [videos, term]);
+  }, [videos, term, starredOnly]);
+
+  const filteredEditedVideos = useMemo(() => {
+    let list = editedVideos;
+    if (starredOnly) list = list.filter(v => v.starred);
+    if (!term) return list;
+    return list.filter(video =>
+      (video.name ?? '').toLowerCase().includes(term) ||
+      (video.sourceItems ?? []).some(i => i.name.toLowerCase().includes(term))
+    );
+  }, [editedVideos, term, starredOnly]);
 
   const allowDropToCharacters = dragData?.kind === 'canvasAsset' || charDragActive;
   const allowDropToAssets = dragData?.kind === 'character' || assetDragActive;
@@ -1574,21 +1588,35 @@ function GalleryPanel({
         <button style={gBtn} onClick={fetchGallery}>Refresh</button>
       </div>
 
-      <div style={{ marginBottom: 14 }}>
+      <div style={{ marginBottom: 14, display: 'flex', gap: 6, alignItems: 'center' }}>
         <input
           type="search"
-          placeholder="Search titles, conversations, URLs..."
+          placeholder="Search names, prompts, source images…"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           style={{
-            width: '100%',
+            flex: 1,
             padding: '6px 10px',
             borderRadius: 6,
-            border: '1px solid rgba(255,20,147,.4)',
+            border: searchTerm ? '1px solid rgba(255,20,147,.8)' : '1px solid rgba(255,20,147,.4)',
             background: '#02000a',
             color: '#f0e6ff'
           }}
         />
+        <button
+          onClick={() => setStarredOnly(s => !s)}
+          title={starredOnly ? 'Show all' : 'Show starred only'}
+          style={{
+            ...gBtn,
+            fontSize: '1rem',
+            color: starredOnly ? '#ffd700' : 'rgba(240,230,255,.4)',
+            borderColor: starredOnly ? '#ffd700' : undefined,
+            background: starredOnly ? 'rgba(255,215,0,.1)' : undefined,
+            flexShrink: 0,
+          }}
+        >
+          {starredOnly ? '★' : '☆'}
+        </button>
       </div>
 
       {loading && <p style={{ color: '#ff1493', fontSize: '.8rem' }}>Loading...</p>}
@@ -1797,7 +1825,7 @@ function GalleryPanel({
       {/* ── Sora Movies ── */}
       <div style={{ margin: '20px 0' }}>
         <h3 style={{ color: '#ff8cfb', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }}>
-          Sora Movies ({filteredVideos.length})
+          Sora Movies ({filteredVideos.length}{filteredVideos.length !== videos.length ? ` of ${videos.length}` : ''})
         </h3>
         {filteredVideos.length === 0 && (
           <p style={{ color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }}>No Sora renders yet. Pick a character and hit &ldquo;Movie prompt&rdquo; to get started.</p>
@@ -1870,10 +1898,13 @@ function GalleryPanel({
       {editedVideos.length > 0 && (
         <div style={{ margin: '20px 0' }}>
           <h3 style={{ color: '#7df9ff', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }}>
-            Spliced Movies ({editedVideos.length})
+            Spliced Movies ({filteredEditedVideos.length}{filteredEditedVideos.length !== editedVideos.length ? ` of ${editedVideos.length}` : ''})
           </h3>
+          {filteredEditedVideos.length === 0 && (
+            <p style={{ color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }}>No matches.</p>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {editedVideos.map((video) => (
+            {filteredEditedVideos.map((video) => (
               <div key={video.key} style={{ border: movieSel.some(i => i.key === video.key) ? '2px solid #7df9ff' : '1px solid rgba(125,249,255,.4)', borderRadius: 6, background: '#001217', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
