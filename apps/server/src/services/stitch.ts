@@ -55,6 +55,7 @@ export async function stitchItems(
   outKey: string,
   outName: string
 ): Promise<Buffer | null> {
+  console.log('[stitch] starting splice — order:', items.map((item, i) => `${i + 1}. ${item.name}`).join(' | '));
   const dir = await mkdtemp(join(tmpdir(), 'ssbb-stitch-'));
   try {
     // Download all items in parallel — videos are just written, images are converted

@@ -154,7 +154,7 @@ async function saveVideoToGallery(buffer: Buffer, opts: SoraJobOptions & { jobId
     key,
     url,
     savedAt: now,
-    name: opts.sourceImageName || `Sora movie ${now.slice(11, 19)}`,
+    name: opts.sourceImageName || opts.prompt.slice(0, 60).replace(/\s+/g, ' ').trim() || 'Sora movie',
     prompt: opts.prompt,
     startedBy: opts.userEmail,
     size: opts.size,

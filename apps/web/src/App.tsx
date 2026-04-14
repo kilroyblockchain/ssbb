@@ -89,6 +89,7 @@ type ChatMessage = {
   attachments?: { name: string; url: string; contentType: string }[];
   moviePrompt?: string;   // extracted [MOVIE_PROMPT] content
   spliceNames?: string[]; // extracted [SPLICE:...] names
+  showNames?: string[];   // extracted [SHOW:...] names — highlight in gallery
 };
 
 type CanvasPage =
@@ -1048,8 +1049,8 @@ type GalleryVideo = {
 };
 
 type GalleryIndex = {
-  videos: Array<{ key: string; name: string; prompt?: string; starred?: boolean }>;
-  editedVideos: Array<{ key: string; name: string; sourceItems?: string[]; starred?: boolean }>;
+  videos: Array<{ key: string; name: string; prompt?: string; starred?: boolean; thumbUrl?: string; url?: string }>;
+  editedVideos: Array<{ key: string; name: string; sourceItems?: string[]; starred?: boolean; thumbUrl?: string; url?: string }>;
   characters: string[];
   canvasAssets: string[];
 };
@@ -1065,6 +1066,7 @@ function GalleryPanel({
   onRequestMoviePrompt,
   onRequestMultiMoviePrompt,
   onGalleryIndex,
+  highlightedKeys = [],
 }: {
   authHeaders: Record<string, string>;
   onLoadStoryboard: (page: { type: 'html'; html: string; title: string }) => void;
@@ -1076,6 +1078,7 @@ function GalleryPanel({
   onRequestMoviePrompt: (item: { key: string; name: string }) => Promise<void>;
   onRequestMultiMoviePrompt: (items: MultiMovieItem[]) => Promise<void>;
   onGalleryIndex: (index: GalleryIndex) => void;
+  highlightedKeys?: string[];
 }) {
   const [storyboards, setStoryboards] = useState<GalleryStoryboard[]>([]);
   const [canvasPages, setCanvasPages] = useState<GalleryCanvasPage[]>([]);
@@ -1108,7 +1111,7 @@ function GalleryPanel({
     setMovieSel(prev => {
       const idx = prev.findIndex(i => i.key === item.key);
       if (idx >= 0) return prev.filter((_, i) => i !== idx);
-      if (prev.length >= 5) return prev;
+      if (prev.length >= 20) return prev;
       return [...prev, item];
     });
   }, []);
@@ -1167,8 +1170,8 @@ function GalleryPanel({
       setEditedVideos(evids);
       setCanvasAssets(assets);
       onGalleryIndex({
-        videos: vids.map(v => ({ key: v.key, name: v.name.slice(0, 500), prompt: v.prompt?.slice(0, 400), starred: v.starred })),
-        editedVideos: evids.map(v => ({ key: v.key, name: v.name.slice(0, 500), sourceItems: v.sourceItems?.map(i => i.name.slice(0, 200)), starred: v.starred })),
+        videos: vids.map(v => ({ key: v.key, name: v.name.slice(0, 500), prompt: v.prompt?.slice(0, 400), starred: v.starred, thumbUrl: v.thumbUrl, url: v.url })),
+        editedVideos: evids.map(v => ({ key: v.key, name: v.name.slice(0, 500), sourceItems: v.sourceItems?.map(i => i.name.slice(0, 200)), starred: v.starred, thumbUrl: v.thumbUrl, url: v.url })),
         characters: imgs.map(i => i.name).filter(Boolean).map(n => n.slice(0, 200)),
         canvasAssets: assets.map(a => a.title).filter(Boolean).map(t => t.slice(0, 200)),
       });
@@ -1182,6 +1185,13 @@ function GalleryPanel({
 
   useEffect(() => { fetchGallery(); }, [fetchGallery, refreshTick]);
 
+  // Scroll to first highlighted video after gallery loads
+  useEffect(() => {
+    if (highlightedKeys.length === 0 || (videos.length === 0 && editedVideos.length === 0)) return;
+    const el = document.querySelector('[data-highlighted="true"]') as HTMLElement | null;
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [highlightedKeys, videos, editedVideos]);
+
   const handleStitch = useCallback(async () => {
     if (movieSel.length < 2) return;
     setStitching(true);
@@ -1189,7 +1199,7 @@ function GalleryPanel({
       const res = await fetch(`${API_BASE}/api/stitch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ items: movieSel, outputName: movieSel.map(i => i.name).join(' + ') }),
+        body: JSON.stringify({ items: movieSel, outputName: movieSel.map(i => i.name).join(' + ').slice(0, 490) }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Splice failed' }));
@@ -1647,7 +1657,7 @@ function GalleryPanel({
       {movieSel.length > 0 && (
         <div style={{ background: 'rgba(255,140,251,.12)', border: '1px solid #ff8cfb', borderRadius: 8, padding: '10px 12px', marginBottom: 14 }}>
           <div style={{ fontSize: '.75rem', color: '#ff8cfb', marginBottom: 6, fontWeight: 600 }}>
-            🎬 Selection {movieSel.length >= 5 ? '(max 5)' : `(${movieSel.length})`}
+            🎬 Selection {movieSel.length >= 20 ? '(max 20)' : `(${movieSel.length})`}
             {movieSel.length < 2 ? ' — pick at least 2' : ''}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
@@ -1853,7 +1863,7 @@ function GalleryPanel({
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {filteredVideos.map((video) => (
-            <div key={video.key} style={{ border: movieSel.some(i => i.key === video.key) ? '2px solid #ff8cfb' : '1px solid rgba(255,140,251,.5)', borderRadius: 6, background: '#120017', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div key={video.key} data-highlighted={highlightedKeys.includes(video.key) ? 'true' : undefined} style={{ border: highlightedKeys.includes(video.key) ? '2px solid #ffd700' : movieSel.some(i => i.key === video.key) ? '2px solid #ff8cfb' : '1px solid rgba(255,140,251,.5)', borderRadius: 6, background: '#120017', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6, boxShadow: highlightedKeys.includes(video.key) ? '0 0 12px rgba(255,215,0,.5)' : undefined }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   {video.thumbUrl && (
@@ -1897,7 +1907,7 @@ function GalleryPanel({
                   <button style={gBtn} onClick={() => copyUrl(video.url)}>Copy link</button>
                   <button
                     style={{ ...gBtn, ...(movieSel.some(i => i.key === video.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }}
-                    onClick={() => toggleMovieSel({ key: video.key, name: video.name, type: 'video', prompt: video.prompt })}
+                    onClick={() => toggleMovieSel({ key: video.key, name: video.name.slice(0, 499), type: 'video', prompt: video.prompt })}
                     title={movieSel.some(i => i.key === video.key) ? 'Remove from movie selection' : 'Add to movie selection'}
                   >
                     {movieSel.some(i => i.key === video.key) ? '🎬✓' : '🎬+'}
@@ -1926,7 +1936,7 @@ function GalleryPanel({
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {filteredEditedVideos.map((video) => (
-              <div key={video.key} style={{ border: movieSel.some(i => i.key === video.key) ? '2px solid #7df9ff' : '1px solid rgba(125,249,255,.4)', borderRadius: 6, background: '#001217', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div key={video.key} data-highlighted={highlightedKeys.includes(video.key) ? 'true' : undefined} style={{ border: highlightedKeys.includes(video.key) ? '2px solid #ffd700' : movieSel.some(i => i.key === video.key) ? '2px solid #7df9ff' : '1px solid rgba(125,249,255,.4)', borderRadius: 6, background: '#001217', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6, boxShadow: highlightedKeys.includes(video.key) ? '0 0 12px rgba(255,215,0,.5)' : undefined }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                     {video.thumbUrl && (
@@ -1957,7 +1967,7 @@ function GalleryPanel({
                     <button style={gBtn} onClick={() => copyUrl(video.url)}>Copy link</button>
                     <button
                       style={{ ...gBtn, ...(movieSel.some(i => i.key === video.key) ? { background: 'rgba(125,249,255,.2)', borderColor: '#7df9ff', color: '#7df9ff' } : {}) }}
-                      onClick={() => toggleMovieSel({ key: video.key, name: video.name, type: 'video' })}
+                      onClick={() => toggleMovieSel({ key: video.key, name: video.name.slice(0, 499), type: 'video' })}
                       title={movieSel.some(i => i.key === video.key) ? 'Remove from selection' : 'Add to selection'}
                     >
                       {movieSel.some(i => i.key === video.key) ? '🎬✓' : '🎬+'}
@@ -2250,7 +2260,16 @@ export default function App() {
   const [recentCanvasPages, setRecentCanvasPages] = useState<GalleryCanvasPage[]>([]);
   const [galleryRefreshTick, setGalleryRefreshTick] = useState(0);
   const galleryIndexRef = useRef<GalleryIndex | null>(null);
+  const [highlightedKeys, setHighlightedKeys] = useState<string[]>([]);
+  const [playingVideoUrl, setPlayingVideoUrl] = useState<string | null>(null);
   const [reactions, setReactions] = useState<Record<string, ReactionMap>>({});
+
+  // Auto-clear gallery highlight after 5 seconds
+  useEffect(() => {
+    if (highlightedKeys.length === 0) return;
+    const t = setTimeout(() => setHighlightedKeys([]), 5000);
+    return () => clearTimeout(t);
+  }, [highlightedKeys]);
 
   const lastSpokenRef    = useRef<string | null>(null);
   const hasGreetedRef    = useRef(false);
@@ -2286,7 +2305,7 @@ export default function App() {
       const res = await fetch(`${API_BASE}/api/stitch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ items, outputName: items.map(i => i.name).join(' + ') }),
+        body: JSON.stringify({ items, outputName: items.map(i => i.name).join(' + ').slice(0, 490) }),
       });
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Splice failed'); }
       const data = await res.json();
@@ -2469,6 +2488,7 @@ export default function App() {
         .replace(/\[IMG:[^\]]*\]/g, '')
         .replace(/\[MOVIE_PROMPT\][\s\S]*?\[\/MOVIE_PROMPT\]/gi, '↳ [Sora prompt →]')
         .replace(/\[SPLICE:[^\]]*\]/gi, '↳ [splice →]')
+        .replace(/\[SHOW:[^\]]*\]/gi, '')
         .replace(/<[^>]+>/g, '')
         .replace(/&[a-z#0-9]+;/gi, ' ')
         .replace(/\s{2,}/g, ' ')
@@ -2672,6 +2692,13 @@ async function sendMessage(
         spliceNames = spliceMatch[1].split('|').map(s => s.trim()).filter(Boolean);
       }
 
+      // Extract [SHOW:name1|name2|...] — highlight those videos in the gallery
+      let showNames: string[] | undefined;
+      const showMatch = /\[SHOW:([^\]]+)\]/i.exec(rawText);
+      if (showMatch) {
+        showNames = showMatch[1].split('|').map(s => s.trim()).filter(Boolean);
+      }
+
       // Strip canvas blocks + any stray HTML tags from chat display text
       botText = rawText
         .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, canvasCount > 0 ? '↳ [see canvas →]' : '')
@@ -2679,12 +2706,13 @@ async function sendMessage(
         .replace(/\[HOTDOGS\]/gi, '')
         .replace(/\[MOVIE_PROMPT\][\s\S]*?\[\/MOVIE_PROMPT\]/gi, moviePrompt ? '↳ [Sora prompt loaded →]' : '')
         .replace(/\[SPLICE:[^\]]*\]/gi, '')
+        .replace(/\[SHOW:[^\]]*\]/gi, '')
         .replace(/<[^>]+>/g, '')
         .replace(/&[a-z#0-9]+;/gi, ' ')
         .replace(/\s{2,}/g, ' ')
         .trim();
 
-      addMessage({ id: data.id ?? uuid(), author: 'bot', text: botText, createdAt: data.createdAt ?? new Date().toISOString(), moviePrompt, spliceNames });
+      addMessage({ id: data.id ?? uuid(), author: 'bot', text: botText, createdAt: data.createdAt ?? new Date().toISOString(), moviePrompt, spliceNames, showNames });
       options?.onBotReply?.(botText);
     } catch (err) {
       console.error('[chat] frontend error:', err);
@@ -3045,6 +3073,58 @@ async function sendMessage(
                         </button>
                       </div>
                     )}
+                    {msg.showNames && msg.showNames.length > 0 && (() => {
+                      const idx = galleryIndexRef.current;
+                      const allItems = [...(idx?.videos ?? []), ...(idx?.editedVideos ?? [])];
+                      const matched = msg.showNames
+                        .map(token => {
+                          const lower = token.toLowerCase();
+                          // exact name → partial name → key fragment (handles slug-style tokens)
+                          return allItems.find(v => v.name.toLowerCase() === lower) ??
+                                 allItems.find(v => v.name.toLowerCase().includes(lower)) ??
+                                 allItems.find(v => v.key.toLowerCase().includes(lower));
+                        })
+                        .filter((v): v is NonNullable<typeof v> => Boolean(v));
+                      if (matched.length === 0) return null;
+                      return (
+                        <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                          {matched.map((item) => (
+                            <div key={item.key} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,215,0,.08)', border: '1px solid rgba(255,215,0,.4)', borderRadius: 6, padding: '6px 10px' }}>
+                              {item.thumbUrl ? (
+                                <button
+                                  onClick={() => item.url && setPlayingVideoUrl(item.url)}
+                                  style={{ background: 'none', border: 'none', padding: 0, cursor: item.url ? 'pointer' : 'default', position: 'relative', flexShrink: 0 }}
+                                  title={item.url ? 'Play' : undefined}
+                                >
+                                  <img src={item.thumbUrl} alt="" style={{ width: 80, height: 45, objectFit: 'cover', borderRadius: 4, display: 'block' }} />
+                                  {item.url && (
+                                    <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem', background: 'rgba(0,0,0,.35)', borderRadius: 4 }}>▶</span>
+                                  )}
+                                </button>
+                              ) : item.url ? (
+                                <button
+                                  onClick={() => setPlayingVideoUrl(item.url!)}
+                                  style={{ flexShrink: 0, fontSize: '.7rem', background: 'transparent', border: '1px solid rgba(255,215,0,.6)', color: '#ffd700', borderRadius: 4, padding: '2px 8px', cursor: 'pointer' }}
+                                >▶ Play</button>
+                              ) : null}
+                              <div>
+                                <div style={{ fontSize: '.75rem', fontWeight: 600, color: '#ffd700' }}>{item.name}</div>
+                                <button
+                                  className="mini-btn"
+                                  style={{ marginTop: 4, color: '#ffd700', borderColor: '#ffd700' }}
+                                  onClick={() => {
+                                    pushPage({ type: 'gallery' });
+                                    setHighlightedKeys(matched.map(m => m.key));
+                                  }}
+                                >
+                                  Show in Gallery
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
                     <ReactionBar
                       messageId={msg.id}
                       reactions={reactions[msg.id] ?? {}}
@@ -3154,6 +3234,7 @@ async function sendMessage(
                   onRequestMoviePrompt={requestMoviePrompt}
                   onRequestMultiMoviePrompt={requestMultiMoviePrompt}
                   onGalleryIndex={(idx) => { galleryIndexRef.current = idx; }}
+                  highlightedKeys={highlightedKeys}
                 />
               )}
             </div>
@@ -3189,6 +3270,27 @@ async function sendMessage(
         </div>
 
       </div>
+
+      {/* ── Video shadowbox ── */}
+      {playingVideoUrl && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}
+          onClick={() => setPlayingVideoUrl(null)}
+        >
+          <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '85vh' }} onClick={(e) => e.stopPropagation()}>
+            <video
+              src={playingVideoUrl}
+              autoPlay
+              controls
+              style={{ maxWidth: '90vw', maxHeight: '80vh', borderRadius: 8, border: '2px solid rgba(255,215,0,.5)', display: 'block' }}
+            />
+            <button
+              onClick={() => setPlayingVideoUrl(null)}
+              style={{ position: 'absolute', top: -14, right: -14, background: '#08000f', color: '#f0e6ff', border: '1px solid rgba(255,20,147,.6)', borderRadius: '50%', width: 28, height: 28, cursor: 'pointer', fontSize: '.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >✕</button>
+          </div>
+        </div>
+      )}
 
       {/* ── QR Code Modal ── */}
       {qrModal && (

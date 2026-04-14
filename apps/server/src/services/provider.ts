@@ -39,7 +39,7 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     timelineLines.length ? `Timeline (recent):\n${timelineLines.join('\n')}` : ''
   ].filter(Boolean).join('\n');
 
-  // Gallery context — build a compact index so RadioHead knows what's in the gallery
+  // Gallery context — build a compact index so BotButt knows what's in the gallery
   const galleryLines: string[] = [];
   if (ctx.galleryIndex) {
     const g = ctx.galleryIndex;
@@ -59,10 +59,13 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     if (g.videos?.length) {
       galleryLines.push('');
       galleryLines.push(`### Sora Movies (${g.videos.length})`);
+      galleryLines.push('Use the quoted name in [SHOW:] or [SPLICE:] tags. If the name is generic (e.g. "Sora movie 15:28:45"), use the key-id shown in brackets instead.');
       for (const v of g.videos) {
         const star = v.starred ? '★ ' : '';
         const prompt = v.prompt ? ` — "${v.prompt}"` : '';
-        galleryLines.push(`  ${star}"${v.name}"${prompt}`);
+        // key-id = basename without videos/ prefix and .mp4 suffix
+        const keyId = v.key ? ` [key-id:${v.key.replace(/^videos\//, '').replace(/\.mp4$/i, '')}]` : '';
+        galleryLines.push(`  ${star}"${v.name}"${keyId}${prompt}`);
       }
     }
     if (g.editedVideos?.length) {
@@ -71,7 +74,8 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
       for (const v of g.editedVideos) {
         const star = v.starred ? '★ ' : '';
         const sources = v.sourceItems?.length ? ` — spliced from: ${v.sourceItems.join(', ')}` : '';
-        galleryLines.push(`  ${star}"${v.name}"${sources}`);
+        const keyId = v.key ? ` [key-id:${v.key.replace(/^videos\//, '').replace(/\.mp4$/i, '')}]` : '';
+        galleryLines.push(`  ${star}"${v.name}"${keyId}${sources}`);
       }
     }
   }
@@ -156,7 +160,14 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     '  Use [SPLICE:Exact Name One|Exact Name Two|Exact Name Three] — the UI will show a one-click Splice button.',
     '  You must use the EXACT names from the Sora Movies or Spliced Movies list in the Gallery section above.',
     '  Example: I\'d start with those two: [SPLICE:Karen backflip|Stage explosion]',
-    '  Only reference videos that exist in the gallery. You can suggest up to 10.',
+    '  Only reference videos that exist in the gallery. You can suggest up to 20.',
+    '',
+    'To pull specific gallery videos into view (show thumbnails + play button + "Show in Gallery" button in chat):',
+    '  Use [SHOW:Exact Name One|Exact Name Two] — the UI will display thumbnail cards inline in chat.',
+    '  Use the exact quoted name, OR the key-id shown in [key-id:...] brackets if the name is generic.',
+    '  Example by name: Here are the ones I found: [SHOW:Karen backflip|Stage explosion]',
+    '  Example by key-id: [SHOW:1776046445131-cold-open-on-the-iron-gates|1776046445132-punk-band]',
+    '  Use this when a Butt Bitch asks to find, see, or play a specific video. Keep it to the most relevant ones (1–5).',
     '',
     ...attachmentLines,
     '',
