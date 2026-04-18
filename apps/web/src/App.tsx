@@ -957,6 +957,15 @@ const seededRandom = (seed: number) => {
   return x - Math.floor(x);
 };
 
+function linkify(text: string): React.ReactNode[] {
+  const parts = text.split(/(https?:\/\/[^\s]+)/g);
+  return parts.map((part, i) =>
+    i % 2 === 1
+      ? <a key={i} href={part} target="_blank" rel="noopener noreferrer">{part}</a>
+      : part
+  );
+}
+
 function HotdogRain({ onDone }: { onDone: () => void }) {
   const [fading, setFading] = useState(false);
   const handleDone = useCallback(() => { onDone(); }, [onDone]);
@@ -3523,7 +3532,7 @@ async function sendMessage(
                       <span>{msg.mode === 'private' ? 'Private' : 'Shared'}</span>
                       <time>{new Date(msg.createdAt).toLocaleTimeString()}</time>
                     </header>
-                    <p>{msg.text}</p>
+                    <p>{linkify(msg.text)}</p>
                     {msg.spliceNames && msg.spliceNames.length >= 2 && (
                       <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: '.72rem', color: '#7df9ff' }}>
