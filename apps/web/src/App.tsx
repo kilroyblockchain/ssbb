@@ -1008,7 +1008,7 @@ function HotdogRain({ onDone }: { onDone: () => void }) {
 function CanvasHtmlFrame({ html, title }: { html: string; title: string }) {
   const doc = useMemo(
     () =>
-      `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{background:#0d0010;color:#F7F1E8;font-family:sans-serif;padding:24px;margin:0}</style></head><body>${html}</body></html>`,
+      `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank"><title>${title}</title><style>body{background:#0d0010;color:#F7F1E8;font-family:sans-serif;padding:24px;margin:0}</style></head><body>${html}</body></html>`,
     [html, title]
   );
   return (
