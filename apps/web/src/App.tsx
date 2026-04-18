@@ -1008,7 +1008,7 @@ function HotdogRain({ onDone }: { onDone: () => void }) {
 function CanvasHtmlFrame({ html, title }: { html: string; title: string }) {
   const doc = useMemo(
     () =>
-      `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank"><title>${title}</title><style>body{background:#0d0010;color:#F7F1E8;font-family:sans-serif;padding:24px;margin:0}</style></head><body>${html}</body></html>`,
+      `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank"><title>${title}</title><style>body{background:#0d0010;color:#F7F1E8;font-family:sans-serif;padding:24px;margin:0}a{color:#7df9ff}</style></head><body>${html}<script>document.querySelectorAll('a').forEach(a=>{if(!a.target)a.target='_blank';});(function linkifyTextNodes(node){if(node.nodeType===3){var url=/(https?:\\/\\/[^\\s<>"]+)/g;if(url.test(node.textContent)){var span=document.createElement('span');span.innerHTML=node.textContent.replace(/(https?:\\/\\/[^\\s<>"]+)/g,'<a href="$1" target="_blank">$1</a>');node.parentNode.replaceChild(span,node);return;}}else if(node.nodeType===1&&!/^(a|script|style)$/i.test(node.tagName)){node.childNodes.forEach(linkifyTextNodes);}})(document.body);<\\/script></body></html>`,
     [html, title]
   );
   return (
