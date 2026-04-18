@@ -1,10 +1,13 @@
 import type { PersonaMemory, ProjectMemory } from './memory.js';
 import type { ConversationMessage } from './conversations.js';
 import { converseWithBedrock, type ImageAttachment } from './bedrock.js';
+import { webSearch, isSearchConfigured } from './search.js';
+import { config } from '../config.js';
 
 type GalleryIndex = {
   videos?: Array<{ key?: string; name: string; prompt?: string; starred?: boolean }>;
   editedVideos?: Array<{ key?: string; name: string; sourceItems?: string[]; starred?: boolean }>;
+  audioTracks?: Array<{ key?: string; name: string }>;
   characters?: string[];
   canvasAssets?: string[];
 };
@@ -74,8 +77,16 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
       for (const v of g.editedVideos) {
         const star = v.starred ? '★ ' : '';
         const sources = v.sourceItems?.length ? ` — spliced from: ${v.sourceItems.join(', ')}` : '';
-        const keyId = v.key ? ` [key-id:${v.key.replace(/^videos\//, '').replace(/\.mp4$/i, '')}]` : '';
+        const keyId = v.key ? ` [key-id:${v.key.replace(/^edited-videos\//, '').replace(/\.mp4$/i, '')}]` : '';
         galleryLines.push(`  ${star}"${v.name}"${keyId}${sources}`);
+      }
+    }
+    if (g.audioTracks?.length) {
+      galleryLines.push('');
+      galleryLines.push(`### Audio Tracks (${g.audioTracks.length})`);
+      galleryLines.push('Use the quoted name in [MIX_AUDIO:] tags.');
+      for (const a of g.audioTracks) {
+        galleryLines.push(`  "${a.name}"`);
       }
     }
   }
@@ -142,6 +153,11 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     '',
     'IMPORTANT: When any Butt Bitch asks you to write, draft, drop, or put something on the canvas — DO IT using [CANVAS] tags. Do not tell them to do it themselves.',
     '',
+    '## Web Search',
+    isSearchConfigured()
+      ? 'You can search the web in real time. When a Butt Bitch asks about something current — news, tour dates, lyrics, a band, anything you might not know — just use the web_search tool and answer from the results. Do not say you cannot search the web.'
+      : '',
+    '',
     '## Hotdog Rain',
     'When something is genuinely worth celebrating — a song is finished, a milestone is hit, great news lands — you can make it rain hotdogs on screen.',
     'To trigger hotdog rain, include the tag [HOTDOGS] anywhere in your response. The UI will launch a 60-second hotdog emoji downpour.',
@@ -162,6 +178,15 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     '  Example: I\'d start with those two: [SPLICE:Karen backflip|Stage explosion]',
     '  Only reference videos that exist in the gallery. You can suggest up to 20.',
     '',
+    'To mix an audio track from the gallery into a video:',
+    '  Use [MIX_AUDIO:VideoName|AudioName|keep] to blend both audio streams (original video audio + new track).',
+    '  Use [MIX_AUDIO:VideoName|AudioName|suppress] to replace the video audio entirely with the new track.',
+    '  For the VideoName: use the exact quoted name if it is short and human-readable. If the name is long or auto-generated (e.g. a timestamp slug), use the key-id shown in [key-id:...] brackets instead.',
+    '  For the AudioName: use the exact quoted name from the Audio Tracks list.',
+    '  Example with readable name: Done. [MIX_AUDIO:Art Heist|Souvenir|keep]',
+    '  Example with key-id: Sure thing. [MIX_AUDIO:1776351295054-art-heist|Souvenir|suppress]',
+    '  Only reference items that exist in the gallery. The third segment must be exactly "keep" or "suppress".',
+    '',
     'To pull specific gallery videos into view (show thumbnails + play button + "Show in Gallery" button in chat):',
     '  Use [SHOW:Exact Name One|Exact Name Two] — the UI will display thumbnail cards inline in chat.',
     '  Use the exact quoted name, OR the key-id shown in [key-id:...] brackets if the name is generic.',
@@ -181,11 +206,36 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     personaSummary
   ].join('\n');
 
+  console.log('[provider] isSearchConfigured:', isSearchConfigured(), '| googleApiKey:', !!config.search.googleApiKey, '| googleCx:', !!config.search.googleCx, '| serpApiKey:', !!config.search.serpApiKey);
+  const tools = isSearchConfigured() ? [
+    {
+      name: 'web_search',
+      description: 'Search the web for current information. Use this when asked about recent news, facts you might not know, or anything that benefits from a live search.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'The search query' }
+        },
+        required: ['query']
+      }
+    }
+  ] : undefined;
+
   return converseWithBedrock({
     history: ctx.history,
     prompt: ctx.text,
     senderHandle: ctx.senderHandle,
     context: systemPrompt,
-    attachments: ctx.attachments
+    attachments: ctx.attachments,
+    tools,
+    executeTool: async (name, input) => {
+      if (name === 'web_search') {
+        const query = typeof input.query === 'string' ? input.query : String(input.query);
+        const results = await webSearch(query);
+        if (!results.length) return 'No results found.';
+        return results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join('\n\n');
+      }
+      return `Unknown tool: ${name}`;
+    }
   });
 }

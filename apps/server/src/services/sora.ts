@@ -3,7 +3,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { config } from '../config.js';
 import { getPresignedUrl, writeBuffer, writeObject } from './s3.js';
-import { extractThumbnail } from './stitch.js';
+import { extractThumbnail, normaliseAudio } from './stitch.js';
 
 const POLL_INTERVAL_MS = 5000;
 const MAX_POLL_ATTEMPTS = 120; // ~10 minutes
@@ -115,7 +115,8 @@ async function saveVideoToGallery(buffer: Buffer, opts: SoraJobOptions & { jobId
   const now = new Date().toISOString();
   const slug = slugify(opts.sourceImageName || opts.prompt.slice(0, 32) || 'movie');
   const key = `videos/${Date.now()}-${slug}.mp4`;
-  await writeBuffer(config.mediaBucket, key, buffer, 'video/mp4');
+  const normalisedBuffer = await normaliseAudio(buffer);
+  await writeBuffer(config.mediaBucket, key, normalisedBuffer, 'video/mp4');
 
   // Extract a thumbnail from the first second of the video
   let thumbKey: string | null = null;

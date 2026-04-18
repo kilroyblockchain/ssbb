@@ -30,6 +30,11 @@ export const config = {
       process.env.SORA_API_BASE_URL ||
       '',
     secretName: process.env.SORA_SECRET_NAME || ''
+  },
+  search: {
+    googleApiKey: process.env.GOOGLE_SEARCH_API_KEY || '',
+    googleCx:     process.env.GOOGLE_SEARCH_CX || '',
+    serpApiKey:   process.env.SERP_API_KEY || '',
   }
 };
 

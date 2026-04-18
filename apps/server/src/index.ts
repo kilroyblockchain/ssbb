@@ -26,7 +26,7 @@ import { synthesizeSpeech } from './services/tts.js';
 import { readObject, writeObject, writeBuffer, listObjects, getPresignedUrl, deleteObject, copyObject, readBuffer } from './services/s3.js';
 import { launchSoraJob } from './services/sora.js';
 import { hydrateSoraConfig } from './services/secrets.js';
-import { stitchItems, type StitchItem } from './services/stitch.js';
+import { stitchItems, mixAudio, type StitchItem, type AudioRegion } from './services/stitch.js';
 
 dotenv.config();
 
@@ -91,6 +91,10 @@ const galleryIndexSchema = z.object({
     sourceItems: z.array(z.string().max(500)).max(50).optional(),
     starred: z.boolean().optional(),
   })).max(500).optional(),
+  audioTracks: z.array(z.object({
+    key: z.string().max(500).optional(),
+    name: z.string().max(500),
+  })).max(200).optional(),
   characters: z.array(z.string().max(500)).max(500).optional(),
   canvasAssets: z.array(z.string().max(500)).max(500).optional(),
 }).optional();
@@ -367,6 +371,60 @@ app.post('/api/stitch', async (req, res) => {
   }
 });
 
+// ── Mix audio into a video ────────────────────────────────────────────────────
+const audioRegionSchema = z.object({ start: z.number().min(0), end: z.number().min(0) });
+const mixAudioSchema = z.object({
+  videoKey: z.string().min(1),
+  audioKey: z.string().optional(),
+  outputName: z.string().min(1).max(500).optional(),
+  track1Muted: z.boolean().default(false),
+  track2Muted: z.boolean().default(false),
+  track1Regions: z.array(audioRegionSchema).max(100).default([]),
+  track2Regions: z.array(audioRegionSchema).max(100).default([]),
+}).refine(d => d.track2Muted || !!d.audioKey, { message: 'audioKey required when track2 is not muted' });
+
+app.post('/api/mix-audio', async (req, res) => {
+  const parsed = mixAudioSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!config.mediaBucket) return res.status(503).json({ error: 'Media bucket missing' });
+
+  const { videoKey, audioKey, outputName, track1Muted, track2Muted, track1Regions, track2Regions } = parsed.data;
+  const now = new Date().toISOString();
+  const slug = (outputName || 'mixed')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'mixed';
+  const key = `edited-videos/${Date.now()}-${slug}.mp4`;
+  const metaKey = `edited-videos-meta/${key.replace('edited-videos/', '')}.json`;
+  const bucket = config.mediaBucket;
+
+  // Respond immediately so the proxy doesn't time out during the re-encode.
+  // The result is delivered via the gallery:video-added socket event.
+  res.status(202).json({ status: 'processing' });
+
+  mixAudio(bucket, videoKey, audioKey, track1Muted, track2Muted, key, track1Regions as AudioRegion[], track2Regions as AudioRegion[])
+    .then(async (thumbBuffer) => {
+      let thumbKey: string | null = null;
+      let thumbUrl: string | undefined;
+      if (thumbBuffer) {
+        thumbKey = `video-thumbs/${key.replace('edited-videos/', '').replace(/\.mp4$/i, '.jpg')}`;
+        await writeBuffer(bucket, thumbKey, thumbBuffer, 'image/jpeg');
+        thumbUrl = await getPresignedUrl(bucket, thumbKey, 3600);
+      }
+      const sourceItems: { key: string; name: string; type: string }[] = [
+        { key: videoKey, name: videoKey.split('/').pop()?.replace(/\.mp4$/i, '') ?? 'video', type: 'video' },
+      ];
+      if (audioKey) sourceItems.push({ key: audioKey, name: audioKey.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'audio', type: 'audio' });
+      const meta = { name: outputName || slug, savedAt: now, startedBy: req.user?.email ?? null, sourceItems, thumbKey };
+      await writeObject(bucket, metaKey, JSON.stringify(meta), 'application/json');
+      const url = await getPresignedUrl(bucket, key, 3600);
+      const result = { key, url, name: meta.name, savedAt: now, thumbUrl };
+      io.emit('gallery:video-added', result);
+    })
+    .catch((err: any) => {
+      console.error('[mix-audio]', err);
+      io.emit('gallery:job-error', { job: 'mix-audio', message: err.message || 'Mix failed' });
+    });
+});
+
 // ── Star / unstar a video ────────────────────────────────────────────────────
 app.patch('/api/gallery/star', async (req, res) => {
   const key = typeof req.body?.key === 'string' ? req.body.key : '';
@@ -452,6 +510,33 @@ app.post('/api/canvas/upload', async (req, res) => {
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
+// POST /api/audio/upload — upload an audio track
+app.post('/api/audio/upload', upload.single('file'), async (req: any, res) => {
+  if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
+  const file = req.file;
+  if (!file) return res.status(400).json({ error: 'file required' });
+  if (!file.mimetype.startsWith('audio/')) return res.status(400).json({ error: 'audio file required' });
+
+  const rawName = typeof req.body?.name === 'string' ? req.body.name.trim() : file.originalname.replace(/\.[^.]+$/, '');
+  const displayName = rawName.slice(0, 200) || 'audio track';
+  const base = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const key = `audio/${Date.now()}-${base}`;
+  const metaKey = `audio-meta/${key.replace('audio/', '')}.json`;
+  const savedAt = new Date().toISOString();
+
+  try {
+    await writeBuffer(config.mediaBucket, key, file.buffer, file.mimetype);
+    const meta = { name: displayName, savedAt, startedBy: req.user?.email ?? null, mimeType: file.mimetype, size: file.buffer.length };
+    await writeObject(config.mediaBucket, metaKey, JSON.stringify(meta), 'application/json');
+    const url = await getPresignedUrl(config.mediaBucket, key, 3600);
+    io.emit('gallery:audio-added', { key, url, name: displayName, savedAt, mimeType: file.mimetype });
+    res.json({ key, url, name: displayName, savedAt });
+  } catch (err: any) {
+    console.error('[audio/upload]', err);
+    res.status(500).json({ error: err.message || 'Upload failed' });
+  }
+});
+
 // PUT /api/storyboard — save a storyboard to S3
 app.put('/api/storyboard', async (req, res) => {
   const html           = typeof req.body?.html           === 'string' ? req.body.html           : '';
@@ -491,13 +576,14 @@ app.get('/api/storyboard/fetch', async (req, res) => {
 app.get('/api/gallery', async (req, res) => {
   if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
   try {
-    const [sbObjects, dollObjects, canvasObjects, canvasAssetObjects, videoObjects, editedVideoObjects] = await Promise.all([
+    const [sbObjects, dollObjects, canvasObjects, canvasAssetObjects, videoObjects, editedVideoObjects, audioObjects] = await Promise.all([
       listObjects(config.mediaBucket, 'storyboards/'),
       listObjects(config.mediaBucket, 'dolls/'),
       listObjects(config.mediaBucket, 'canvas/'),
       listObjects(config.mediaBucket, 'canvas-assets/'),
       listObjects(config.mediaBucket, 'videos/'),
       listObjects(config.mediaBucket, 'edited-videos/'),
+      listObjects(config.mediaBucket, 'audio/'),
     ]);
 
     // For storyboards, read the JSON metadata (title, savedAt)
@@ -661,7 +747,34 @@ app.get('/api/gallery', async (req, res) => {
       })
     ).then(items => items.filter((x): x is NonNullable<typeof x> => Boolean(x)));
 
-    res.json({ storyboards, images, canvasPages, canvasAssets, videos, editedVideos });
+    const audioTracks = await Promise.all(
+      audioObjects.map(async ({ key, lastModified }) => {
+        try {
+          const url = await getPresignedUrl(config.mediaBucket, key, 3600);
+          const metaKey = `audio-meta/${key.replace('audio/', '')}.json`;
+          let name = key.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'audio track';
+          let savedAt = lastModified.toISOString();
+          let mimeType = 'audio/mpeg';
+          let startedBy: string | null = null;
+          try {
+            const rawMeta = await readObject(config.mediaBucket, metaKey);
+            if (rawMeta) {
+              const parsed = JSON.parse(rawMeta);
+              name = parsed.name ?? name;
+              savedAt = parsed.savedAt ?? savedAt;
+              mimeType = parsed.mimeType ?? mimeType;
+              startedBy = parsed.startedBy ?? null;
+            }
+          } catch { /* ignore */ }
+          return { key, url, name, savedAt, mimeType, startedBy };
+        } catch (err) {
+          console.warn('[gallery] audio read failed', err);
+          return null;
+        }
+      })
+    ).then(items => items.filter((x): x is NonNullable<typeof x> => Boolean(x)));
+
+    res.json({ storyboards, images, canvasPages, canvasAssets, videos, editedVideos, audioTracks });
   } catch (err: any) {
     console.error('[gallery]', err);
     res.status(500).json({ error: err.message || 'Gallery fetch failed' });
@@ -791,6 +904,10 @@ app.delete('/api/gallery', async (req, res) => {
       try { await deleteObject(bucket, metaKey); } catch { /* ignore */ }
       const thumbKey = `video-thumbs/${key.replace('edited-videos/', '').replace(/\.mp4$/i, '.jpg')}`;
       try { await deleteObject(bucket, thumbKey); } catch { /* ignore */ }
+    } else if (type === 'audio') {
+      await deleteObject(bucket, key);
+      const metaKey = `audio-meta/${key.replace('audio/', '')}.json`;
+      try { await deleteObject(bucket, metaKey); } catch { /* ignore */ }
     } else {
       return res.status(400).json({ error: 'unsupported type' });
     }

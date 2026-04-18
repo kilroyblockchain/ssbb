@@ -79,12 +79,22 @@ export type ImageAttachment = {
   data: string;         // base64-encoded bytes
 };
 
+export type ToolDefinition = {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+};
+
+export type ToolExecutor = (name: string, input: Record<string, unknown>) => Promise<string>;
+
 type ChatOptions = {
   history: ConversationMessage[];
   prompt: string;
   senderHandle?: string;   // prefixed onto current message so BotButt always knows who's talking
   context?: string;
   attachments?: ImageAttachment[];
+  tools?: ToolDefinition[];
+  executeTool?: ToolExecutor;
 };
 
 /** Map MIME type to Bedrock image format string */
@@ -101,7 +111,7 @@ export async function converseWithBedrock(opts: ChatOptions): Promise<string> {
     return `[mocked BotButt] ${opts.prompt}`;
   }
 
-  // Build the user content: images first, then text
+  // Build the initial user message: images first, then text
   const userContent: any[] = [];
   for (const att of (opts.attachments || [])) {
     userContent.push({
@@ -114,7 +124,7 @@ export async function converseWithBedrock(opts: ChatOptions): Promise<string> {
   const promptText = opts.senderHandle ? `[${opts.senderHandle}]: ${opts.prompt}` : opts.prompt;
   userContent.push({ text: promptText });
 
-  const messages = [
+  const messages: any[] = [
     ...opts.history.slice(-10).map((msg) => {
       const handle = msg.userEmail ? msg.userEmail.split('@')[0] : null;
       const text = msg.author === 'butt' && handle ? `[${handle}]: ${msg.text}` : msg.text;
@@ -126,15 +136,49 @@ export async function converseWithBedrock(opts: ChatOptions): Promise<string> {
     { role: 'user', content: userContent }
   ];
 
-  const resp = await sdk.client.send(
-    new sdk.ConverseCommand({
-      modelId: config.bedrockModelId,
-      messages,
-      system: opts.context ? [{ text: opts.context }] : undefined
-    })
-  );
+  const toolConfig = opts.tools?.length
+    ? { tools: opts.tools.map(t => ({ toolSpec: { name: t.name, description: t.description, inputSchema: { json: t.inputSchema } } })) }
+    : undefined;
 
-  const output = resp.output?.message?.content?.[0]?.text;
-  if (!output) throw new Error('Bedrock returned empty message');
-  return output;
+  // Tool use loop — Bedrock may request one or more tool calls before giving a final text response
+  for (let round = 0; round < 5; round++) {
+    const resp = await sdk.client.send(
+      new sdk.ConverseCommand({
+        modelId: config.bedrockModelId,
+        messages,
+        system: opts.context ? [{ text: opts.context }] : undefined,
+        ...(toolConfig ? { toolConfig } : {})
+      })
+    );
+
+    const stopReason: string = resp.stopReason ?? 'end_turn';
+    const content: any[] = resp.output?.message?.content ?? [];
+
+    if (stopReason !== 'tool_use') {
+      const text = content.find((c: any) => c.text)?.text;
+      if (!text) throw new Error('Bedrock returned empty message');
+      return text;
+    }
+
+    // Execute all tool calls in this turn
+    messages.push({ role: 'assistant', content });
+    const toolResults: any[] = [];
+    for (const block of content) {
+      if (!block.toolUse) continue;
+      const { toolUseId, name, input } = block.toolUse;
+      let result = '';
+      try {
+        console.log(`[bedrock] tool call: ${name}`, input);
+        result = opts.executeTool ? await opts.executeTool(name, input ?? {}) : `Tool "${name}" not available.`;
+        console.log(`[bedrock] tool result (${name}):`, result.slice(0, 200));
+      } catch (err: any) {
+        console.error(`[bedrock] tool error (${name}):`, err);
+        result = `Tool error: ${err.message}`;
+      }
+      toolResults.push({ toolResult: { toolUseId, content: [{ text: result }] } });
+    }
+    messages.push({ role: 'user', content: toolResults });
+  }
+
+  throw new Error('Bedrock tool use loop exceeded maximum rounds');
 }

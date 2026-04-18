@@ -90,7 +90,18 @@ type ChatMessage = {
   moviePrompt?: string;   // extracted [MOVIE_PROMPT] content
   spliceNames?: string[]; // extracted [SPLICE:...] names
   showNames?: string[];   // extracted [SHOW:...] names — highlight in gallery
+  mixAudioInfo?: { videoName: string; audioName: string; keepVideoAudio: boolean };
 };
+
+type AudioRegion = { id: string; start: number; end: number };
+type TrackState = { muted: boolean; regions: AudioRegion[] };
+type VideoEditorState = {
+  videoKey: string;
+  videoUrl: string;
+  videoName: string;
+  track1: TrackState;
+  track2: TrackState & { audioKey: string; audioUrl: string; audioName: string };
+} | null;
 
 type CanvasPage =
   | { type: 'avatar' }
@@ -1025,12 +1036,236 @@ function BotButtBear({ state }: { state: 'idle' | 'listening' | 'speaking' }) {
   );
 }
 
+// ── VideoEditor ───────────────────────────────────────────────────────────────
+
+type VideoEditorRenderParams = {
+  videoKey: string;
+  audioKey: string | undefined;
+  outputName: string;
+  track1Muted: boolean;
+  track2Muted: boolean;
+  track1Regions: { start: number; end: number }[];
+  track2Regions: { start: number; end: number }[];
+};
+
+function TrackEditor({
+  label,
+  color,
+  track,
+  duration,
+  audioOptions,
+  selectedAudioKey,
+  onMuteToggle,
+  onAddRegion,
+  onRemoveRegion,
+  onUpdateRegion,
+  onSelectAudio,
+}: {
+  label: string;
+  color: string;
+  track: TrackState;
+  duration: number;
+  audioOptions?: { key: string; name: string; url?: string }[];
+  selectedAudioKey?: string;
+  onMuteToggle: () => void;
+  onAddRegion: () => void;
+  onRemoveRegion: (id: string) => void;
+  onUpdateRegion: (id: string, field: 'start' | 'end', val: number) => void;
+  onSelectAudio?: (key: string, name: string, url: string) => void;
+}) {
+  return (
+    <div style={{ border: `1px solid ${color}33`, borderRadius: 6, padding: '10px 12px', background: '#0a000f', marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 700, fontSize: '.8rem', color, letterSpacing: '.08em', textTransform: 'uppercase', flex: 1 }}>{label}</span>
+        {audioOptions && (
+          <select
+            value={selectedAudioKey ?? ''}
+            onChange={(e) => {
+              const opt = audioOptions.find(a => a.key === e.target.value);
+              if (opt && onSelectAudio) onSelectAudio(opt.key, opt.name, opt.url ?? '');
+            }}
+            style={{ background: '#1a0025', border: `1px solid ${color}66`, color: '#f0e6ff', borderRadius: 4, padding: '3px 8px', fontSize: '.75rem', flex: 2, minWidth: 120 }}
+          >
+            <option value="">— pick audio track —</option>
+            {audioOptions.map(a => (
+              <option key={a.key} value={a.key}>{a.name}</option>
+            ))}
+          </select>
+        )}
+        <button
+          onClick={onMuteToggle}
+          style={{ background: track.muted ? color : 'transparent', border: `1px solid ${color}`, color: track.muted ? '#08000f' : color, borderRadius: 4, padding: '3px 10px', fontSize: '.75rem', cursor: 'pointer', fontWeight: 600 }}
+        >
+          {track.muted ? '🔇 Muted' : '🔊 Active'}
+        </button>
+      </div>
+
+      {/* Timeline bar with silence regions */}
+      {duration > 0 && (
+        <div style={{ position: 'relative', height: 18, background: track.muted ? '#111' : `${color}22`, borderRadius: 3, marginBottom: 8, overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', inset: 0, background: track.muted ? '#111' : `${color}44`, borderRadius: 3 }} />
+          {track.regions.map(r => (
+            <div key={r.id} style={{
+              position: 'absolute',
+              top: 0, bottom: 0,
+              left: `${(r.start / duration) * 100}%`,
+              width: `${Math.max(0, (r.end - r.start) / duration) * 100}%`,
+              background: 'rgba(0,0,0,0.7)',
+              borderLeft: '2px solid #ff6b6b',
+              borderRight: '2px solid #ff6b6b',
+            }} />
+          ))}
+        </div>
+      )}
+
+      {/* Silence regions list */}
+      {track.regions.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+          {track.regions.map((r, i) => (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: '.68rem', color: 'rgba(240,230,255,.5)', minWidth: 50 }}>Cut {i + 1}:</span>
+              <span style={{ fontSize: '.68rem', color: 'rgba(240,230,255,.6)' }}>from</span>
+              <input
+                type="number" min={0} step={0.1} value={r.start}
+                onChange={e => onUpdateRegion(r.id, 'start', parseFloat(e.target.value) || 0)}
+                style={{ width: 60, background: '#1a0025', border: '1px solid #ff6b6b66', color: '#f0e6ff', borderRadius: 3, padding: '2px 4px', fontSize: '.75rem' }}
+              />
+              <span style={{ fontSize: '.68rem', color: 'rgba(240,230,255,.6)' }}>to</span>
+              <input
+                type="number" min={0} step={0.1} value={r.end}
+                onChange={e => onUpdateRegion(r.id, 'end', parseFloat(e.target.value) || 0)}
+                style={{ width: 60, background: '#1a0025', border: '1px solid #ff6b6b66', color: '#f0e6ff', borderRadius: 3, padding: '2px 4px', fontSize: '.75rem' }}
+              />
+              <span style={{ fontSize: '.68rem', color: 'rgba(240,230,255,.5)' }}>s</span>
+              <button onClick={() => onRemoveRegion(r.id)} style={{ background: 'transparent', border: '1px solid #ff6b6b66', color: '#ff6b6b', borderRadius: 3, padding: '1px 6px', cursor: 'pointer', fontSize: '.7rem' }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <button
+        onClick={onAddRegion}
+        style={{ background: 'transparent', border: `1px solid ${color}66`, color: `${color}cc`, borderRadius: 4, padding: '3px 10px', cursor: 'pointer', fontSize: '.72rem' }}
+      >+ Add silence region</button>
+    </div>
+  );
+}
+
+function VideoEditor({
+  state,
+  audioTracks,
+  onClose,
+  onRender,
+}: {
+  state: NonNullable<VideoEditorState>;
+  audioTracks: { key: string; name: string; url: string }[];
+  onClose: () => void;
+  onRender: (params: VideoEditorRenderParams) => void;
+}) {
+  const [track1, setTrack1] = useState<TrackState>(state.track1);
+  const [track2, setTrack2] = useState(state.track2);
+  const [duration, setDuration] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  const addRegion = (track: 1 | 2) => {
+    const newRegion: AudioRegion = { id: `${Date.now()}`, start: 0, end: 3 };
+    if (track === 1) setTrack1(t => ({ ...t, regions: [...t.regions, newRegion] }));
+    else setTrack2(t => ({ ...t, regions: [...t.regions, newRegion] }));
+  };
+
+  const removeRegion = (track: 1 | 2, id: string) => {
+    if (track === 1) setTrack1(t => ({ ...t, regions: t.regions.filter(r => r.id !== id) }));
+    else setTrack2(t => ({ ...t, regions: t.regions.filter(r => r.id !== id) }));
+  };
+
+  const updateRegion = (track: 1 | 2, id: string, field: 'start' | 'end', val: number) => {
+    const updater = (t: TrackState) => ({
+      ...t,
+      regions: t.regions.map(r => r.id === id ? { ...r, [field]: val } : r),
+    });
+    if (track === 1) setTrack1(updater);
+    else setTrack2(updater as any);
+  };
+
+  const canRender = !track2.muted ? !!track2.audioKey : true;
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
+      <div style={{ background: '#0d001a', border: '1px solid #ff1493', borderRadius: 10, padding: '20px 24px', width: '100%', maxWidth: 640, maxHeight: '90vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <h2 style={{ color: '#ff1493', fontSize: '.95rem', margin: 0, letterSpacing: '.08em', textTransform: 'uppercase' }}>Video Editor</h2>
+            <div style={{ color: 'rgba(240,230,255,.7)', fontSize: '.75rem', marginTop: 4 }}>{state.videoName}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: '1px solid rgba(240,230,255,.3)', color: 'rgba(240,230,255,.6)', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: '.8rem' }}>✕ Close</button>
+        </div>
+
+        <video
+          ref={videoRef}
+          src={state.videoUrl}
+          controls
+          onLoadedMetadata={() => setDuration(videoRef.current?.duration ?? 0)}
+          style={{ width: '100%', borderRadius: 6, maxHeight: 280, background: '#000' }}
+        />
+        {duration > 0 && <div style={{ fontSize: '.7rem', color: 'rgba(240,230,255,.4)', textAlign: 'right', marginTop: -8 }}>Duration: {duration.toFixed(1)}s — use player to find timestamps for cuts</div>}
+
+        <TrackEditor
+          label="Track 1 — Video Audio"
+          color="#7df9ff"
+          track={track1}
+          duration={duration}
+          onMuteToggle={() => setTrack1(t => ({ ...t, muted: !t.muted }))}
+          onAddRegion={() => addRegion(1)}
+          onRemoveRegion={(id) => removeRegion(1, id)}
+          onUpdateRegion={(id, f, v) => updateRegion(1, id, f, v)}
+        />
+
+        <TrackEditor
+          label="Track 2 — Added Audio"
+          color="#39ff14"
+          track={track2}
+          duration={duration}
+          audioOptions={audioTracks}
+          selectedAudioKey={track2.audioKey || undefined}
+          onMuteToggle={() => setTrack2(t => ({ ...t, muted: !t.muted }))}
+          onAddRegion={() => addRegion(2)}
+          onRemoveRegion={(id) => removeRegion(2, id)}
+          onUpdateRegion={(id, f, v) => updateRegion(2, id, f, v)}
+          onSelectAudio={(key, name) => setTrack2(t => ({ ...t, audioKey: key, audioName: name }))}
+        />
+        {!track2.muted && !track2.audioKey && (
+          <p style={{ color: '#ffe66d', fontSize: '.75rem', margin: '-8px 0 0' }}>Pick an audio track from the dropdown above before rendering.</p>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 4 }}>
+          <button onClick={onClose} style={{ background: 'transparent', border: '1px solid rgba(240,230,255,.3)', color: 'rgba(240,230,255,.6)', borderRadius: 4, padding: '8px 18px', cursor: 'pointer', fontSize: '.8rem' }}>Cancel</button>
+          <button
+            disabled={!canRender}
+            onClick={() => onRender({
+              videoKey: state.videoKey,
+              audioKey: track2.audioKey || undefined,
+              outputName: track2.audioName ? `${state.videoName} + ${track2.audioName}` : state.videoName,
+              track1Muted: track1.muted,
+              track2Muted: track2.muted,
+              track1Regions: track1.regions.map(r => ({ start: r.start, end: r.end })),
+              track2Regions: track2.regions.map(r => ({ start: r.start, end: r.end })),
+            })}
+            style={{ background: canRender ? '#ff1493' : '#5a1a3a', color: canRender ? '#08000f' : '#aaa', fontWeight: 700, border: 'none', borderRadius: 4, padding: '8px 20px', cursor: canRender ? 'pointer' : 'not-allowed', fontSize: '.85rem', letterSpacing: '.06em' }}
+          >
+            Render + Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── GalleryPanel ─────────────────────────────────────────────────────────────
 
 type GalleryStoryboard = { key: string; title: string; savedAt: string; conversationId: string };
 type GalleryImage      = { key: string; name: string; url: string };
 type GalleryCanvasPage = { key: string; title: string; savedAt: string; url: string };
 type GalleryCanvasAsset = { key: string; title: string; savedAt: string; url: string };
+type GalleryAudio = { key: string; name: string; url: string; savedAt: string; mimeType: string; startedBy?: string | null };
 type MultiMovieItem = { key: string; name: string; type: 'image' | 'video'; prompt?: string };
 type GalleryEditedVideo = { key: string; url: string; savedAt: string; name: string; startedBy?: string | null; sourceItems: { key: string; name: string; type: string }[]; thumbUrl?: string; starred?: boolean };
 type GalleryVideo = {
@@ -1051,6 +1286,7 @@ type GalleryVideo = {
 type GalleryIndex = {
   videos: Array<{ key: string; name: string; prompt?: string; starred?: boolean; thumbUrl?: string; url?: string }>;
   editedVideos: Array<{ key: string; name: string; sourceItems?: string[]; starred?: boolean; thumbUrl?: string; url?: string }>;
+  audioTracks: Array<{ key: string; name: string; url?: string }>;
   characters: string[];
   canvasAssets: string[];
 };
@@ -1066,6 +1302,7 @@ function GalleryPanel({
   onRequestMoviePrompt,
   onRequestMultiMoviePrompt,
   onGalleryIndex,
+  onOpenVideoEditor,
   highlightedKeys = [],
 }: {
   authHeaders: Record<string, string>;
@@ -1078,6 +1315,7 @@ function GalleryPanel({
   onRequestMoviePrompt: (item: { key: string; name: string }) => Promise<void>;
   onRequestMultiMoviePrompt: (items: MultiMovieItem[]) => Promise<void>;
   onGalleryIndex: (index: GalleryIndex) => void;
+  onOpenVideoEditor: (videoKey: string, videoUrl: string, videoName: string, audioKey?: string, audioUrl?: string, audioName?: string) => void;
   highlightedKeys?: string[];
 }) {
   const [storyboards, setStoryboards] = useState<GalleryStoryboard[]>([]);
@@ -1086,13 +1324,16 @@ function GalleryPanel({
   const [images,      setImages]      = useState<GalleryImage[]>([]);
   const [videos,      setVideos]      = useState<GalleryVideo[]>([]);
   const [editedVideos, setEditedVideos] = useState<GalleryEditedVideo[]>([]);
+  const [audioTracks, setAudioTracks] = useState<GalleryAudio[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState<string | null>(null);
   const [uploading,   setUploading]   = useState(false);
   const [assetUploading, setAssetUploading] = useState(false);
+  const [audioUploading, setAudioUploading] = useState(false);
   const [assetUploads,   setAssetUploads]   = useState<GalleryCanvasAsset[]>([]);
   const fileInputRef  = useRef<HTMLInputElement>(null);
   const assetInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [starredOnly, setStarredOnly] = useState(false);
   const [talkingKey, setTalkingKey] = useState<string | null>(null);
@@ -1165,13 +1406,18 @@ function GalleryPanel({
       const assets: GalleryCanvasAsset[] = (data.canvasAssets ?? []).sort((a: GalleryCanvasAsset, b: GalleryCanvasAsset) =>
         new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
       );
+      const audio: GalleryAudio[] = (data.audioTracks ?? []).sort((a: GalleryAudio, b: GalleryAudio) =>
+        new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
+      );
       setImages(imgs);
       setVideos(vids);
       setEditedVideos(evids);
       setCanvasAssets(assets);
+      setAudioTracks(audio);
       onGalleryIndex({
         videos: vids.map(v => ({ key: v.key, name: v.name.slice(0, 500), prompt: v.prompt?.slice(0, 400), starred: v.starred, thumbUrl: v.thumbUrl, url: v.url })),
         editedVideos: evids.map(v => ({ key: v.key, name: v.name.slice(0, 500), sourceItems: v.sourceItems?.map(i => i.name.slice(0, 200)), starred: v.starred, thumbUrl: v.thumbUrl, url: v.url })),
+        audioTracks: audio.map(a => ({ key: a.key, name: a.name.slice(0, 500), url: a.url })),
         characters: imgs.map(i => i.name).filter(Boolean).map(n => n.slice(0, 200)),
         canvasAssets: assets.map(a => a.title).filter(Boolean).map(t => t.slice(0, 200)),
       });
@@ -1214,6 +1460,33 @@ function GalleryPanel({
       setStitching(false);
     }
   }, [movieSel, authHeaders, fetchGallery]);
+
+  const handleAudioUpload = useCallback(async (file: File) => {
+    setAudioUploading(true);
+    try {
+      const defaultName = file.name.replace(/\.[^.]+$/, '');
+      const name = prompt('Audio track name?', defaultName) ?? defaultName;
+      const form = new FormData();
+      form.append('file', file);
+      form.append('name', name);
+      const res = await fetch(`${API_BASE}/api/audio/upload`, {
+        method: 'POST',
+        headers: { ...authHeaders },
+        body: form,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+        throw new Error(err.error || 'Upload failed');
+      }
+      await fetchGallery();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Upload failed';
+      alert(`Audio upload failed: ${msg}`);
+    } finally {
+      setAudioUploading(false);
+      if (audioInputRef.current) audioInputRef.current.value = '';
+    }
+  }, [authHeaders, fetchGallery]);
 
   const handleStar = useCallback(async (key: string, type: 'video' | 'editedVideo') => {
     // Optimistic update
@@ -1346,6 +1619,11 @@ function GalleryPanel({
       (video.sourceItems ?? []).some(i => i.name.toLowerCase().includes(term))
     );
   }, [editedVideos, term, starredOnly]);
+
+  const filteredAudioTracks = useMemo(() => {
+    if (!term) return audioTracks;
+    return audioTracks.filter(a => a.name.toLowerCase().includes(term));
+  }, [audioTracks, term]);
 
   const allowDropToCharacters = dragData?.kind === 'canvasAsset' || charDragActive;
   const allowDropToAssets = dragData?.kind === 'character' || assetDragActive;
@@ -1504,7 +1782,7 @@ function GalleryPanel({
   );
 
   const handleDelete = useCallback(
-    async (key: string, type: 'storyboard' | 'character' | 'canvasPage' | 'canvasAsset' | 'video' | 'editedVideo') => {
+    async (key: string, type: 'storyboard' | 'character' | 'canvasPage' | 'canvasAsset' | 'video' | 'editedVideo' | 'audio') => {
       if (!window.confirm('Delete this item from the gallery?')) return;
       try {
         const res = await fetch(`${API_BASE}/api/gallery`, {
@@ -1906,6 +2184,11 @@ function GalleryPanel({
                   </button>
                   <button style={gBtn} onClick={() => copyUrl(video.url)}>Copy link</button>
                   <button
+                    style={{ ...gBtn, color: '#39ff14', borderColor: '#39ff14' }}
+                    onClick={() => onOpenVideoEditor(video.key, video.url, video.name)}
+                    title="Open in Video Editor to add audio"
+                  >+ Audio</button>
+                  <button
                     style={{ ...gBtn, ...(movieSel.some(i => i.key === video.key) ? { background: 'rgba(255,140,251,.2)', borderColor: '#ff8cfb', color: '#ff8cfb' } : {}) }}
                     onClick={() => toggleMovieSel({ key: video.key, name: video.name.slice(0, 499), type: 'video', prompt: video.prompt })}
                     title={movieSel.some(i => i.key === video.key) ? 'Remove from movie selection' : 'Add to movie selection'}
@@ -1966,6 +2249,11 @@ function GalleryPanel({
                     <a style={{ ...gBtn, textDecoration: 'none', color: '#7df9ff', borderColor: '#7df9ff' }} href={video.url} target="_blank" rel="noopener noreferrer">▶ Play</a>
                     <button style={gBtn} onClick={() => copyUrl(video.url)}>Copy link</button>
                     <button
+                      style={{ ...gBtn, color: '#39ff14', borderColor: '#39ff14' }}
+                      onClick={() => onOpenVideoEditor(video.key, video.url, video.name)}
+                      title="Open in Video Editor to add audio"
+                    >+ Audio</button>
+                    <button
                       style={{ ...gBtn, ...(movieSel.some(i => i.key === video.key) ? { background: 'rgba(125,249,255,.2)', borderColor: '#7df9ff', color: '#7df9ff' } : {}) }}
                       onClick={() => toggleMovieSel({ key: video.key, name: video.name.slice(0, 499), type: 'video' })}
                       title={movieSel.some(i => i.key === video.key) ? 'Remove from selection' : 'Add to selection'}
@@ -1980,6 +2268,57 @@ function GalleryPanel({
           </div>
         </div>
       )}
+
+      {/* ── Audio Tracks ── */}
+      <div style={{ margin: '20px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <h3 style={{ color: '#39ff14', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', margin: 0 }}>
+            Audio Tracks ({filteredAudioTracks.length})
+          </h3>
+          <button
+            style={{ ...gBtn, color: '#39ff14', borderColor: '#39ff14', fontSize: '.72rem' }}
+            onClick={() => audioInputRef.current?.click()}
+            disabled={audioUploading}
+          >
+            {audioUploading ? 'Uploading…' : '+ Upload Audio'}
+          </button>
+          <input
+            ref={audioInputRef}
+            type="file"
+            accept="audio/*"
+            style={{ display: 'none' }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleAudioUpload(f); }}
+          />
+        </div>
+        {filteredAudioTracks.length === 0 && (
+          <p style={{ color: 'rgba(240,230,255,.4)', fontSize: '.75rem' }}>No audio tracks yet. Upload an MP3 or WAV to mix into your videos.</p>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {filteredAudioTracks.map((track) => (
+            <div key={track.key} style={{ border: '1px solid rgba(57,255,20,.4)', borderRadius: 6, background: '#001a00', padding: '10px 12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: '.82rem', color: '#39ff14', marginBottom: 4 }}>{track.name}</div>
+                  <div style={{ fontSize: '.65rem', color: 'rgba(240,230,255,.5)', marginBottom: 6 }}>
+                    {new Date(track.savedAt).toLocaleString()}{track.startedBy ? ` · ${track.startedBy}` : ''}
+                  </div>
+                  <audio
+                    controls
+                    src={track.url}
+                    style={{ width: '100%', height: 28, accentColor: '#39ff14' }}
+                    preload="none"
+                  />
+                </div>
+                <button
+                  style={{ ...gBtn, flexShrink: 0, color: 'rgba(240,230,255,.5)' }}
+                  onClick={() => handleDelete(track.key, 'audio')}
+                  title="Delete audio track"
+                >✕</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* ── Parlor Books ── */}
       <div style={{ marginBottom: 20 }}>
@@ -2263,6 +2602,8 @@ export default function App() {
   const [highlightedKeys, setHighlightedKeys] = useState<string[]>([]);
   const [playingVideoUrl, setPlayingVideoUrl] = useState<string | null>(null);
   const [reactions, setReactions] = useState<Record<string, ReactionMap>>({});
+  const [videoEditor, setVideoEditor] = useState<VideoEditorState>(null);
+  const cachedAudioTracksRef = useRef<{ key: string; name: string; url: string }[]>([]);
 
   // Auto-clear gallery highlight after 5 seconds
   useEffect(() => {
@@ -2276,6 +2617,7 @@ export default function App() {
   const chatFeedRef      = useRef<HTMLDivElement>(null);
   const canvasIframeRef  = useRef<HTMLIFrameElement>(null);
   const currentAudioRef  = useRef<HTMLAudioElement | null>(null);
+  const currentAmpCtxRef = useRef<AudioContext | null>(null);
   const movieSourceRef   = useRef<{ key?: string; name?: string } | null>(null);
 
   const conversationId = useMemo(
@@ -2316,6 +2658,59 @@ export default function App() {
     }
   }, [authHeaders, addMessage]);
 
+  // Open VideoEditor — called from chat [MIX_AUDIO:...] buttons and gallery "+ Audio" buttons
+  const handleMixAudioByNames = useCallback((videoName: string, audioName: string, keepVideoAudio: boolean) => {
+    const idx = galleryIndexRef.current;
+    if (!idx) { alert('Gallery not loaded — open the Gallery tab first.'); return; }
+    const allVideos = [...(idx.videos ?? []), ...(idx.editedVideos ?? [])];
+    const videoLower = videoName.toLowerCase();
+    const videoFirstToken = videoLower.split(' + ')[0].trim();
+    const video = allVideos.find(v => v.name.toLowerCase() === videoLower) ??
+                  allVideos.find(v => v.name.toLowerCase().includes(videoLower)) ??
+                  allVideos.find(v => v.key.toLowerCase().includes(videoLower)) ??
+                  (videoFirstToken.length > 8 ? allVideos.find(v => v.key.toLowerCase().includes(videoFirstToken)) : undefined);
+    if (!video || !video.url) { alert(`Could not find video "${videoName}" in the gallery.`); return; }
+
+    const audioLower = audioName.toLowerCase();
+    const audio = (idx.audioTracks ?? []).find(a => a.name.toLowerCase() === audioLower) ??
+                  (idx.audioTracks ?? []).find(a => a.name.toLowerCase().includes(audioLower)) ??
+                  (idx.audioTracks ?? []).find(a => a.key.toLowerCase().includes(audioLower));
+    if (!audio) { alert(`Could not find audio track "${audioName}" in the gallery. Open the Gallery tab and make sure the track is uploaded.`); return; }
+
+    setVideoEditor({
+      videoKey: video.key, videoUrl: video.url, videoName: video.name,
+      track1: { muted: !keepVideoAudio, regions: [] },
+      track2: { audioKey: audio.key, audioUrl: audio.url ?? '', audioName: audio.name, muted: false, regions: [] },
+    });
+  }, []);
+
+  const handleVideoEditorRender = useCallback(async (params: VideoEditorRenderParams) => {
+    const outputName = params.outputName.slice(0, 490);
+    setVideoEditor(null);
+    addMessage({ id: uuid(), author: 'bot', text: `Rendering "${outputName}"… This takes a moment — I'll let you know when it's ready in the gallery.`, createdAt: new Date().toISOString() });
+    try {
+      const res = await fetch(`${API_BASE}/api/mix-audio`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({
+          videoKey: params.videoKey,
+          audioKey: params.audioKey,
+          outputName,
+          track1Muted: params.track1Muted,
+          track2Muted: params.track2Muted,
+          track1Regions: params.track1Regions,
+          track2Regions: params.track2Regions,
+        }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(typeof e.error === 'string' ? e.error : JSON.stringify(e.error) || 'Render failed');
+      }
+    } catch (err) {
+      addMessage({ id: uuid(), author: 'bot', text: `Render failed: ${err instanceof Error ? err.message : 'unknown error'}`, createdAt: new Date().toISOString() });
+    }
+  }, [authHeaders, addMessage]);
+
   const canvasBase = useMemo(
     () => `${API_BASE}/api/song-canvas?conversationId=${encodeURIComponent(conversationId)}&devEmail=${encodeURIComponent(userEmail)}`,
     [conversationId, userEmail]
@@ -2348,6 +2743,14 @@ export default function App() {
     postToAvatar({ type: 'bb-emotion', state: bearState });
   }, [bearState, currentPage, postToAvatar]);
 
+  // Clear gallery index when gallery tab is not active so stale data doesn't
+  // silently bypass the "open Gallery first" warning in mix/splice handlers.
+  useEffect(() => {
+    if (currentPage.type !== 'gallery') {
+      galleryIndexRef.current = null;
+    }
+  }, [currentPage]);
+
   // ── TTS ──────────────────────────────────────────────────────────────────
   const speakNow = useCallback(async (rawSpeakText: string) => {
     // Strip canvas cross-references, HTML tags, and slash-command echoes before speaking
@@ -2358,7 +2761,11 @@ export default function App() {
       .replace(/\s{2,}/g, ' ')
       .trim();
     if (!text) return;
-    // Stop any current playback
+    // Stop any current playback and close its AudioContext
+    if (currentAmpCtxRef.current) {
+      currentAmpCtxRef.current.close();
+      currentAmpCtxRef.current = null;
+    }
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
       currentAudioRef.current = null;
@@ -2379,12 +2786,23 @@ export default function App() {
       let ampCtx: AudioContext | null = null;
       try {
         ampCtx = new AudioContext();
-        const src = ampCtx.createMediaElementSource(audio);
-        const an  = ampCtx.createAnalyser();
+        currentAmpCtxRef.current = ampCtx;   // track for preemption cleanup
+
+        const src  = ampCtx.createMediaElementSource(audio);
+        const an   = ampCtx.createAnalyser();
         an.fftSize = 128;
         an.smoothingTimeConstant = 0.1; // near-instant response — no slow decay tail at phrase-end
+
+        // Gain ramp 0→1 over 20 ms eliminates the start pop caused by
+        // the sharp transient when audio begins at full amplitude.
+        const gain = ampCtx.createGain();
+        gain.gain.setValueAtTime(0, ampCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(1, ampCtx.currentTime + 0.02);
+
         src.connect(an);
-        src.connect(ampCtx.destination);   // still routes to speakers
+        an.connect(gain);
+        gain.connect(ampCtx.destination);
+
         const data = new Uint8Array(an.frequencyBinCount);
         const pump = () => {
           if (!currentAudioRef.current) { ampCtx?.close(); return; }
@@ -2405,9 +2823,14 @@ export default function App() {
         postToAvatar({ type: 'bb-emotion', state: 'idle' });
         URL.revokeObjectURL(url);
         currentAudioRef.current = null;
+        currentAmpCtxRef.current = null;
         ampCtx?.close();
       });
 
+      // Resume before play — context starts suspended (browser autoplay policy).
+      // Calling play() without resuming first causes a suspended→running
+      // transition mid-stream that manifests as a click/pop.
+      if (ampCtx) await ampCtx.resume();
       await audio.play();
 
     } catch (err) {
@@ -2431,6 +2854,7 @@ export default function App() {
   // Stop playback when TTS toggled off
   useEffect(() => {
     if (!ttsEnabled && currentAudioRef.current) {
+      if (currentAmpCtxRef.current) { currentAmpCtxRef.current.close(); currentAmpCtxRef.current = null; }
       currentAudioRef.current.pause();
       currentAudioRef.current = null;
       setIsSpeaking(false);
@@ -2452,6 +2876,7 @@ export default function App() {
             .replace(/\[IMG:[^\]]*\]/g, '')
             .replace(/\[MOVIE_PROMPT\][\s\S]*?\[\/MOVIE_PROMPT\]/gi, '↳ [Sora prompt →]')
             .replace(/\[SPLICE:[^\]]*\]/gi, '↳ [splice →]')
+            .replace(/\[MIX_AUDIO:[^\]]*\]/gi, '↳ [mix audio →]')
             .replace(/<[^>]+>/g, '')
             .replace(/&[a-z#0-9]+;/gi, ' ')
             .replace(/\s{2,}/g, ' ')
@@ -2483,17 +2908,38 @@ export default function App() {
   useEffect(() => {
     function onChatMessage(msg: ChatMessage & { mode?: string }) {
       if (msg.mode !== 'shared') return; // only shared messages broadcast; private stays private
-      const text = (msg.text || '')
+      const rawText = msg.text || '';
+
+      // Extract action tags (same logic as the direct fetch path, so whichever arrives first wins)
+      let spliceNames: string[] | undefined;
+      const spliceMatch = /\[SPLICE:([^\]]+)\]/i.exec(rawText);
+      if (spliceMatch) spliceNames = spliceMatch[1].split('|').map(s => s.trim()).filter(Boolean);
+
+      let mixAudioInfo: { videoName: string; audioName: string; keepVideoAudio: boolean } | undefined;
+      const mixMatch = /\[MIX_AUDIO:([^\]]+)\]/i.exec(rawText);
+      if (mixMatch) {
+        const parts = mixMatch[1].split('|').map(s => s.trim());
+        if (parts.length >= 2) {
+          mixAudioInfo = { videoName: parts[0], audioName: parts[1], keepVideoAudio: parts[2]?.toLowerCase() !== 'suppress' };
+        }
+      }
+
+      let showNames: string[] | undefined;
+      const showMatch = /\[SHOW:([^\]]+)\]/i.exec(rawText);
+      if (showMatch) showNames = showMatch[1].split('|').map(s => s.trim()).filter(Boolean);
+
+      const text = rawText
         .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, '↳ [see canvas →]')
         .replace(/\[IMG:[^\]]*\]/g, '')
         .replace(/\[MOVIE_PROMPT\][\s\S]*?\[\/MOVIE_PROMPT\]/gi, '↳ [Sora prompt →]')
-        .replace(/\[SPLICE:[^\]]*\]/gi, '↳ [splice →]')
+        .replace(/\[SPLICE:[^\]]*\]/gi, spliceNames ? '' : '↳ [splice →]')
+        .replace(/\[MIX_AUDIO:[^\]]*\]/gi, mixAudioInfo ? '' : '↳ [mix audio →]')
         .replace(/\[SHOW:[^\]]*\]/gi, '')
         .replace(/<[^>]+>/g, '')
         .replace(/&[a-z#0-9]+;/gi, ' ')
         .replace(/\s{2,}/g, ' ')
         .trim();
-      useChatStore.getState().addMessage({ ...msg, text });
+      useChatStore.getState().addMessage({ ...msg, text, spliceNames, mixAudioInfo, showNames });
     }
     socket.on('chat:message', onChatMessage);
     return () => { socket.off('chat:message', onChatMessage); };
@@ -2520,6 +2966,14 @@ export default function App() {
     }
     socket.on('gallery:video-added', onVideoAdded);
     return () => { socket.off('gallery:video-added', onVideoAdded); };
+  }, [addMessage]);
+
+  useEffect(() => {
+    function onJobError({ message }: { job: string; message: string }) {
+      addMessage({ id: uuid(), author: 'bot', text: `Mix failed: ${message}`, createdAt: new Date().toISOString() });
+    }
+    socket.on('gallery:job-error', onJobError);
+    return () => { socket.off('gallery:job-error', onJobError); };
   }, [addMessage]);
 
   // ── Memory ───────────────────────────────────────────────────────────────
@@ -2692,6 +3146,16 @@ async function sendMessage(
         spliceNames = spliceMatch[1].split('|').map(s => s.trim()).filter(Boolean);
       }
 
+      // Extract [MIX_AUDIO:VideoName|AudioName|keep|suppress]
+      let mixAudioInfo: { videoName: string; audioName: string; keepVideoAudio: boolean } | undefined;
+      const mixMatch = /\[MIX_AUDIO:([^\]]+)\]/i.exec(rawText);
+      if (mixMatch) {
+        const parts = mixMatch[1].split('|').map(s => s.trim());
+        if (parts.length >= 2) {
+          mixAudioInfo = { videoName: parts[0], audioName: parts[1], keepVideoAudio: parts[2]?.toLowerCase() !== 'suppress' };
+        }
+      }
+
       // Extract [SHOW:name1|name2|...] — highlight those videos in the gallery
       let showNames: string[] | undefined;
       const showMatch = /\[SHOW:([^\]]+)\]/i.exec(rawText);
@@ -2707,12 +3171,13 @@ async function sendMessage(
         .replace(/\[MOVIE_PROMPT\][\s\S]*?\[\/MOVIE_PROMPT\]/gi, moviePrompt ? '↳ [Sora prompt loaded →]' : '')
         .replace(/\[SPLICE:[^\]]*\]/gi, '')
         .replace(/\[SHOW:[^\]]*\]/gi, '')
+        .replace(/\[MIX_AUDIO:[^\]]*\]/gi, '')
         .replace(/<[^>]+>/g, '')
         .replace(/&[a-z#0-9]+;/gi, ' ')
         .replace(/\s{2,}/g, ' ')
         .trim();
 
-      addMessage({ id: data.id ?? uuid(), author: 'bot', text: botText, createdAt: data.createdAt ?? new Date().toISOString(), moviePrompt, spliceNames, showNames });
+      addMessage({ id: data.id ?? uuid(), author: 'bot', text: botText, createdAt: data.createdAt ?? new Date().toISOString(), moviePrompt, spliceNames, showNames, mixAudioInfo });
       options?.onBotReply?.(botText);
     } catch (err) {
       console.error('[chat] frontend error:', err);
@@ -3073,6 +3538,21 @@ async function sendMessage(
                         </button>
                       </div>
                     )}
+                    {msg.mixAudioInfo && (
+                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '.72rem', color: '#39ff14' }}>
+                          🎬 {msg.mixAudioInfo.videoName} + 🎵 {msg.mixAudioInfo.audioName}
+                          {msg.mixAudioInfo.keepVideoAudio ? ' (keep both)' : ' (replace audio)'}
+                        </span>
+                        <button
+                          className="mini-btn"
+                          style={{ color: '#39ff14', borderColor: '#39ff14' }}
+                          onClick={() => handleMixAudioByNames(msg.mixAudioInfo!.videoName, msg.mixAudioInfo!.audioName, msg.mixAudioInfo!.keepVideoAudio)}
+                        >
+                          Mix Audio
+                        </button>
+                      </div>
+                    )}
                     {msg.showNames && msg.showNames.length > 0 && (() => {
                       const idx = galleryIndexRef.current;
                       const allItems = [...(idx?.videos ?? []), ...(idx?.editedVideos ?? [])];
@@ -3233,7 +3713,23 @@ async function sendMessage(
                   onDescribeImage={describeGalleryImage}
                   onRequestMoviePrompt={requestMoviePrompt}
                   onRequestMultiMoviePrompt={requestMultiMoviePrompt}
-                  onGalleryIndex={(idx) => { galleryIndexRef.current = idx; }}
+                  onGalleryIndex={(idx) => {
+                    galleryIndexRef.current = idx;
+                    cachedAudioTracksRef.current = idx.audioTracks.map(a => ({ key: a.key, name: a.name, url: a.url ?? '' }));
+                  }}
+                  onOpenVideoEditor={(videoKey, videoUrl, videoName, audioKey, audioUrl, audioName) => {
+                    setVideoEditor({
+                      videoKey, videoUrl, videoName,
+                      track1: { muted: false, regions: [] },
+                      track2: {
+                        audioKey: audioKey ?? '',
+                        audioUrl: audioUrl ?? '',
+                        audioName: audioName ?? '',
+                        muted: false,
+                        regions: [],
+                      },
+                    });
+                  }}
                   highlightedKeys={highlightedKeys}
                 />
               )}
@@ -3290,6 +3786,16 @@ async function sendMessage(
             >✕</button>
           </div>
         </div>
+      )}
+
+      {/* ── Video Editor Modal ── */}
+      {videoEditor && (
+        <VideoEditor
+          state={videoEditor}
+          audioTracks={cachedAudioTracksRef.current}
+          onClose={() => setVideoEditor(null)}
+          onRender={handleVideoEditorRender}
+        />
       )}
 
       {/* ── QR Code Modal ── */}
