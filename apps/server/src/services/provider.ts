@@ -206,7 +206,7 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     personaSummary
   ].join('\n');
 
-  console.log('[provider] isSearchConfigured:', isSearchConfigured(), '| googleApiKey:', !!config.search.googleApiKey, '| googleCx:', !!config.search.googleCx, '| serpApiKey:', !!config.search.serpApiKey);
+  console.log('[provider] isSearchConfigured:', isSearchConfigured(), '| googleApiKey:', !!config.search.googleApiKey, '| googleCx:', !!config.search.googleCx, '| serpApiKey:', !!config.search.serpApiKey, '| braveApiKey:', !!config.search.braveApiKey);
   const tools = isSearchConfigured() ? [
     {
       name: 'web_search',

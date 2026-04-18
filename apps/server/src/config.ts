@@ -3,8 +3,11 @@
 import { config as dotenvConfig } from 'dotenv';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { existsSync } from 'fs';
 const _envPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../../.env');
-dotenvConfig({ path: _envPath, override: true });
+if (existsSync(_envPath)) {
+  dotenvConfig({ path: _envPath, override: false });
+}
 
 export const config = {
   port: Number(process.env.PORT || 4000),
@@ -32,9 +35,10 @@ export const config = {
     secretName: process.env.SORA_SECRET_NAME || ''
   },
   search: {
-    googleApiKey: process.env.GOOGLE_SEARCH_API_KEY || '',
-    googleCx:     process.env.GOOGLE_SEARCH_CX || '',
-    serpApiKey:   process.env.SERP_API_KEY || '',
+    googleApiKey:    process.env.GOOGLE_SEARCH_API_KEY || '',
+    googleCx:        process.env.GOOGLE_SEARCH_CX || '',
+    serpApiKey:      process.env.SERP_API_KEY || '',
+    braveApiKey:     process.env.BRAVE_SEARCH_API_KEY || '',
   }
 };
 

@@ -25,7 +25,7 @@ import { runHarvest } from './services/harvest.js';
 import { synthesizeSpeech } from './services/tts.js';
 import { readObject, writeObject, writeBuffer, listObjects, getPresignedUrl, deleteObject, copyObject, readBuffer } from './services/s3.js';
 import { launchSoraJob } from './services/sora.js';
-import { hydrateSoraConfig } from './services/secrets.js';
+import { hydrateSoraConfig, hydrateSearchConfig } from './services/secrets.js';
 import { stitchItems, mixAudio, type StitchItem, type AudioRegion } from './services/stitch.js';
 
 dotenv.config();
@@ -42,6 +42,10 @@ app.use(express.json({ limit: '20mb' }));  // large enough for base64 images
 
 hydrateSoraConfig().catch((err) => {
   console.warn('[sora] initial hydrate failed:', err instanceof Error ? err.message : err);
+});
+
+hydrateSearchConfig().catch((err) => {
+  console.warn('[search] initial hydrate failed:', err instanceof Error ? err.message : err);
 });
 
 const server = createServer(app);

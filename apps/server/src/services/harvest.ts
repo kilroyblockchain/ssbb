@@ -4,15 +4,11 @@
  * Searches the web for "Screaming Smoldering Butt Bitches" content,
  * stores discovered items in S3 (ssbb-media-dev/harvest/), and
  * adds them to the project knowledge graph.
- *
- * Supported search backends (configure via env):
- *   GOOGLE_SEARCH_API_KEY + GOOGLE_SEARCH_CX  → Google Custom Search API
- *   SERP_API_KEY                               → SerpAPI (fallback)
- *   (neither)                                  → returns a stub result set
  */
 
 import { config } from '../config.js';
 import { rememberProjectFact } from './memory.js';
+import { webSearch } from './search.js';
 
 export type HarvestItem = {
   id: string;
@@ -27,55 +23,11 @@ export type HarvestItem = {
 export type HarvestResult = {
   items: HarvestItem[];
   query: string;
-  backend: 'google' | 'serpapi' | 'stub';
+  backend: string;
   totalFound: number;
 };
 
 const QUERY = 'Screaming Smoldering Butt Bitches';
-
-async function searchGoogle(apiKey: string, cx: string): Promise<HarvestItem[]> {
-  const url = new URL('https://www.googleapis.com/customsearch/v1');
-  url.searchParams.set('key', apiKey);
-  url.searchParams.set('cx', cx);
-  url.searchParams.set('q', QUERY);
-  url.searchParams.set('num', '10');
-
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`Google CSE error ${res.status}: ${await res.text()}`);
-  const data = await res.json() as { items?: Array<{ title: string; link: string; snippet: string; pagemap?: { cse_thumbnail?: Array<{ src: string }> } }> };
-
-  return (data.items ?? []).map((item) => ({
-    id: Buffer.from(item.link).toString('base64').slice(0, 16),
-    title: item.title,
-    url: item.link,
-    snippet: item.snippet,
-    thumbnail: item.pagemap?.cse_thumbnail?.[0]?.src,
-    source: 'google',
-    harvestedAt: new Date().toISOString()
-  }));
-}
-
-async function searchSerpApi(apiKey: string): Promise<HarvestItem[]> {
-  const url = new URL('https://serpapi.com/search');
-  url.searchParams.set('api_key', apiKey);
-  url.searchParams.set('q', QUERY);
-  url.searchParams.set('num', '10');
-  url.searchParams.set('engine', 'google');
-
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`SerpAPI error ${res.status}`);
-  const data = await res.json() as { organic_results?: Array<{ title: string; link: string; snippet: string; thumbnail?: string }> };
-
-  return (data.organic_results ?? []).map((item) => ({
-    id: Buffer.from(item.link).toString('base64').slice(0, 16),
-    title: item.title,
-    url: item.link,
-    snippet: item.snippet,
-    thumbnail: item.thumbnail,
-    source: 'serpapi',
-    harvestedAt: new Date().toISOString()
-  }));
-}
 
 function stubResults(): HarvestItem[] {
   return [
@@ -133,19 +85,28 @@ function addToKg(items: HarvestItem[]): void {
 }
 
 export async function runHarvest(): Promise<HarvestResult> {
-  const googleKey = process.env.GOOGLE_SEARCH_API_KEY;
-  const googleCx  = process.env.GOOGLE_SEARCH_CX;
-  const serpKey   = process.env.SERP_API_KEY;
-
+  const { googleApiKey, googleCx, serpApiKey, braveApiKey } = config.search;
+  
   let items: HarvestItem[] = [];
-  let backend: HarvestResult['backend'] = 'stub';
+  let backend = 'stub';
 
-  if (googleKey && googleCx) {
-    items = await searchGoogle(googleKey, googleCx);
-    backend = 'google';
-  } else if (serpKey) {
-    items = await searchSerpApi(serpKey);
-    backend = 'serpapi';
+  if (googleApiKey || serpApiKey || braveApiKey) {
+    try {
+      const results = await webSearch(QUERY);
+      items = results.map(r => ({
+        id: Buffer.from(r.url).toString('base64').slice(0, 16),
+        title: r.title,
+        url: r.url,
+        snippet: r.snippet,
+        source: 'web',
+        harvestedAt: new Date().toISOString()
+      }));
+      backend = 'web';
+    } catch (err) {
+      console.warn('[harvest] Web search failed, using stub:', err instanceof Error ? err.message : err);
+      items = stubResults();
+      backend = 'stub';
+    }
   } else {
     items = stubResults();
     backend = 'stub';
