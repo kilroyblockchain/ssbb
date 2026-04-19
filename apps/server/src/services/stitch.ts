@@ -16,11 +16,16 @@ function buildRegionFilter(regions: AudioRegion[]): string {
 function runFfmpeg(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const proc = spawn('ffmpeg', ['-y', ...args]);
-    const stderr: string[] = [];
-    proc.stderr.on('data', (d: Buffer) => stderr.push(d.toString()));
-    proc.on('close', (code) => {
+    const stderrChunks: string[] = [];
+    proc.stderr.on('data', (d: Buffer) => stderrChunks.push(d.toString()));
+    proc.on('close', (code, signal) => {
       if (code === 0) resolve();
-      else reject(new Error(`ffmpeg exited ${code}: ${stderr.slice(-10).join('')}`));
+      else {
+        const full = stderrChunks.join('');
+        // Strip progress lines — the real error is before them
+        const errorPart = full.replace(/frame=.*?speed=N\/A[^\n]*/gs, '').trim().slice(-600);
+        reject(new Error(`ffmpeg exited ${code ?? signal}: ${errorPart}`));
+      }
     });
     proc.on('error', (err) => reject(new Error(`ffmpeg not found: ${err.message}`)));
   });
@@ -97,10 +102,12 @@ export async function stitchItems(
   console.log('[stitch] starting splice — order:', items.map((item, i) => `${i + 1}. ${item.name}`).join(' | '));
   const dir = await mkdtemp(join(tmpdir(), 'ssbb-stitch-'));
   try {
-    // Download all items in parallel — videos are just written, images are converted
-    const segPaths = await Promise.all(
-      items.map((item, i) => prepareSegment(dir, i, bucket, item))
-    );
+    // Process items sequentially — parallel ffmpeg encodes OOM the container
+    const segPaths: string[] = [];
+    for (let i = 0; i < items.length; i++) {
+      console.log(`[stitch] preparing segment ${i + 1}/${items.length}: ${items[i].name} (${items[i].type})`);
+      segPaths.push(await prepareSegment(dir, i, bucket, items[i]));
+    }
 
     const listPath = join(dir, 'concat.txt');
     await writeFile(listPath, segPaths.map(p => `file '${p}'`).join('\n'));
