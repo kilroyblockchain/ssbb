@@ -13,21 +13,32 @@ function buildRegionFilter(regions: AudioRegion[]): string {
   return `,volume=volume='if(${cond},0,1)':eval=frame`;
 }
 
+const FFMPEG_TIMEOUT_MS = 120_000; // 2 minutes per ffmpeg call
+
 function runFfmpeg(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const proc = spawn('ffmpeg', ['-y', ...args]);
     const stderrChunks: string[] = [];
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      proc.kill('SIGKILL');
+      reject(new Error('ffmpeg timed out after 2 minutes'));
+    }, FFMPEG_TIMEOUT_MS);
     proc.stderr.on('data', (d: Buffer) => stderrChunks.push(d.toString()));
     proc.on('close', (code, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       if (code === 0) resolve();
       else {
         const full = stderrChunks.join('');
-        // Strip progress lines — the real error is before them
         const errorPart = full.replace(/frame=.*?speed=N\/A[^\n]*/gs, '').trim().slice(-600);
         reject(new Error(`ffmpeg exited ${code ?? signal}: ${errorPart}`));
       }
     });
-    proc.on('error', (err) => reject(new Error(`ffmpeg not found: ${err.message}`)));
+    proc.on('error', (err) => { clearTimeout(timer); reject(new Error(`ffmpeg not found: ${err.message}`)); });
   });
 }
 
