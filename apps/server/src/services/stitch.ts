@@ -84,7 +84,9 @@ async function prepareSegment(dir: string, index: number, bucket: string, item: 
       '-i', rawPath,
       '-vf', 'fps=24,setpts=PTS-STARTPTS',
       '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-pix_fmt', 'yuv420p',
-      '-an', segPath,
+      '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-b:a', '128k',
+      '-af', 'asetpts=PTS-STARTPTS',
+      segPath,
     ]);
     return segPath;
   }
@@ -95,10 +97,12 @@ async function prepareSegment(dir: string, index: number, bucket: string, item: 
   const segPath = join(dir, `seg-${index}.mp4`);
   await runFfmpeg([
     '-loop', '1', '-i', inputPath,
+    '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo',
     '-t', '3',
     '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1',
     '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-pix_fmt', 'yuv420p', '-r', '24',
-    '-an', segPath,
+    '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-b:a', '128k',
+    '-shortest', segPath,
   ]);
   return segPath;
 }
@@ -130,7 +134,7 @@ export async function stitchItems(
     await runFfmpeg([
       '-f', 'concat', '-safe', '0', '-i', listPath,
       '-c', 'copy',
-      '-an', outputPath,
+      outputPath,
     ]);
 
     const outputBuffer = await readFile(outputPath);
