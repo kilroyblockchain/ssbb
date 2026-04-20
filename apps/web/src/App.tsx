@@ -13,7 +13,7 @@ async function convertIfHeic(file: File): Promise<File> {
 const COGNITO_ENDPOINT = 'https://cognito-idp.us-east-1.amazonaws.com/';
 const COGNITO_CLIENT_ID = '6nl7u3h2bhv1vtqs6n3upstuqi';
 
-async function cognitoLogin(email: string, password: string): Promise<string> {
+async function cognitoLogin(email: string, password: string): Promise<{ idToken: string; refreshToken: string }> {
   const res = await fetch(COGNITO_ENDPOINT, {
     method: 'POST',
     headers: {
@@ -28,10 +28,31 @@ async function cognitoLogin(email: string, password: string): Promise<string> {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || data.__type || 'Login failed.');
+  return {
+    idToken: data.AuthenticationResult.IdToken,
+    refreshToken: data.AuthenticationResult.RefreshToken,
+  };
+}
+
+async function cognitoRefresh(refreshToken: string): Promise<string> {
+  const res = await fetch(COGNITO_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-amz-json-1.1',
+      'X-Amz-Target': 'AWSCognitoIdentityProviderService.InitiateAuth',
+    },
+    body: JSON.stringify({
+      AuthFlow: 'REFRESH_TOKEN_AUTH',
+      AuthParameters: { REFRESH_TOKEN: refreshToken },
+      ClientId: COGNITO_CLIENT_ID,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || data.__type || 'Token refresh failed.');
   return data.AuthenticationResult.IdToken;
 }
 
-function LoginScreen({ onLogin }: { onLogin: (idToken: string) => void }) {
+function LoginScreen({ onLogin }: { onLogin: (idToken: string, refreshToken: string) => void }) {
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [error,    setError]    = useState('');
@@ -42,8 +63,8 @@ function LoginScreen({ onLogin }: { onLogin: (idToken: string) => void }) {
     setError('');
     setLoading(true);
     try {
-      const idToken = await cognitoLogin(email, password);
-      onLogin(idToken);
+      const { idToken, refreshToken } = await cognitoLogin(email, password);
+      onLogin(idToken, refreshToken);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed.';
       setError(message || 'Login failed.');
@@ -1361,7 +1382,7 @@ function GalleryPanel({
     setMovieSel(prev => {
       const idx = prev.findIndex(i => i.key === item.key);
       if (idx >= 0) return prev.filter((_, i) => i !== idx);
-      if (prev.length >= 20) return prev;
+      if (prev.length >= 50) return prev;
       return [...prev, item];
     });
   }, []);
@@ -1458,17 +1479,17 @@ function GalleryPanel({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Splice failed' }));
-        throw new Error(err.error || 'Splice failed');
+        throw new Error(typeof err.error === 'string' ? err.error : JSON.stringify(err) || 'Splice failed');
       }
+      // Server queued the job; gallery will refresh when stitch:done arrives via socket
       setMovieSel([]);
-      await fetchGallery();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Splice failed';
       alert(`Splice failed: ${msg}`);
     } finally {
       setStitching(false);
     }
-  }, [movieSel, authHeaders, fetchGallery]);
+  }, [movieSel, authHeaders]);
 
   const handleAudioUpload = useCallback(async (file: File) => {
     setAudioUploading(true);
@@ -1944,7 +1965,7 @@ function GalleryPanel({
       {movieSel.length > 0 && (
         <div style={{ background: 'rgba(255,140,251,.12)', border: '1px solid #ff8cfb', borderRadius: 8, padding: '10px 12px', marginBottom: 14 }}>
           <div style={{ fontSize: '.75rem', color: '#ff8cfb', marginBottom: 6, fontWeight: 600 }}>
-            🎬 Selection {movieSel.length >= 20 ? '(max 20)' : `(${movieSel.length})`}
+            🎬 Selection {movieSel.length >= 50 ? '(max 50)' : `(${movieSel.length})`}
             {movieSel.length < 2 ? ' — pick at least 2' : ''}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
@@ -2578,7 +2599,8 @@ export default function App() {
   const addMessage   = useChatStore((s) => s.addMessage);
   const replaceMessages = useChatStore((s) => s.replaceMessages);
 
-  const [idToken,      setIdToken]      = useState<string | null>(null);
+  const [idToken,      setIdToken]      = useState<string | null>(() => localStorage.getItem('ssbb_id_token'));
+  const [refreshToken, setRefreshToken] = useState<string | null>(() => localStorage.getItem('ssbb_refresh_token'));
   const userEmail = useMemo(() => {
     if (!idToken) return '';
     try { return JSON.parse(atob(idToken.split('.')[1])).email || ''; } catch { return ''; }
@@ -2587,6 +2609,36 @@ export default function App() {
     idToken ? { 'Authorization': `Bearer ${idToken}` } : {} as Record<string, string>,
     [idToken]
   );
+
+  const handleLogin = useCallback((newIdToken: string, newRefreshToken: string) => {
+    localStorage.setItem('ssbb_id_token', newIdToken);
+    localStorage.setItem('ssbb_refresh_token', newRefreshToken);
+    setIdToken(newIdToken);
+    setRefreshToken(newRefreshToken);
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem('ssbb_id_token');
+    localStorage.removeItem('ssbb_refresh_token');
+    setIdToken(null);
+    setRefreshToken(null);
+  }, []);
+
+  // Auto-refresh the ID token every 55 minutes (tokens expire after 60 minutes)
+  useEffect(() => {
+    if (!refreshToken) return;
+    const doRefresh = async () => {
+      try {
+        const newIdToken = await cognitoRefresh(refreshToken);
+        localStorage.setItem('ssbb_id_token', newIdToken);
+        setIdToken(newIdToken);
+      } catch {
+        handleLogout();
+      }
+    };
+    const interval = setInterval(doRefresh, 55 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [refreshToken, handleLogout]);
 
   const [input,        setInput]        = useState('');
   const [mode,         setMode]         = useState<'shared' | 'private'>('shared');
@@ -2651,17 +2703,16 @@ export default function App() {
       return;
     }
     const items = matched.map(v => ({ key: v.key, name: v.name, type: 'video' as const }));
-    addMessage({ id: uuid(), author: 'bot', text: `Splicing ${items.map(i => i.name).join(' + ')}…`, createdAt: new Date().toISOString() });
+    const outputName = items.map(i => i.name).join(' + ').slice(0, 490);
+    addMessage({ id: uuid(), author: 'bot', text: `Splicing ${items.map(i => i.name).join(' + ')}… (this may take a few minutes)`, createdAt: new Date().toISOString() });
     try {
       const res = await fetch(`${API_BASE}/api/stitch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ items, outputName: items.map(i => i.name).join(' + ').slice(0, 490) }),
+        body: JSON.stringify({ items, outputName }),
       });
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Splice failed'); }
-      const data = await res.json();
-      addMessage({ id: uuid(), author: 'bot', text: `Done. "${data.name}" is in the Spliced Movies section of the Gallery.`, createdAt: new Date().toISOString() });
-      setGalleryRefreshTick(t => t + 1);
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(typeof e.error === 'string' ? e.error : JSON.stringify(e) || 'Splice failed'); }
+      // Server returns immediately with jobId; result arrives via stitch:done socket event
     } catch (err) {
       addMessage({ id: uuid(), author: 'bot', text: `Splice failed: ${err instanceof Error ? err.message : 'unknown error'}`, createdAt: new Date().toISOString() });
     }
@@ -2983,6 +3034,22 @@ export default function App() {
     }
     socket.on('gallery:job-error', onJobError);
     return () => { socket.off('gallery:job-error', onJobError); };
+  }, [addMessage]);
+
+  useEffect(() => {
+    function onStitchDone({ name, thumbUrl }: { jobId: string; key: string; url: string; name: string; savedAt: string; thumbUrl?: string }) {
+      addMessage({ id: uuid(), author: 'bot', text: `Splice done! "${name}" is in the Spliced Movies section of the Gallery.`, createdAt: new Date().toISOString() });
+      if (thumbUrl) {
+        addMessage({ id: uuid(), author: 'bot', text: '', createdAt: new Date().toISOString(), attachments: [{ name, url: thumbUrl, contentType: 'video/mp4' }] });
+      }
+      setGalleryRefreshTick(t => t + 1);
+    }
+    function onStitchError({ error }: { jobId: string; error: string }) {
+      addMessage({ id: uuid(), author: 'bot', text: `Splice failed: ${error}`, createdAt: new Date().toISOString() });
+    }
+    socket.on('stitch:done', onStitchDone);
+    socket.on('stitch:error', onStitchError);
+    return () => { socket.off('stitch:done', onStitchDone); socket.off('stitch:error', onStitchError); };
   }, [addMessage]);
 
   // ── Memory ───────────────────────────────────────────────────────────────
@@ -3456,7 +3523,7 @@ async function sendMessage(
   const currentBitch = BUTT_BITCHES.find((b) => b.email === userEmail) ?? BUTT_BITCHES[0];
 
   // ── Render ────────────────────────────────────────────────────────────────
-  if (!idToken) return <LoginScreen onLogin={setIdToken} />;
+  if (!idToken) return <LoginScreen onLogin={handleLogin} />;
 
   return (
     <div className="parlor">

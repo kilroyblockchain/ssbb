@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import { writeFile, readFile, rm, mkdtemp } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { readBuffer, writeBuffer } from './s3.js';
+import { readBuffer, writeBuffer, writeFileStream } from './s3.js';
 
 export type StitchItem = { key: string; type: 'image' | 'video'; name: string };
 export type AudioRegion = { start: number; end: number };
@@ -80,14 +80,27 @@ async function prepareSegment(dir: string, index: number, bucket: string, item: 
     // Normalise each clip to 24fps CFR with a fresh PTS starting from 0.
     // Sora clips can have VFR, non-standard timebases, or per-clip PTS offsets
     // that survive a simple re-encode and cause visible jumps at cut points.
-    await runFfmpeg([
-      '-i', rawPath,
-      '-vf', 'fps=24,setpts=PTS-STARTPTS',
-      '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-pix_fmt', 'yuv420p',
-      '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-b:a', '128k',
-      '-af', 'asetpts=PTS-STARTPTS',
-      segPath,
-    ]);
+    try {
+      await runFfmpeg([
+        '-i', rawPath,
+        '-vf', 'fps=24,setpts=PTS-STARTPTS',
+        '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-b:a', '128k',
+        '-af', 'asetpts=PTS-STARTPTS',
+        segPath,
+      ]);
+    } catch {
+      // No audio stream — add a silent track so concat segments are uniform
+      await runFfmpeg([
+        '-i', rawPath,
+        '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo',
+        '-vf', 'fps=24,setpts=PTS-STARTPTS',
+        '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-b:a', '128k',
+        '-shortest',
+        segPath,
+      ]);
+    }
     return segPath;
   }
 
@@ -137,8 +150,7 @@ export async function stitchItems(
       outputPath,
     ]);
 
-    const outputBuffer = await readFile(outputPath);
-    await writeBuffer(bucket, outKey, outputBuffer, 'video/mp4');
+    await writeFileStream(bucket, outKey, outputPath, 'video/mp4');
 
     // Extract a thumbnail from the spliced output
     const thumbPath = join(dir, 'thumb.jpg');

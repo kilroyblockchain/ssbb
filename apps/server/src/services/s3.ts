@@ -1,3 +1,4 @@
+import { createReadStream } from 'fs';
 import { S3Client, GetObjectCommand, PutObjectCommand, ListObjectsV2Command, DeleteObjectCommand, CopyObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { config } from '../config.js';
@@ -44,6 +45,17 @@ export async function writeBuffer(bucket: string, key: string, body: Buffer, con
       Bucket: bucket,
       Key: key,
       Body: body,
+      ContentType: contentType
+    })
+  );
+}
+
+export async function writeFileStream(bucket: string, key: string, filePath: string, contentType: string) {
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: createReadStream(filePath),
       ContentType: contentType
     })
   );

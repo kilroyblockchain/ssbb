@@ -334,7 +334,7 @@ const stitchSchema = z.object({
     key: z.string().min(1),
     type: z.enum(['image', 'video']),
     name: z.string().min(1).max(500),
-  })).min(2).max(20),
+  })).min(2).max(50),
   outputName: z.string().min(1).max(500).optional(),
 });
 
@@ -344,35 +344,42 @@ app.post('/api/stitch', async (req, res) => {
   if (!config.mediaBucket) return res.status(503).json({ error: 'Media bucket missing' });
 
   const { items, outputName } = parsed.data;
+  const jobId = `stitch-${Date.now()}`;
   const now = new Date().toISOString();
   const slug = (outputName || items.map(i => i.name).join('-'))
     .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'stitch';
   const key = `edited-videos/${Date.now()}-${slug}.mp4`;
   const metaKey = `edited-videos-meta/${key.replace('edited-videos/', '')}.json`;
+  const bucket = config.mediaBucket;
+  const startedBy = req.user?.email ?? null;
 
-  try {
-    const thumbBuffer = await stitchItems(config.mediaBucket, items as StitchItem[], key, outputName || slug);
-    let thumbKey: string | null = null;
-    let thumbUrl: string | undefined;
-    if (thumbBuffer) {
-      thumbKey = `video-thumbs/${key.replace('edited-videos/', '').replace(/\.mp4$/i, '.jpg')}`;
-      await writeBuffer(config.mediaBucket, thumbKey, thumbBuffer, 'image/jpeg');
-      thumbUrl = await getPresignedUrl(config.mediaBucket, thumbKey, 3600);
-    }
-    const meta = {
-      name: outputName || slug,
-      savedAt: now,
-      startedBy: req.user?.email ?? null,
-      sourceItems: items.map(i => ({ key: i.key, name: i.name, type: i.type })),
-      thumbKey,
-    };
-    await writeObject(config.mediaBucket, metaKey, JSON.stringify(meta), 'application/json');
-    const url = await getPresignedUrl(config.mediaBucket, key, 3600);
-    res.json({ key, url, name: meta.name, savedAt: now, thumbUrl });
-  } catch (err: any) {
-    console.error('[stitch]', err);
-    res.status(500).json({ error: err.message || 'Stitch failed' });
-  }
+  // Respond immediately — ffmpeg processing can take several minutes for large splices
+  res.json({ jobId, status: 'queued' });
+
+  stitchItems(bucket, items as StitchItem[], key, outputName || slug)
+    .then(async (thumbBuffer) => {
+      let thumbKey: string | null = null;
+      let thumbUrl: string | undefined;
+      if (thumbBuffer) {
+        thumbKey = `video-thumbs/${key.replace('edited-videos/', '').replace(/\.mp4$/i, '.jpg')}`;
+        await writeBuffer(bucket, thumbKey, thumbBuffer, 'image/jpeg');
+        thumbUrl = await getPresignedUrl(bucket, thumbKey, 3600);
+      }
+      const meta = {
+        name: outputName || slug,
+        savedAt: now,
+        startedBy,
+        sourceItems: items.map(i => ({ key: i.key, name: i.name, type: i.type })),
+        thumbKey,
+      };
+      await writeObject(bucket, metaKey, JSON.stringify(meta), 'application/json');
+      const url = await getPresignedUrl(bucket, key, 3600);
+      io.emit('stitch:done', { jobId, key, url, name: meta.name, savedAt: now, thumbUrl });
+    })
+    .catch((err: any) => {
+      console.error('[stitch]', err);
+      io.emit('stitch:error', { jobId, error: err.message || 'Stitch failed' });
+    });
 });
 
 // ── Mix audio into a video ────────────────────────────────────────────────────
