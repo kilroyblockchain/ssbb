@@ -1921,10 +1921,33 @@ function GalleryPanel({
   );
 
   return (
-    <div style={{ background: '#08000f', color: '#f0e6ff', fontFamily: 'sans-serif', padding: '16px', height: '100%', overflowY: 'auto', boxSizing: 'border-box' }}>
+    <div id="gallery-top" style={{ background: '#08000f', color: '#f0e6ff', fontFamily: 'sans-serif', padding: '16px', height: '100%', overflowY: 'auto', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <span style={{ color: '#ff1493', fontWeight: 700, fontSize: '1rem', letterSpacing: '.08em' }}>GALLERY</span>
         <button style={gBtn} onClick={fetchGallery}>Refresh</button>
+      </div>
+
+      {/* ── Jump nav ── */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+        {[
+          { label: 'Spliced Movies', id: 'gallery-spliced' },
+          { label: 'Audio',          id: 'gallery-audio'   },
+          { label: 'Parlor Books',   id: 'gallery-parlor'  },
+        ].map(({ label, id }) => (
+          <button
+            key={id}
+            style={{ ...gBtn, color: '#7df9ff', borderColor: '#7df9ff', fontSize: '.72rem' }}
+            onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          >
+            ↓ {label}
+          </button>
+        ))}
+        <button
+          style={{ ...gBtn, color: 'rgba(240,230,255,.45)', borderColor: 'rgba(240,230,255,.25)', fontSize: '.72rem', marginLeft: 'auto' }}
+          onClick={() => document.getElementById('gallery-top')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+        >
+          ↑ Top
+        </button>
       </div>
 
       <div style={{ marginBottom: 14, display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -2240,7 +2263,7 @@ function GalleryPanel({
 
       {/* ── Spliced Movies ── */}
       {editedVideos.length > 0 && (
-        <div style={{ margin: '20px 0' }}>
+        <div id="gallery-spliced" style={{ margin: '20px 0' }}>
           <h3 style={{ color: '#7df9ff', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }}>
             Spliced Movies ({filteredEditedVideos.length}{filteredEditedVideos.length !== editedVideos.length ? ` of ${editedVideos.length}` : ''})
           </h3>
@@ -2300,7 +2323,7 @@ function GalleryPanel({
       )}
 
       {/* ── Audio Tracks ── */}
-      <div style={{ margin: '20px 0' }}>
+      <div id="gallery-audio" style={{ margin: '20px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <h3 style={{ color: '#39ff14', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', margin: 0 }}>
             Audio Tracks ({filteredAudioTracks.length})
@@ -2351,7 +2374,7 @@ function GalleryPanel({
       </div>
 
       {/* ── Parlor Books ── */}
-      <div style={{ marginBottom: 20 }}>
+      <div id="gallery-parlor" style={{ marginBottom: 20 }}>
         <h3 style={{ color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }}>
           Saved Parlor Books ({filteredParlorBooks.length})
         </h3>
