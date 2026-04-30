@@ -2888,6 +2888,7 @@ export default function App() {
   const canvasIframeRef  = useRef<HTMLIFrameElement>(null);
   const currentAudioRef  = useRef<HTMLAudioElement | null>(null);
   const currentAmpCtxRef = useRef<AudioContext | null>(null);
+  const ttsRunRef        = useRef(0);
   const movieSourceRef   = useRef<{ key?: string; name?: string } | null>(null);
 
   const conversationId = useMemo(
@@ -3030,6 +3031,8 @@ export default function App() {
       .replace(/\s{2,}/g, ' ')
       .trim();
     if (!text) return;
+    const runId = ttsRunRef.current + 1;
+    ttsRunRef.current = runId;
     // Stop any current playback and close its AudioContext
     if (currentAmpCtxRef.current) {
       currentAmpCtxRef.current.close();
@@ -3048,6 +3051,10 @@ export default function App() {
       if (!resp.ok) throw new Error(`TTS ${resp.status}`);
       const blob = await resp.blob();
       const url  = URL.createObjectURL(blob);
+      if (ttsRunRef.current !== runId) {
+        URL.revokeObjectURL(url);
+        return;
+      }
       const audio = new Audio(url);
       currentAudioRef.current = audio;
 
@@ -3074,7 +3081,7 @@ export default function App() {
 
         const data = new Uint8Array(an.frequencyBinCount);
         const pump = () => {
-          if (!currentAudioRef.current) { ampCtx?.close(); return; }
+          if (ttsRunRef.current !== runId || currentAudioRef.current !== audio) { ampCtx?.close(); return; }
           an.getByteFrequencyData(data);
           const avg = data.reduce((a, b) => a + b, 0) / data.length / 255;
           postToAvatar({ type: 'bb-amplitude', value: avg });
@@ -3088,6 +3095,7 @@ export default function App() {
         postToAvatar({ type: 'bb-emotion', state: 'speaking' });
       });
       audio.addEventListener('ended', () => {
+        if (ttsRunRef.current !== runId || currentAudioRef.current !== audio) return;
         setIsSpeaking(false);
         postToAvatar({ type: 'bb-emotion', state: 'idle' });
         URL.revokeObjectURL(url);
@@ -3100,12 +3108,18 @@ export default function App() {
       // Calling play() without resuming first causes a suspended→running
       // transition mid-stream that manifests as a click/pop.
       if (ampCtx) await ampCtx.resume();
+      if (ttsRunRef.current !== runId || currentAudioRef.current !== audio) {
+        audio.pause();
+        URL.revokeObjectURL(url);
+        ampCtx?.close();
+        return;
+      }
       await audio.play();
 
     } catch (err) {
       console.warn('[tts]', err);
     }
-  }, [userEmail, postToAvatar]);
+  }, [authHeaders, postToAvatar]);
 
   const speak = useCallback((text: string) => {
     if (!ttsEnabled) return;
@@ -3123,6 +3137,7 @@ export default function App() {
   // Stop playback when TTS toggled off
   useEffect(() => {
     if (!ttsEnabled && currentAudioRef.current) {
+      ttsRunRef.current += 1;
       if (currentAmpCtxRef.current) { currentAmpCtxRef.current.close(); currentAmpCtxRef.current = null; }
       currentAudioRef.current.pause();
       currentAudioRef.current = null;

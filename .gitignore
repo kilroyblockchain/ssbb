@@ -9,5 +9,4 @@ apps/web/.env.local
 apps/server/.env
 apps/server/.env.local
 pnpm-lock.yaml
-package-lock.json
 data
