@@ -9,6 +9,15 @@ if (existsSync(_envPath)) {
   dotenvConfig({ path: _envPath, override: false });
 }
 
+function envValue(...names: string[]): string {
+  for (const name of names) {
+    const raw = process.env[name];
+    if (!raw) continue;
+    return raw.trim().replace(/^['"]|['"]$/g, '');
+  }
+  return '';
+}
+
 export const config = {
   port: Number(process.env.PORT || 4000),
   clientOrigin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',
@@ -33,6 +42,12 @@ export const config = {
       process.env.SORA_API_BASE_URL ||
       '',
     secretName: process.env.SORA_SECRET_NAME || ''
+  },
+  image: {
+    gptImage15Uri: envValue('REACT_APP_GPT_IMAGE_1_5_URI', 'GPT_IMAGE_1_5_URI'),
+    gptImage15Key: envValue('REACT_APP_GPT_IMAGE_1_5_KEY', 'GPT_IMAGE_1_5_KEY'),
+    gptImage2Uri: envValue('REACT_APP_GPT_IMAGE_2_URI', 'GPT_IMAGE_2_URI'),
+    gptImage2Key: envValue('REACT_APP_GPT_IMAGE_2_KEY', 'GPT_IMAGE_2_KEY')
   },
   search: {
     googleApiKey:    process.env.GOOGLE_SEARCH_API_KEY || '',

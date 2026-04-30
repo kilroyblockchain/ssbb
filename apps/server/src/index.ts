@@ -27,6 +27,7 @@ import { readObject, writeObject, writeBuffer, listObjects, getPresignedUrl, del
 import { launchSoraJob } from './services/sora.js';
 import { hydrateSoraConfig, hydrateSearchConfig } from './services/secrets.js';
 import { stitchItems, mixAudio, type StitchItem, type AudioRegion } from './services/stitch.js';
+import { generateNyxImage } from './services/image-generator.js';
 
 dotenv.config();
 
@@ -76,6 +77,28 @@ app.get('/api/memory', (req, res) => {
   });
 });
 
+app.get('/api/images/config-status', (_req, res) => {
+  const uriStatus = (value: string) => {
+    if (!value) return { present: false };
+    try {
+      const parsed = new URL(value);
+      return { present: true, valid: true, host: parsed.host, pathname: parsed.pathname };
+    } catch {
+      return { present: true, valid: false };
+    }
+  };
+  res.json({
+    gptImage2: {
+      uri: uriStatus(config.image.gptImage2Uri),
+      keyPresent: Boolean(config.image.gptImage2Key)
+    },
+    gptImage15: {
+      uri: uriStatus(config.image.gptImage15Uri),
+      keyPresent: Boolean(config.image.gptImage15Key)
+    }
+  });
+});
+
 const imageAttachmentSchema = z.object({
   name: z.string(),
   contentType: z.string(),
@@ -118,6 +141,22 @@ const soraJobSchema = z.object({
   sourceImageKey: z.string().optional(),
   sourceImageName: z.string().optional()
 });
+
+const imageGenerationSchema = z.object({
+  prompt: z.string().min(3, 'Prompt required').max(4000),
+  model: z.enum(['gpt-image-2', 'gpt-image-1.5']).default('gpt-image-2'),
+  fallback: z.boolean().default(true),
+  saveAs: z.enum(['canvasAsset', 'character']).default('canvasAsset'),
+  name: z.string().min(1).max(200).optional()
+});
+
+type GalleryImageMeta = {
+  name?: string;
+  savedAt?: string;
+  prompt?: string;
+  model?: string;
+  generated?: boolean;
+};
 
 // ── Reactions: in-memory store ────────────────────────────────────────────────
 // { messageId → { value → { type: 'emoji'|'gif', users: string[] } } }
@@ -436,6 +475,49 @@ app.post('/api/mix-audio', async (req, res) => {
     });
 });
 
+app.post('/api/images/generate', async (req, res) => {
+  const parsed = imageGenerationSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!config.mediaBucket) return res.status(503).json({ error: 'S3 not configured' });
+
+  const { prompt, model, fallback, saveAs } = parsed.data;
+  const name = (parsed.data.name?.trim() || prompt.slice(0, 80)).replace(/[<>"']/g, '').slice(0, 120) || 'Generated image';
+  const now = new Date().toISOString();
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'generated-image';
+
+  try {
+    const generated = await generateNyxImage(prompt, model, fallback);
+    const filename = `${Date.now()}-${slug}.png`;
+    const key = saveAs === 'character'
+      ? `dolls/${slug}/${filename}`
+      : `canvas-assets/${filename}`;
+    const metaKey = saveAs === 'character'
+      ? `dolls-meta/${key.replace('dolls/', '').replace(/\//g, '__')}.json`
+      : `canvas-assets-meta/${key.replace('canvas-assets/', '')}.json`;
+
+    await writeBuffer(config.mediaBucket, key, generated.buffer, generated.contentType);
+    await writeObject(config.mediaBucket, metaKey, JSON.stringify({
+      name,
+      prompt,
+      model: generated.model,
+      requestedModel: model,
+      savedAt: now,
+      startedBy: req.user?.email ?? null,
+      generated: true
+    }), 'application/json');
+    const url = await getPresignedUrl(config.mediaBucket, key, 3600);
+    const result = saveAs === 'character'
+      ? { type: 'character', key, url, name, prompt, model: generated.model, savedAt: now }
+      : { type: 'canvasAsset', key, url, name, title: name, prompt, model: generated.model, savedAt: now };
+
+    io.emit('gallery:image-added', result);
+    res.json(result);
+  } catch (err: unknown) {
+    console.error('[images/generate]', err);
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Image generation failed' });
+  }
+});
+
 // ── Star / unstar a video ────────────────────────────────────────────────────
 app.patch('/api/gallery/star', async (req, res) => {
   const key = typeof req.body?.key === 'string' ? req.body.key : '';
@@ -619,11 +701,27 @@ app.get('/api/gallery', async (req, res) => {
 
     // For dolls, generate presigned URLs and extract name from key path
     const images = await Promise.all(
-      dollObjects.map(async ({ key }) => {
+      dollObjects.map(async ({ key, lastModified }) => {
         const parts = key.split('/'); // dolls/<name>/<ts>-<filename>
         const name = parts[1] ? parts[1].replace(/-/g, ' ') : 'Character';
+        const metaKey = `dolls-meta/${key.replace('dolls/', '').replace(/\//g, '__')}.json`;
+        let meta: GalleryImageMeta = {};
+        try {
+          const rawMeta = await readObject(config.mediaBucket, metaKey);
+          if (rawMeta) meta = JSON.parse(rawMeta);
+        } catch {
+          // ignore missing metadata
+        }
         const url = await getPresignedUrl(config.mediaBucket, key, 3600);
-        return { key, name, url };
+        return {
+          key,
+          name: meta.name ?? name,
+          url,
+          savedAt: meta.savedAt ?? lastModified.toISOString(),
+          prompt: meta.prompt ?? undefined,
+          model: meta.model ?? undefined,
+          generated: meta.generated ?? false
+        };
       })
     );
 
@@ -666,6 +764,15 @@ app.get('/api/gallery', async (req, res) => {
               const parsed = JSON.parse(rawMeta);
               title = parsed.name ?? title;
               savedAt = parsed.savedAt ?? savedAt;
+              return {
+                key,
+                title,
+                url,
+                savedAt,
+                prompt: parsed.prompt ?? undefined,
+                model: parsed.model ?? undefined,
+                generated: parsed.generated ?? false
+              };
             }
           } catch {
             // ignore missing metadata
@@ -895,6 +1002,8 @@ app.delete('/api/gallery', async (req, res) => {
       await deleteObject(bucket, key);
     } else if (type === 'character') {
       await deleteObject(bucket, key);
+      const metaKey = `dolls-meta/${key.replace('dolls/', '').replace(/\//g, '__')}.json`;
+      try { await deleteObject(bucket, metaKey); } catch { /* ignore */ }
     } else if (type === 'canvasPage') {
       await deleteObject(bucket, key);
       const metaKey = `canvas-meta/${key.replace('canvas/', '')}.json`;

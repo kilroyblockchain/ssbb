@@ -12,7 +12,7 @@ env:
   ECS_SERVICE: ssbb-server-prod
   WEB_BUCKET: ssbb-web-prod
   CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
-  VITE_API_BASE_URL: https://ssbb.discountpunk.com
+  VITE_API_BASE_URL: https://ssbb.pretendo.tv
 
 jobs:
   # ── Build & deploy server ──────────────────────────────────────────────────

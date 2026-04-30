@@ -109,6 +109,7 @@ type ChatMessage = {
   userEmail?: string;
   attachments?: { name: string; url: string; contentType: string }[];
   moviePrompt?: string;   // extracted [MOVIE_PROMPT] content
+  imagePrompt?: string;   // extracted [IMAGE_PROMPT] content
   spliceNames?: string[]; // extracted [SPLICE:...] names
   showNames?: string[];   // extracted [SHOW:...] names — highlight in gallery
   mixAudioInfo?: { videoName: string; audioName: string; keepVideoAudio: boolean };
@@ -150,6 +151,49 @@ const useChatStore = create<ChatState>((set) => ({
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000';
 const socket   = io(API_BASE, { transports: ['websocket', 'polling'] });
+
+type ImageGenerateResult = {
+  type: 'character' | 'canvasAsset';
+  key: string;
+  url: string;
+  name?: string;
+  title?: string;
+  prompt?: string;
+  model?: string;
+  savedAt?: string;
+};
+
+function isImageGenerateResult(value: unknown): value is ImageGenerateResult {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<ImageGenerateResult>;
+  return (
+    (candidate.type === 'character' || candidate.type === 'canvasAsset') &&
+    typeof candidate.key === 'string' &&
+    candidate.key.length > 0 &&
+    typeof candidate.url === 'string' &&
+    candidate.url.length > 0
+  );
+}
+
+async function parseImageGenerateResponse(res: Response): Promise<ImageGenerateResult> {
+  const contentType = res.headers.get('content-type') || '';
+  const payload = contentType.includes('application/json')
+    ? await res.json().catch(() => null) as unknown
+    : null;
+
+  if (!res.ok) {
+    const message = payload && typeof payload === 'object' && 'error' in payload
+      ? String((payload as { error?: unknown }).error)
+      : `Image generation failed with ${res.status}`;
+    throw new Error(message);
+  }
+
+  if (!isImageGenerateResult(payload)) {
+    throw new Error('Image generation did not return a saved gallery image.');
+  }
+
+  return payload;
+}
 
 const BUTT_BITCHES = [
   { handle: 'Spanky Butt', email: 'spanky@ssbb.band', color: '#ff1493' },
@@ -1208,12 +1252,12 @@ function VideoEditor({
   };
 
   const updateRegion = (track: 1 | 2, id: string, field: 'start' | 'end', val: number) => {
-    const updater = (t: TrackState) => ({
+    const updater = <T extends TrackState>(t: T): T => ({
       ...t,
       regions: t.regions.map(r => r.id === id ? { ...r, [field]: val } : r),
     });
     if (track === 1) setTrack1(updater);
-    else setTrack2(updater as any);
+    else setTrack2(updater);
   };
 
   const canRender = !track2.muted ? !!track2.audioKey : true;
@@ -1292,9 +1336,9 @@ function VideoEditor({
 // ── GalleryPanel ─────────────────────────────────────────────────────────────
 
 type GalleryStoryboard = { key: string; title: string; savedAt: string; conversationId: string };
-type GalleryImage      = { key: string; name: string; url: string };
+type GalleryImage      = { key: string; name: string; url: string; savedAt?: string; prompt?: string; model?: string; generated?: boolean };
 type GalleryCanvasPage = { key: string; title: string; savedAt: string; url: string };
-type GalleryCanvasAsset = { key: string; title: string; savedAt: string; url: string };
+type GalleryCanvasAsset = { key: string; title: string; savedAt: string; url: string; prompt?: string; model?: string; generated?: boolean };
 type GalleryAudio = { key: string; name: string; url: string; savedAt: string; mimeType: string; startedBy?: string | null };
 type MultiMovieItem = { key: string; name: string; type: 'image' | 'video'; prompt?: string };
 type GalleryEditedVideo = { key: string; url: string; savedAt: string; name: string; startedBy?: string | null; sourceItems: { key: string; name: string; type: string }[]; thumbUrl?: string; starred?: boolean };
@@ -1359,6 +1403,12 @@ function GalleryPanel({
   const [error,       setError]       = useState<string | null>(null);
   const [uploading,   setUploading]   = useState(false);
   const [assetUploading, setAssetUploading] = useState(false);
+  const [imageGenerating, setImageGenerating] = useState(false);
+  const [imagePrompt, setImagePrompt] = useState('');
+  const [imageName, setImageName] = useState('');
+  const [imageModel, setImageModel] = useState<'gpt-image-2' | 'gpt-image-1.5'>('gpt-image-2');
+  const [imageSaveAs, setImageSaveAs] = useState<'canvasAsset' | 'character'>('canvasAsset');
+  const [imageFallback, setImageFallback] = useState(true);
   const [audioUploading, setAudioUploading] = useState(false);
   const [assetUploads,   setAssetUploads]   = useState<GalleryCanvasAsset[]>([]);
   const fileInputRef  = useRef<HTMLInputElement>(null);
@@ -1617,7 +1667,9 @@ function GalleryPanel({
   const filteredImages = useMemo(() => {
     if (!term) return images;
     return images.filter(img =>
-      (img.name ?? '').toLowerCase().includes(term)
+      (img.name ?? '').toLowerCase().includes(term) ||
+      (img.prompt ?? '').toLowerCase().includes(term) ||
+      (img.model ?? '').toLowerCase().includes(term)
     );
   }, [images, term]);
 
@@ -1625,6 +1677,8 @@ function GalleryPanel({
     if (!term) return mergedCanvasAssets;
     return mergedCanvasAssets.filter(asset =>
       asset.title.toLowerCase().includes(term) ||
+      (asset.prompt ?? '').toLowerCase().includes(term) ||
+      (asset.model ?? '').toLowerCase().includes(term) ||
       asset.url.toLowerCase().includes(term)
     );
   }, [mergedCanvasAssets, term]);
@@ -1775,6 +1829,55 @@ function GalleryPanel({
     },
     [handleAssetUpload]
   );
+
+  const handleGenerateImage = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    const promptText = imagePrompt.trim();
+    if (!promptText) return;
+    setImageGenerating(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/images/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({
+          prompt: promptText,
+          name: imageName.trim() || undefined,
+          model: imageModel,
+          fallback: imageFallback,
+          saveAs: imageSaveAs
+        }),
+      });
+      const data = await parseImageGenerateResponse(res);
+      if (data.type === 'character') {
+        setImages(prev => [{
+          key: data.key,
+          name: data.name ?? (imageName.trim() || 'Generated image'),
+          url: data.url,
+          savedAt: data.savedAt,
+          prompt: data.prompt,
+          model: data.model,
+          generated: true
+        }, ...prev]);
+      } else {
+        setAssetUploads(prev => [{
+          key: data.key,
+          title: data.title ?? data.name ?? 'Generated image',
+          url: data.url,
+          savedAt: data.savedAt ?? new Date().toISOString(),
+          prompt: data.prompt,
+          model: data.model,
+          generated: true
+        }, ...prev]);
+      }
+      setImageName('');
+      await fetchGallery();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Image generation failed';
+      alert(`Image generation failed: ${message}`);
+    } finally {
+      setImageGenerating(false);
+    }
+  }, [authHeaders, fetchGallery, imageFallback, imageModel, imageName, imagePrompt, imageSaveAs]);
 
   const handleRenameCharacter = useCallback(
     async (img: GalleryImage) => {
@@ -2019,6 +2122,78 @@ function GalleryPanel({
         </div>
       )}
 
+      {/* ── Bot Butt Image Generator ── */}
+      <div style={{ border: '1px solid rgba(125,249,255,.45)', borderRadius: 8, background: 'rgba(0,229,207,.08)', padding: '10px 12px', marginBottom: 18 }}>
+        <h3 style={{ color: '#7df9ff', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }}>
+          Bot Butt Image Generator
+        </h3>
+        <form onSubmit={handleGenerateImage} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <textarea
+            value={imagePrompt}
+            onChange={(e) => setImagePrompt(e.target.value)}
+            placeholder="Describe the image Bot Butt should make..."
+            rows={3}
+            disabled={imageGenerating}
+            style={{
+              width: '100%',
+              resize: 'vertical',
+              boxSizing: 'border-box',
+              padding: '8px 10px',
+              borderRadius: 6,
+              border: '1px solid rgba(125,249,255,.55)',
+              background: '#02000a',
+              color: '#f0e6ff'
+            }}
+          />
+          <input
+            type="text"
+            value={imageName}
+            onChange={(e) => setImageName(e.target.value)}
+            placeholder="Gallery name (optional)"
+            disabled={imageGenerating}
+            style={{
+              padding: '7px 10px',
+              borderRadius: 6,
+              border: '1px solid rgba(125,249,255,.35)',
+              background: '#02000a',
+              color: '#f0e6ff'
+            }}
+          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <select
+              value={imageModel}
+              onChange={(e) => setImageModel(e.target.value as 'gpt-image-2' | 'gpt-image-1.5')}
+              disabled={imageGenerating}
+              style={{ background: '#02000a', color: '#f0e6ff', border: '1px solid rgba(125,249,255,.45)', borderRadius: 4, padding: '5px 8px' }}
+            >
+              <option value="gpt-image-2">GPT Image 2</option>
+              <option value="gpt-image-1.5">GPT Image 1.5</option>
+            </select>
+            <select
+              value={imageSaveAs}
+              onChange={(e) => setImageSaveAs(e.target.value as 'canvasAsset' | 'character')}
+              disabled={imageGenerating}
+              style={{ background: '#02000a', color: '#f0e6ff', border: '1px solid rgba(125,249,255,.45)', borderRadius: 4, padding: '5px 8px' }}
+            >
+              <option value="canvasAsset">Save to Canvas Images</option>
+              <option value="character">Save to Characters</option>
+            </select>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'rgba(240,230,255,.75)', fontSize: '.72rem' }}>
+              <input
+                type="checkbox"
+                checked={imageFallback}
+                onChange={(e) => setImageFallback(e.target.checked)}
+                disabled={imageGenerating}
+              />
+              fallback between models
+            </label>
+            <button style={{ ...gBtn, color: '#7df9ff', borderColor: '#7df9ff', marginLeft: 'auto' }} type="submit" disabled={imageGenerating || !imagePrompt.trim()}>
+              {imageGenerating ? 'Generating...' : 'Generate'}
+            </button>
+          </div>
+        </form>
+      </div>
+
       {/* ── Storyboards ── */}
       <div style={{ marginBottom: 20 }}>
         <h3 style={{ color: '#ffe66d', fontSize: '.82rem', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8, marginTop: 0 }}>
@@ -2086,6 +2261,11 @@ function GalleryPanel({
               <div style={{ padding: '4px 6px', fontSize: '.68rem', color: 'rgba(240,230,255,.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {img.name}
               </div>
+              {img.generated && (
+                <div style={{ padding: '0 6px 4px', fontSize: '.62rem', color: 'rgba(125,249,255,.75)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {img.model ?? 'generated'}{img.prompt ? ` · ${img.prompt}` : ''}
+                </div>
+              )}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', padding: '6px 4px' }}>
                 <button style={gBtn} onClick={() => describeImage({ key: img.key, name: img.name || 'Character', url: img.url })} disabled={talkingKey === img.key}>
                   {talkingKey === img.key ? 'Talking…' : 'Talk'}
@@ -2153,6 +2333,11 @@ function GalleryPanel({
                 <div>
                   <div style={{ fontWeight: 600, fontSize: '.78rem', color: '#39ff14' }}>{asset.title}</div>
                   <div style={{ fontSize: '.65rem', color: 'rgba(240,230,255,.55)' }}>{new Date(asset.savedAt).toLocaleString()}</div>
+                  {asset.generated && (
+                    <div style={{ fontSize: '.65rem', color: 'rgba(125,249,255,.75)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {asset.model ?? 'generated'}{asset.prompt ? ` · ${asset.prompt}` : ''}
+                    </div>
+                  )}
                   <img src={asset.url} alt={asset.title} style={{ width: 160, height: 90, objectFit: 'cover', borderRadius: 4, marginTop: 6, border: '1px solid rgba(57,255,20,.35)' }} />
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -2688,6 +2873,7 @@ export default function App() {
   const [reactions, setReactions] = useState<Record<string, ReactionMap>>({});
   const [videoEditor, setVideoEditor] = useState<VideoEditorState>(null);
   const cachedAudioTracksRef = useRef<{ key: string; name: string; url: string }[]>([]);
+  const imageCommandInFlightRef = useRef<Set<string>>(new Set());
 
   // Auto-clear gallery highlight after 5 seconds
   useEffect(() => {
@@ -2958,6 +3144,7 @@ export default function App() {
             .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, '↳ [see canvas →]')
             .replace(/\[IMG:[^\]]*\]/g, '')
             .replace(/\[MOVIE_PROMPT\][\s\S]*?\[\/MOVIE_PROMPT\]/gi, '↳ [Sora prompt →]')
+            .replace(/\[IMAGE_PROMPT\][\s\S]*?\[\/IMAGE_PROMPT\]/gi, '↳ [image prompt →]')
             .replace(/\[SPLICE:[^\]]*\]/gi, '↳ [splice →]')
             .replace(/\[MIX_AUDIO:[^\]]*\]/gi, '↳ [mix audio →]')
             .replace(/<[^>]+>/g, '')
@@ -3015,6 +3202,7 @@ export default function App() {
         .replace(/\[CANVAS\][\s\S]*?\[\/CANVAS\]/g, '↳ [see canvas →]')
         .replace(/\[IMG:[^\]]*\]/g, '')
         .replace(/\[MOVIE_PROMPT\][\s\S]*?\[\/MOVIE_PROMPT\]/gi, '↳ [Sora prompt →]')
+        .replace(/\[IMAGE_PROMPT\][\s\S]*?\[\/IMAGE_PROMPT\]/gi, '↳ [image prompt →]')
         .replace(/\[SPLICE:[^\]]*\]/gi, spliceNames ? '' : '↳ [splice →]')
         .replace(/\[MIX_AUDIO:[^\]]*\]/gi, mixAudioInfo ? '' : '↳ [mix audio →]')
         .replace(/\[SHOW:[^\]]*\]/gi, '')
@@ -3050,6 +3238,14 @@ export default function App() {
     socket.on('gallery:video-added', onVideoAdded);
     return () => { socket.off('gallery:video-added', onVideoAdded); };
   }, [addMessage]);
+
+  useEffect(() => {
+    function onImageAdded() {
+      setGalleryRefreshTick(Date.now());
+    }
+    socket.on('gallery:image-added', onImageAdded);
+    return () => { socket.off('gallery:image-added', onImageAdded); };
+  }, []);
 
   useEffect(() => {
     function onJobError({ message }: { job: string; message: string }) {
@@ -3147,6 +3343,63 @@ export default function App() {
     }
   }, [addMessage, authHeaders, userEmail]);
 
+  const runImageCommand = useCallback(async (rawPrompt: string) => {
+    const trimmed = rawPrompt.trim();
+    if (!trimmed) {
+      addMessage({
+        id: uuid(),
+        author: 'bot',
+        text: 'Drop an image prompt after /image and I will save it to the gallery.',
+        createdAt: new Date().toISOString()
+      });
+      return;
+    }
+    const inFlightKey = trimmed.toLowerCase();
+    if (imageCommandInFlightRef.current.has(inFlightKey)) return;
+    imageCommandInFlightRef.current.add(inFlightKey);
+    const userMsg: ChatMessage = {
+      id: uuid(),
+      author: 'butt',
+      text: `/image ${trimmed}`,
+      createdAt: new Date().toISOString(),
+      userEmail: userEmail || undefined
+    };
+    addMessage(userMsg);
+    try {
+      const res = await fetch(`${API_BASE}/api/images/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({
+          prompt: trimmed,
+          model: 'gpt-image-2',
+          fallback: true,
+          saveAs: 'canvasAsset',
+          name: trimmed.slice(0, 80)
+        })
+      });
+      const data = await parseImageGenerateResponse(res);
+      const title = data.title || data.name || 'Generated image';
+      addMessage({
+        id: uuid(),
+        author: 'bot',
+        text: `"${title}" is saved in Canvas Images${data?.model ? ` from ${data.model}` : ''}.`,
+        createdAt: new Date().toISOString(),
+        attachments: data?.url ? [{ name: title, url: data.url, contentType: 'image/png' }] : undefined
+      });
+      setGalleryRefreshTick(Date.now());
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'unknown error';
+      addMessage({
+        id: uuid(),
+        author: 'bot',
+        text: `Image generation failed: ${message}.`,
+        createdAt: new Date().toISOString()
+      });
+    } finally {
+      imageCommandInFlightRef.current.delete(inFlightKey);
+    }
+  }, [addMessage, authHeaders, userEmail]);
+
   // ── Send message ─────────────────────────────────────────────────────────
 async function sendMessage(
   e?: FormEvent,
@@ -3188,6 +3441,12 @@ async function sendMessage(
     clearDraft();
     const promptOnly = text.replace(/^\/movie/i, '').trim();
     await runMovieCommand(promptOnly);
+    return;
+  }
+  if (/^\/image\b/i.test(text)) {
+    clearDraft();
+    const promptOnly = text.replace(/^\/image/i, '').trim();
+    await runImageCommand(promptOnly);
     return;
   }
 
@@ -3238,6 +3497,14 @@ async function sendMessage(
         setInput(`/movie ${moviePrompt}`);
       }
 
+      // Extract [IMAGE_PROMPT]...[/IMAGE_PROMPT] — auto-fill the image command
+      let imagePrompt: string | undefined;
+      const imagePromptMatch = /\[IMAGE_PROMPT\]([\s\S]*?)\[\/IMAGE_PROMPT\]/i.exec(rawText);
+      if (imagePromptMatch) {
+        imagePrompt = imagePromptMatch[1].trim();
+        setInput(`/image ${imagePrompt}`);
+      }
+
       // Extract [SPLICE:name1|name2|...] — show a one-click splice button
       let spliceNames: string[] | undefined;
       const spliceMatch = /\[SPLICE:([^\]]+)\]/i.exec(rawText);
@@ -3268,6 +3535,7 @@ async function sendMessage(
         .replace(/\[IMG:[^\]]*\]/g, '')
         .replace(/\[HOTDOGS\]/gi, '')
         .replace(/\[MOVIE_PROMPT\][\s\S]*?\[\/MOVIE_PROMPT\]/gi, moviePrompt ? '↳ [Sora prompt loaded →]' : '')
+        .replace(/\[IMAGE_PROMPT\][\s\S]*?\[\/IMAGE_PROMPT\]/gi, imagePrompt ? '↳ [image prompt loaded →]' : '')
         .replace(/\[SPLICE:[^\]]*\]/gi, '')
         .replace(/\[SHOW:[^\]]*\]/gi, '')
         .replace(/\[MIX_AUDIO:[^\]]*\]/gi, '')
@@ -3276,7 +3544,7 @@ async function sendMessage(
         .replace(/\s{2,}/g, ' ')
         .trim();
 
-      addMessage({ id: data.id ?? uuid(), author: 'bot', text: botText, createdAt: data.createdAt ?? new Date().toISOString(), moviePrompt, spliceNames, showNames, mixAudioInfo });
+      addMessage({ id: data.id ?? uuid(), author: 'bot', text: botText, createdAt: data.createdAt ?? new Date().toISOString(), moviePrompt, imagePrompt, spliceNames, showNames, mixAudioInfo });
       options?.onBotReply?.(botText);
     } catch (err) {
       console.error('[chat] frontend error:', err);
@@ -3649,6 +3917,23 @@ async function sendMessage(
                           onClick={() => handleMixAudioByNames(msg.mixAudioInfo!.videoName, msg.mixAudioInfo!.audioName, msg.mixAudioInfo!.keepVideoAudio)}
                         >
                           Mix Audio
+                        </button>
+                      </div>
+                    )}
+                    {msg.imagePrompt && (
+                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '.72rem', color: '#7df9ff' }}>
+                          {msg.imagePrompt}
+                        </span>
+                        <button
+                          className="mini-btn"
+                          style={{ color: '#7df9ff', borderColor: '#7df9ff' }}
+                          onClick={() => {
+                            setInput((draft) => draft.trim().toLowerCase().startsWith('/image ') ? '' : draft);
+                            runImageCommand(msg.imagePrompt!);
+                          }}
+                        >
+                          Generate image
                         </button>
                       </div>
                     )}
