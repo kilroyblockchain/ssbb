@@ -485,7 +485,10 @@ app.post('/api/images/generate', async (req, res) => {
   const now = new Date().toISOString();
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'generated-image';
 
-  try {
+  const jobId = uuid();
+  res.status(202).json({ jobId, status: 'queued', type: saveAs === 'character' ? 'character' : 'canvasAsset', name });
+
+  (async () => {
     const generated = await generateNyxImage(prompt, model, fallback);
     const filename = `${Date.now()}-${slug}.png`;
     const key = saveAs === 'character'
@@ -511,11 +514,13 @@ app.post('/api/images/generate', async (req, res) => {
       : { type: 'canvasAsset', key, url, name, title: name, prompt, model: generated.model, savedAt: now };
 
     io.emit('gallery:image-added', result);
-    res.json(result);
-  } catch (err: unknown) {
+  })().catch((err: unknown) => {
     console.error('[images/generate]', err);
-    res.status(500).json({ error: err instanceof Error ? err.message : 'Image generation failed' });
-  }
+    io.emit('gallery:job-error', {
+      job: 'image-generate',
+      message: err instanceof Error ? err.message : 'Image generation failed'
+    });
+  });
 });
 
 // ── Star / unstar a video ────────────────────────────────────────────────────

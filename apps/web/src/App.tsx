@@ -163,6 +163,13 @@ type ImageGenerateResult = {
   savedAt?: string;
 };
 
+type ImageGenerateAccepted = {
+  jobId: string;
+  status: 'queued';
+  type: 'character' | 'canvasAsset';
+  name?: string;
+};
+
 function isImageGenerateResult(value: unknown): value is ImageGenerateResult {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<ImageGenerateResult>;
@@ -175,7 +182,18 @@ function isImageGenerateResult(value: unknown): value is ImageGenerateResult {
   );
 }
 
-async function parseImageGenerateResponse(res: Response): Promise<ImageGenerateResult> {
+function isImageGenerateAccepted(value: unknown): value is ImageGenerateAccepted {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<ImageGenerateAccepted>;
+  return (
+    typeof candidate.jobId === 'string' &&
+    candidate.jobId.length > 0 &&
+    candidate.status === 'queued' &&
+    (candidate.type === 'character' || candidate.type === 'canvasAsset')
+  );
+}
+
+async function parseImageGenerateResponse(res: Response): Promise<ImageGenerateResult | ImageGenerateAccepted> {
   const contentType = res.headers.get('content-type') || '';
   const payload = contentType.includes('application/json')
     ? await res.json().catch(() => null) as unknown
@@ -186,6 +204,10 @@ async function parseImageGenerateResponse(res: Response): Promise<ImageGenerateR
       ? String((payload as { error?: unknown }).error)
       : `Image generation failed with ${res.status}`;
     throw new Error(message);
+  }
+
+  if (isImageGenerateAccepted(payload)) {
+    return payload;
   }
 
   if (!isImageGenerateResult(payload)) {
@@ -1848,6 +1870,11 @@ function GalleryPanel({
         }),
       });
       const data = await parseImageGenerateResponse(res);
+      if (isImageGenerateAccepted(data)) {
+        setImageName('');
+        setImagePrompt('');
+        return;
+      }
       if (data.type === 'character') {
         setImages(prev => [{
           key: data.key,
@@ -3393,6 +3420,16 @@ export default function App() {
         })
       });
       const data = await parseImageGenerateResponse(res);
+      if (isImageGenerateAccepted(data)) {
+        const suffix = data.jobId.slice(-6);
+        addMessage({
+          id: uuid(),
+          author: 'bot',
+          text: `Image spell cast. Job ${suffix || 'ID'} is cooking — it will land in Canvas Images when ready.`,
+          createdAt: new Date().toISOString()
+        });
+        return;
+      }
       const title = data.title || data.name || 'Generated image';
       addMessage({
         id: uuid(),
