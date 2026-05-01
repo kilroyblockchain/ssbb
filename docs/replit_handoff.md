@@ -484,9 +484,9 @@ But first: **One product. One checkout. One paid order. One fulfilled shipment.*
 
 ## Sprint Timeline
 
-**May 1 (TODAY):** Karen completes pre-sprint tasks ✅  
-**May 2 (SPRINT DAY):** Replit team builds for 24 hours 🔥  
-**May 3:** Testing, first order, Printful fulfillment 📦  
-**May 4+:** Iterate, improve, add Loud Butt 📣
+**May 1 (TODAY):** Karen completes pre-sprint tasks (GA, Stripe, Printful) ✅  
+**May 2, 7:00 AM (SPRINT START):** Replit team builds for 24 hours 🔥  
+**May 3, 7:00 AM (SPRINT END):** Deploy, test, first order 📦  
+**May 3+:** Iterate, improve, add Loud Butt 📣
 
 Let's make it real. 🔥
