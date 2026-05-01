@@ -54,15 +54,35 @@ async function loadAwsCredentialsFromSecret(): Promise<boolean> {
   return credentialLoadPromise;
 }
 
-async function getBedrockClient(): Promise<LoadedBedrock | null> {
-  if (bedrockClientPromise) return bedrockClientPromise;
-  bedrockClientPromise = (async () => {
+// Multi-region failover: try these regions in order
+const BEDROCK_REGIONS = [
+  config.awsRegion,           // Primary region (us-east-1)
+  'us-west-2',                // Oregon
+  'eu-west-1',                // Ireland
+  'ap-southeast-2'            // Sydney
+].filter((r, i, a) => a.indexOf(r) === i); // dedupe
+
+type BedrockClientPool = {
+  clients: Map<string, { send: (command: any) => Promise<any> }>;
+  ConverseCommand: BedrockModule['ConverseCommand'];
+};
+
+let bedrockClientPool: Promise<BedrockClientPool | null> | null = null;
+
+async function getBedrockClientPool(): Promise<BedrockClientPool | null> {
+  if (bedrockClientPool) return bedrockClientPool;
+  bedrockClientPool = (async () => {
     const credsAvailable = await loadAwsCredentialsFromSecret();
     if (!config.bedrockModelId || !credsAvailable) return null;
     try {
       const sdk = (await import('@aws-sdk/client-bedrock-runtime')) as unknown as BedrockModule;
+      const clients = new Map<string, { send: (command: any) => Promise<any> }>();
+      for (const region of BEDROCK_REGIONS) {
+        clients.set(region, new sdk.BedrockRuntimeClient({ region }));
+      }
+      console.log(`[bedrock] Multi-region pool initialized: ${BEDROCK_REGIONS.join(', ')}`);
       return {
-        client: new sdk.BedrockRuntimeClient({ region: config.awsRegion }),
+        clients,
         ConverseCommand: sdk.ConverseCommand
       };
     } catch (err) {
@@ -70,7 +90,17 @@ async function getBedrockClient(): Promise<LoadedBedrock | null> {
       return null;
     }
   })();
-  return bedrockClientPromise;
+  return bedrockClientPool;
+}
+
+async function getBedrockClient(): Promise<LoadedBedrock | null> {
+  const pool = await getBedrockClientPool();
+  if (!pool) return null;
+  // Return primary region client for backwards compatibility
+  return {
+    client: pool.clients.get(config.awsRegion)!,
+    ConverseCommand: pool.ConverseCommand
+  };
 }
 
 export type ImageAttachment = {
@@ -106,8 +136,8 @@ function bedrockImageFormat(mime: string): string {
 }
 
 export async function converseWithBedrock(opts: ChatOptions): Promise<string> {
-  const sdk = await getBedrockClient();
-  if (!sdk || !config.bedrockModelId) {
+  const pool = await getBedrockClientPool();
+  if (!pool || !config.bedrockModelId) {
     return `[mocked BotButt] ${opts.prompt}`;
   }
 
@@ -140,10 +170,37 @@ export async function converseWithBedrock(opts: ChatOptions): Promise<string> {
     ? { tools: opts.tools.map(t => ({ toolSpec: { name: t.name, description: t.description, inputSchema: { json: t.inputSchema } } })) }
     : undefined;
 
+  // Multi-region failover wrapper
+  async function sendToBedrockWithFailover(command: any): Promise<any> {
+    let lastError: any = null;
+    for (const region of BEDROCK_REGIONS) {
+      const client = pool.clients.get(region);
+      if (!client) continue;
+      try {
+        const resp = await client.send(command);
+        if (region !== config.awsRegion) {
+          console.log(`[bedrock] ✓ Failover to ${region} succeeded`);
+        }
+        return resp;
+      } catch (err: any) {
+        const isThrottled = err.name === 'ThrottlingException' || err.$metadata?.httpStatusCode === 429;
+        if (isThrottled) {
+          console.warn(`[bedrock] ${region} throttled, trying next region...`);
+          lastError = err;
+          continue; // Try next region
+        }
+        // Non-throttle error — fail immediately
+        throw err;
+      }
+    }
+    // All regions exhausted
+    throw lastError || new Error('All Bedrock regions exhausted');
+  }
+
   // Tool use loop — Bedrock may request one or more tool calls before giving a final text response
   for (let round = 0; round < 5; round++) {
-    const resp = await sdk.client.send(
-      new sdk.ConverseCommand({
+    const resp = await sendToBedrockWithFailover(
+      new pool.ConverseCommand({
         modelId: config.bedrockModelId,
         messages,
         system: opts.context ? [{ text: opts.context }] : undefined,
