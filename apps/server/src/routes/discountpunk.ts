@@ -1,5 +1,5 @@
 import express from 'express';
-import { readContent, addProduct, createProductPage, createComicPage, addVideo } from '../services/discountpunk.js';
+import { readContent, addProduct, createProductPage, createComicPage, addVideo, deleteProduct, deleteVideo } from '../services/discountpunk.js';
 
 const router = express.Router();
 
@@ -65,6 +65,38 @@ router.post('/video', async (req, res) => {
     res.json({ success: true, video });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to add video' });
+  }
+});
+
+// Delete a product by title
+router.delete('/product/:title', async (req, res) => {
+  try {
+    const { title } = req.params;
+    const deleted = await deleteProduct(decodeURIComponent(title));
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to delete product' });
+  }
+});
+
+// Delete a video by title
+router.delete('/video/:title', async (req, res) => {
+  try {
+    const { title } = req.params;
+    const deleted = await deleteVideo(decodeURIComponent(title));
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Video not found' });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to delete video' });
   }
 });
 

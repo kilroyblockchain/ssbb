@@ -267,3 +267,33 @@ export async function addVideo(video: {
   console.log('[discountpunk] Video added:', video.title);
   return fullVideo;
 }
+
+export async function deleteProduct(title: string): Promise<boolean> {
+  const content = await readContent();
+  const initialLength = content.featured.length;
+  content.featured = content.featured.filter(p => p.title !== title);
+
+  if (content.featured.length === initialLength) {
+    return false; // Nothing was deleted
+  }
+
+  await writeContent(content);
+  console.log('[discountpunk] Product deleted:', title);
+  return true;
+}
+
+export async function deleteVideo(title: string): Promise<boolean> {
+  const content = await readContent();
+  if (!content.videos) return false;
+
+  const initialLength = content.videos.length;
+  content.videos = content.videos.filter(v => v.title !== title);
+
+  if (content.videos.length === initialLength) {
+    return false; // Nothing was deleted
+  }
+
+  await writeContent(content);
+  console.log('[discountpunk] Video deleted:', title);
+  return true;
+}

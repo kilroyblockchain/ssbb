@@ -3,7 +3,7 @@ import type { ConversationMessage } from './conversations.js';
 import { converseWithBedrock, type ImageAttachment } from './bedrock.js';
 import { webSearch, isSearchConfigured } from './search.js';
 import { config } from '../config.js';
-import { addProduct, createComicPage } from './discountpunk.js';
+import { addProduct, createComicPage, deleteProduct, deleteVideo } from './discountpunk.js';
 
 type GalleryIndex = {
   videos?: Array<{ key?: string; name: string; prompt?: string; starred?: boolean }>;
@@ -230,7 +230,17 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     '',
     'When someone asks you to make a comic, write an issue, or create a story — use this tool!',
     '',
-    'IMPORTANT: When any Butt Bitch asks you to add something to Discount Punk, create merch, make a comic, or populate the shop — DO IT using these tools. Do not tell them to do it themselves. You are the site manager.',
+    '### delete_product',
+    'Deletes a product from the shop by its exact title.',
+    'Parameters:',
+    '  • title: Exact product title to delete',
+    '',
+    '### delete_video',
+    'Deletes a video from the videos section by its exact title.',
+    'Parameters:',
+    '  • title: Exact video title to delete',
+    '',
+    'IMPORTANT: When any Butt Bitch asks you to add something to Discount Punk, create merch, make a comic, populate the shop, or DELETE something from the shop — DO IT using these tools. Do not tell them to do it themselves. You are the site manager.',
     '',
     '## Project State',
     projectSummary,
@@ -281,6 +291,28 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
         },
         required: ['issue', 'title', 'coverImagePrompt', 'content']
       }
+    },
+    {
+      name: 'delete_product',
+      description: 'Delete a product from the Discount Punk shop by its exact title. Use this when asked to remove or delete a product.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Exact product title to delete' }
+        },
+        required: ['title']
+      }
+    },
+    {
+      name: 'delete_video',
+      description: 'Delete a video from the Discount Punk videos section by its exact title. Use this when asked to remove or delete a video.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Exact video title to delete' }
+        },
+        required: ['title']
+      }
     }
   ];
 
@@ -330,6 +362,34 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
           return `Comic created! Issue #${issue} "${title}" is now live at: ${pageUrl}`;
         } catch (err) {
           return `Failed to create comic: ${err instanceof Error ? err.message : 'Unknown error'}`;
+        }
+      }
+
+      if (name === 'delete_product') {
+        try {
+          const { title } = input as any;
+          const deleted = await deleteProduct(title);
+          if (deleted) {
+            return `Product "${title}" has been deleted from Discount Punk.`;
+          } else {
+            return `Could not find product "${title}" in the shop.`;
+          }
+        } catch (err) {
+          return `Failed to delete product: ${err instanceof Error ? err.message : 'Unknown error'}`;
+        }
+      }
+
+      if (name === 'delete_video') {
+        try {
+          const { title } = input as any;
+          const deleted = await deleteVideo(title);
+          if (deleted) {
+            return `Video "${title}" has been deleted from Discount Punk.`;
+          } else {
+            return `Could not find video "${title}" in the videos section.`;
+          }
+        } catch (err) {
+          return `Failed to delete video: ${err instanceof Error ? err.message : 'Unknown error'}`;
         }
       }
 
