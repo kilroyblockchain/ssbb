@@ -86,6 +86,91 @@ They'll need to add this function to `src/services/secrets.ts` (similar to exist
 
 ---
 
+## STEP 0: Load Stripe & Printful Keys from AWS Secrets Manager
+
+**IMPORTANT:** Karen has stored all API keys securely in AWS Secrets Manager.
+
+**Secret Name:** `ssbb/stripe-printful`  
+**Region:** `us-east-1`  
+**Contains:**
+- `STRIPE_SECRET_KEY` (sk_test_...)
+- `STRIPE_PUBLISHABLE_KEY` (pk_test_...)  
+- `STRIPE_WEBHOOK_SECRET` (whsec_... - add this after webhook setup)
+- `PRINTFUL_API_KEY`
+
+### Implementation (Copy existing secrets.ts pattern)
+
+**1. Add to `apps/server/src/services/secrets.ts`:**
+
+```typescript
+type StripeSecretPayload = {
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_PUBLISHABLE_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  PRINTFUL_API_KEY?: string;
+};
+
+let stripeHydrated = false;
+
+export async function hydrateStripeConfig(): Promise<void> {
+  if (stripeHydrated) return;
+  
+  const secretId = 'ssbb/stripe-printful';
+  try {
+    const result = await client.send(
+      new GetSecretValueCommand({
+        SecretId: secretId,
+        VersionStage: 'AWSCURRENT'
+      })
+    );
+    const raw = result.SecretString ?? (result.SecretBinary ? Buffer.from(result.SecretBinary).toString('utf-8') : null);
+    if (!raw) return;
+    const data = JSON.parse(raw) as StripeSecretPayload;
+    
+    if (data.STRIPE_SECRET_KEY) process.env.STRIPE_SECRET_KEY = data.STRIPE_SECRET_KEY;
+    if (data.STRIPE_PUBLISHABLE_KEY) process.env.STRIPE_PUBLISHABLE_KEY = data.STRIPE_PUBLISHABLE_KEY;
+    if (data.STRIPE_WEBHOOK_SECRET) process.env.STRIPE_WEBHOOK_SECRET = data.STRIPE_WEBHOOK_SECRET;
+    if (data.PRINTFUL_API_KEY) process.env.PRINTFUL_API_KEY = data.PRINTFUL_API_KEY;
+    
+    stripeHydrated = true;
+    console.log('[stripe] Loaded keys from Secrets Manager (ssbb/stripe-printful).');
+  } catch (err) {
+    console.warn('[stripe] Failed to load secret:', (err as Error).message);
+  }
+}
+```
+
+**2. Call at startup in `apps/server/src/index.ts`:**
+
+```typescript
+import { hydrateStripeConfig } from './services/secrets.js';
+
+// Add near line 65-70 where Sora/Search hydration happens
+hydrateStripeConfig().catch((err) => {
+  console.warn('[stripe] initial hydrate failed:', err instanceof Error ? err.message : err);
+});
+```
+
+**3. Test it works:**
+```bash
+aws secretsmanager get-secret-value \
+  --secret-id ssbb/stripe-printful \
+  --region us-east-1 \
+  --query SecretString \
+  --output text | jq
+```
+
+**4. Update webhook secret after deployment:**
+```bash
+# After you create the Stripe webhook and get whsec_...
+aws secretsmanager update-secret \
+  --secret-id ssbb/stripe-printful \
+  --secret-string '{"STRIPE_SECRET_KEY":"sk_test_...","STRIPE_PUBLISHABLE_KEY":"pk_test_...","STRIPE_WEBHOOK_SECRET":"whsec_YOUR_NEW_SECRET","PRINTFUL_API_KEY":"..."}' \
+  --region us-east-1
+```
+
+---
+
 ## What Already Exists
 
 ### Backend (Node.js/TypeScript)
