@@ -10,9 +10,9 @@ Build the basic e-commerce checkout flow for Discount Punk so customers can purc
 
 ---
 
-## KAREN'S PRE-SPRINT TASKS (Tomorrow - May 2)
+## KAREN'S PRE-SPRINT TASKS (TODAY - May 1)
 
-These must be completed BEFORE the Replit sprint begins:
+These must be completed BEFORE the Replit sprint begins on May 2:
 
 ### 1. Set Up Google Analytics
 - [ ] Create Google Analytics 4 property for discountpunk.com
@@ -70,7 +70,7 @@ PRINTFUL_API_KEY=YOUR_KEY_HERE
 - [ ] Confirm with BotButt that everything looks good
 - [ ] Brief Replit team on brand voice and priorities
 
-**Status:** ⏳ Pending - Assigned to Karen for May 2, 2026
+**Status:** ⏳ Pending - Assigned to Karen for TODAY (May 1, 2026)
 
 ---
 
@@ -484,9 +484,9 @@ But first: **One product. One checkout. One paid order. One fulfilled shipment.*
 
 ## Sprint Timeline
 
-**May 2 (Tomorrow):** Karen completes pre-sprint tasks ✅  
-**May 3 (Sprint Day):** Replit team builds for 24 hours 🔥  
-**May 4:** Testing, first order, Printful fulfillment 📦  
-**May 5+:** Iterate, improve, add Loud Butt 📣
+**May 1 (TODAY):** Karen completes pre-sprint tasks ✅  
+**May 2 (SPRINT DAY):** Replit team builds for 24 hours 🔥  
+**May 3:** Testing, first order, Printful fulfillment 📦  
+**May 4+:** Iterate, improve, add Loud Butt 📣
 
 Let's make it real. 🔥
