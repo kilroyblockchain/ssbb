@@ -89,6 +89,9 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+// Discount Punk CMS routes (public API)
+app.use('/api/discountpunk', discountpunkRoutes);
+
 app.use(requireAuth);
 
 app.get('/api/memory', (req, res) => {
@@ -1128,9 +1131,6 @@ app.post('/api/harvest', async (req, res) => {
     res.status(500).json({ error: err.message || 'Harvest failed' });
   }
 });
-
-// Discount Punk CMS routes
-app.use('/api/discountpunk', discountpunkRoutes);
 
 app.get('/api/song-canvas', (req, res) => {
   const conversationIdParam = typeof req.query.conversationId === 'string' ? req.query.conversationId : null;
