@@ -48,8 +48,8 @@ export async function addProduct(product: Omit<Product, 'image' | 'link'>, image
 
       await writeBuffer(BUCKET, s3Key, generated.buffer, generated.contentType);
 
-      // Get public URL (presigned for 1 year)
-      imageUrl = await getPresignedUrl(BUCKET, s3Key, 31536000);
+      // Get public URL (presigned for 7 days - AWS max for signature v4)
+      imageUrl = await getPresignedUrl(BUCKET, s3Key, 604800);
       imagePath = imageUrl;
 
       console.log('[discountpunk] Image uploaded to S3:', s3Key);
