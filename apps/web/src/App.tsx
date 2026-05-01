@@ -1961,7 +1961,7 @@ function GalleryPanel({
   );
 
   const addToDiscountPunk = useCallback(
-    async (item: { key: string; name: string; type: 'image' | 'video' }) => {
+    async (item: { key: string; name: string; type: 'image' | 'video'; thumbUrl?: string }) => {
       if (item.type === 'image') {
         // Images go to comics
         const issue = prompt('Comic issue number:', '1');
@@ -1995,11 +1995,21 @@ function GalleryPanel({
         const description = prompt('Video description:');
         if (!description) return;
 
+        // Extract thumbnail key from thumbUrl if available
+        let thumbnailKey: string | undefined;
+        if (item.thumbUrl) {
+          // Extract S3 key from presigned URL or direct URL
+          const match = item.thumbUrl.match(/amazonaws\.com\/([^?]+)/);
+          if (match) {
+            thumbnailKey = decodeURIComponent(match[1]);
+          }
+        }
+
         try {
           const res = await fetch(`${API_BASE}/api/discountpunk/video`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders },
-            body: JSON.stringify({ title, description, videoKey: item.key }),
+            body: JSON.stringify({ title, description, videoKey: item.key, thumbnailKey }),
           });
           if (!res.ok) throw new Error('Failed to add video');
           alert(`✓ "${title}" added to Discount Punk videos!`);
@@ -2518,7 +2528,7 @@ function GalleryPanel({
                   >
                     {movieSel.some(i => i.key === video.key) ? '🎬✓' : '🎬+'}
                   </button>
-                  <button style={{ ...gBtn, background: 'rgba(255,107,219,.15)', borderColor: '#ff6bdb', color: '#ff6bdb' }} onClick={() => addToDiscountPunk({ key: video.key, name: video.name, type: 'video' })}>
+                  <button style={{ ...gBtn, background: 'rgba(255,107,219,.15)', borderColor: '#ff6bdb', color: '#ff6bdb' }} onClick={() => addToDiscountPunk({ key: video.key, name: video.name, type: 'video', thumbUrl: video.thumbUrl })}>
                     Add to Store
                   </button>
                   <button style={gBtn} onClick={() => handleDelete(video.key, 'video')}>Delete</button>
@@ -2586,7 +2596,7 @@ function GalleryPanel({
                     >
                       {movieSel.some(i => i.key === video.key) ? '🎬✓' : '🎬+'}
                     </button>
-                    <button style={{ ...gBtn, background: 'rgba(255,107,219,.15)', borderColor: '#ff6bdb', color: '#ff6bdb' }} onClick={() => addToDiscountPunk({ key: video.key, name: video.name, type: 'video' })}>
+                    <button style={{ ...gBtn, background: 'rgba(255,107,219,.15)', borderColor: '#ff6bdb', color: '#ff6bdb' }} onClick={() => addToDiscountPunk({ key: video.key, name: video.name, type: 'video', thumbUrl: video.thumbUrl })}>
                       Add to Store
                     </button>
                     <button style={gBtn} onClick={() => handleDelete(video.key, 'editedVideo')}>Delete</button>
