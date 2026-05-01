@@ -9,6 +9,11 @@ const IMAGES_PREFIX = 'discountpunk/images/';
 const PRODUCTS_PREFIX = 'discountpunk/products/';
 const COMICS_PREFIX = 'discountpunk/comics/';
 
+// Helper to convert S3 key to public URL (discountpunk/* is public)
+function getPublicUrl(key: string): string {
+  return `https://${BUCKET}.s3.amazonaws.com/${key}`;
+}
+
 type Product = {
   title: string;
   price: string;
@@ -62,7 +67,7 @@ export async function addProduct(
   // Use existing gallery image if provided
   if (existingImageKey) {
     try {
-      imageUrl = await getPresignedUrl(BUCKET, existingImageKey, 604800);
+      imageUrl = getPublicUrl(existingImageKey);
       imagePath = imageUrl;
       console.log('[discountpunk] Using existing image:', existingImageKey);
     } catch (err) {
@@ -79,7 +84,7 @@ export async function addProduct(
       await writeBuffer(BUCKET, s3Key, generated.buffer, generated.contentType);
 
       // Get public URL (presigned for 7 days - AWS max for signature v4)
-      imageUrl = await getPresignedUrl(BUCKET, s3Key, 604800);
+      imageUrl = getPublicUrl(s3Key);
       imagePath = imageUrl;
 
       console.log('[discountpunk] Image uploaded to S3:', s3Key);
@@ -180,7 +185,7 @@ export async function createComicPage(
   if (coverImageKey) {
     // Use existing gallery image
     try {
-      coverPath = await getPresignedUrl(BUCKET, coverImageKey, 604800);
+      coverPath = getPublicUrl(coverImageKey);
       coverKey = coverImageKey;
       console.log('[discountpunk] Using existing cover image:', coverImageKey);
     } catch (err) {
@@ -197,7 +202,7 @@ export async function createComicPage(
       await writeBuffer(BUCKET, s3Key, generated.buffer, generated.contentType);
 
       // Get public URL (presigned for 7 days)
-      coverPath = await getPresignedUrl(BUCKET, s3Key, 604800);
+      coverPath = getPublicUrl(s3Key);
 
       console.log('[discountpunk] Comic cover uploaded to S3:', s3Key);
     } catch (err) {
@@ -291,9 +296,9 @@ export async function addVideo(video: {
   thumbnailKey?: string;
 }): Promise<Video> {
   // Get presigned URLs for video and thumbnail
-  const videoUrl = await getPresignedUrl(BUCKET, video.videoKey, 604800);
+  const videoUrl = getPublicUrl(video.videoKey);
   const thumbnailUrl = video.thumbnailKey
-    ? await getPresignedUrl(BUCKET, video.thumbnailKey, 604800)
+    ? getPublicUrl(video.thumbnailKey)
     : undefined;
 
   const fullVideo: Video = {
