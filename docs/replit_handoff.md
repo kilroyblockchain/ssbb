@@ -14,25 +14,14 @@ Build the basic e-commerce checkout flow for Discount Punk so customers can purc
 
 These must be completed BEFORE the Replit sprint begins on May 2:
 
-### 1. Set Up Google Analytics
-- [ ] Create Google Analytics 4 property for discountpunk.com
-- [ ] Get measurement ID (format: `G-XXXXXXXXXX`)
-- [ ] Replace placeholder `G-XXXXXXXXXX` in all 5 HTML files:
-  - `index.html`
-  - `shop.html`
-  - `comics.html`
-  - `videos.html`
-  - `about.html`
-- [ ] Commit and push changes
-- [ ] Verify tracking in GA dashboard
+### 1. ✅ COMPLETED: Google Search Console & Sitemap
+- [x] Add discountpunk.com as a property
+- [x] Add DNS TXT verification record
+- [x] Submit sitemap: `https://discountpunk.com/sitemap.xml`
+- [x] Verify sitemap is accepted
+- **Note:** Using Google Search Console instead of GA
 
-### 2. Submit Sitemap to Google
-- [ ] Go to [Google Search Console](https://search.google.com/search-console)
-- [ ] Add discountpunk.com as a property
-- [ ] Submit sitemap: `https://discountpunk.com/sitemap.xml`
-- [ ] Verify sitemap is accepted
-
-### 3. Set Up Stripe Account
+### 2. Set Up Stripe Account
 - [ ] Create Stripe account (if not already created)
 - [ ] Get test API keys:
   - Publishable key: `pk_test_...`
@@ -41,13 +30,13 @@ These must be completed BEFORE the Replit sprint begins on May 2:
 - [ ] Get webhook secret: `whsec_...`
 - [ ] Enable Stripe Tax or explicitly defer
 
-### 4. Set Up Printful Account
+### 3. Set Up Printful Account
 - [ ] Create Printful account at [printful.com](https://www.printful.com)
 - [ ] Generate API key from Settings → API
 - [ ] Browse product catalog (Bella+Canvas 3001 recommended for tees)
 - [ ] Note: We'll upload "Eat My Ass Tee" design during sprint
 
-### 5. Prepare Environment Variables
+### 4. Prepare Environment Variables
 Create a file to give to Replit team with these filled in:
 
 ```bash
@@ -64,7 +53,7 @@ PRINTFUL_API_KEY=YOUR_KEY_HERE
 # FROM_EMAIL=orders@discountpunk.com
 ```
 
-### 6. Review & Approve Plan
+### 5. Review & Approve Plan
 - [ ] Read full Replit expansion plan: `docs/replit_expansion.md`
 - [ ] Review handoff document: `docs/replit_handoff.md`
 - [ ] Confirm with BotButt that everything looks good
