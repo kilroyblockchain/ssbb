@@ -24,9 +24,17 @@ type Video = {
   thumbnailUrl?: string;
 };
 
+type Comic = {
+  issue: number;
+  title: string;
+  coverUrl: string;
+  pageUrl: string;
+};
+
 type ContentData = {
   featured: Product[];
   videos?: Video[];
+  comics?: Comic[];
 };
 
 export async function readContent(): Promise<ContentData> {
@@ -158,22 +166,43 @@ export async function createProductPage(product: Product, fullDescription: strin
   return `/products/${filename}`;
 }
 
-export async function createComicPage(issue: number, title: string, coverImagePrompt: string, content: string): Promise<string> {
-  // Generate cover image
+export async function createComicPage(
+  issue: number,
+  title: string,
+  coverImagePrompt: string | undefined,
+  coverImageKey: string | undefined,
+  content: string
+): Promise<string> {
+  // Use existing image or generate new one
   let coverPath = '/images/placeholder-comic.jpg';
-  try {
-    const generated = await generateNyxImage(coverImagePrompt, 'gpt-image-2');
-    const filename = `comic-${issue}-cover.png`;
-    const s3Key = `${IMAGES_PREFIX}${filename}`;
+  let coverKey = '';
 
-    await writeBuffer(BUCKET, s3Key, generated.buffer, generated.contentType);
+  if (coverImageKey) {
+    // Use existing gallery image
+    try {
+      coverPath = await getPresignedUrl(BUCKET, coverImageKey, 604800);
+      coverKey = coverImageKey;
+      console.log('[discountpunk] Using existing cover image:', coverImageKey);
+    } catch (err) {
+      console.error('[discountpunk] Failed to get existing cover image:', err);
+    }
+  } else if (coverImagePrompt) {
+    // Generate new cover image
+    try {
+      const generated = await generateNyxImage(coverImagePrompt, 'gpt-image-2');
+      const filename = `comic-${issue}-cover.png`;
+      const s3Key = `${IMAGES_PREFIX}${filename}`;
+      coverKey = s3Key;
 
-    // Get public URL (presigned for 1 year)
-    coverPath = await getPresignedUrl(BUCKET, s3Key, 31536000);
+      await writeBuffer(BUCKET, s3Key, generated.buffer, generated.contentType);
 
-    console.log('[discountpunk] Comic cover uploaded to S3:', s3Key);
-  } catch (err) {
-    console.error('[discountpunk] Comic cover generation failed:', err);
+      // Get public URL (presigned for 7 days)
+      coverPath = await getPresignedUrl(BUCKET, s3Key, 604800);
+
+      console.log('[discountpunk] Comic cover uploaded to S3:', s3Key);
+    } catch (err) {
+      console.error('[discountpunk] Comic cover generation failed:', err);
+    }
   }
 
   const filename = `issue-${String(issue).padStart(2, '0')}.html`;
@@ -236,6 +265,21 @@ export async function createComicPage(issue: number, title: string, coverImagePr
 
   await writeObject(BUCKET, s3Key, html, 'text/html');
   console.log('[discountpunk] Comic page created in S3:', s3Key);
+
+  // Add comic to content.json
+  const comicEntry: Comic = {
+    issue,
+    title,
+    coverUrl: coverPath,
+    pageUrl: `/comics/${filename}`
+  };
+
+  const contentData = await readContent();
+  if (!contentData.comics) contentData.comics = [];
+  contentData.comics.push(comicEntry);
+  // Sort by issue number
+  contentData.comics.sort((a, b) => a.issue - b.issue);
+  await writeContent(contentData);
 
   return `/comics/${filename}`;
 }

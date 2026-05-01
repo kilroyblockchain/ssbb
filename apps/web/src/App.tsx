@@ -1962,28 +1962,36 @@ function GalleryPanel({
 
   const addToDiscountPunk = useCallback(
     async (item: { key: string; name: string; type: 'image' | 'video' }) => {
-      const title = prompt(`Add "${item.name}" to Discount Punk\n\nProduct/Video title:`, item.name);
-      if (!title) return;
-
       if (item.type === 'image') {
-        const price = prompt('Price (e.g., $35.00):', '$35.00');
-        if (!price) return;
-        const description = prompt('Short description:');
-        if (!description) return;
+        // Images go to comics
+        const issue = prompt('Comic issue number:', '1');
+        if (!issue) return;
+        const title = prompt('Comic title:', item.name);
+        if (!title) return;
+        const content = prompt('Comic content (HTML supported):');
+        if (!content) return;
 
         try {
-          const res = await fetch(`${API_BASE}/api/discountpunk/product`, {
+          const res = await fetch(`${API_BASE}/api/discountpunk/comic`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders },
-            body: JSON.stringify({ title, price, description, existingImageKey: item.key }),
+            body: JSON.stringify({
+              issue: parseInt(issue),
+              title,
+              coverImageKey: item.key,
+              content
+            }),
           });
-          if (!res.ok) throw new Error('Failed to add product');
-          alert(`✓ "${title}" added to Discount Punk shop!`);
+          if (!res.ok) throw new Error('Failed to add comic');
+          alert(`✓ Comic #${issue} "${title}" added to Discount Punk!`);
         } catch (err) {
           console.warn('[discount punk add]', err);
-          alert('Could not add to Discount Punk.');
+          alert('Could not add comic to Discount Punk.');
         }
       } else if (item.type === 'video') {
+        // Videos go to videos page
+        const title = prompt('Video title:', item.name);
+        if (!title) return;
         const description = prompt('Video description:');
         if (!description) return;
 
@@ -1997,7 +2005,7 @@ function GalleryPanel({
           alert(`✓ "${title}" added to Discount Punk videos!`);
         } catch (err) {
           console.warn('[discount punk add]', err);
-          alert('Could not add to Discount Punk.');
+          alert('Could not add video to Discount Punk.');
         }
       }
     },
@@ -2356,7 +2364,7 @@ function GalleryPanel({
                   Download
                 </a>
                 <button style={{ ...gBtn, background: 'rgba(255,107,219,.15)', borderColor: '#ff6bdb', color: '#ff6bdb' }} onClick={() => addToDiscountPunk({ key: img.key, name: img.name || 'Character', type: 'image' })}>
-                  Add to DP
+                  Add to Store
                 </button>
                 <button style={gBtn} onClick={() => handleRenameCharacter(img)}>Rename</button>
                 <button style={gBtn} onClick={() => handleDelete(img.key, 'character')}>Delete</button>
@@ -2508,7 +2516,7 @@ function GalleryPanel({
                     {movieSel.some(i => i.key === video.key) ? '🎬✓' : '🎬+'}
                   </button>
                   <button style={{ ...gBtn, background: 'rgba(255,107,219,.15)', borderColor: '#ff6bdb', color: '#ff6bdb' }} onClick={() => addToDiscountPunk({ key: video.key, name: video.name, type: 'video' })}>
-                    Add to DP
+                    Add to Store
                   </button>
                   <button style={gBtn} onClick={() => handleDelete(video.key, 'video')}>Delete</button>
                 </div>
@@ -2576,7 +2584,7 @@ function GalleryPanel({
                       {movieSel.some(i => i.key === video.key) ? '🎬✓' : '🎬+'}
                     </button>
                     <button style={{ ...gBtn, background: 'rgba(255,107,219,.15)', borderColor: '#ff6bdb', color: '#ff6bdb' }} onClick={() => addToDiscountPunk({ key: video.key, name: video.name, type: 'video' })}>
-                      Add to DP
+                      Add to Store
                     </button>
                     <button style={gBtn} onClick={() => handleDelete(video.key, 'editedVideo')}>Delete</button>
                   </div>

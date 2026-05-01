@@ -39,13 +39,17 @@ router.post('/product', async (req, res) => {
 // Create a comic issue
 router.post('/comic', async (req, res) => {
   try {
-    const { issue, title, coverImagePrompt, content } = req.body;
+    const { issue, title, coverImagePrompt, coverImageKey, content } = req.body;
 
-    if (!issue || !title || !coverImagePrompt || !content) {
-      return res.status(400).json({ error: 'Missing required fields: issue, title, coverImagePrompt, content' });
+    if (!issue || !title || !content) {
+      return res.status(400).json({ error: 'Missing required fields: issue, title, content' });
     }
 
-    const pageUrl = await createComicPage(issue, title, coverImagePrompt, content);
+    if (!coverImagePrompt && !coverImageKey) {
+      return res.status(400).json({ error: 'Must provide either coverImagePrompt or coverImageKey' });
+    }
+
+    const pageUrl = await createComicPage(issue, title, coverImagePrompt, coverImageKey, content);
     res.json({ success: true, pageUrl });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to create comic' });
