@@ -28,6 +28,7 @@ import { launchSoraJob } from './services/sora.js';
 import { hydrateSoraConfig, hydrateSearchConfig } from './services/secrets.js';
 import { stitchItems, mixAudio, type StitchItem, type AudioRegion } from './services/stitch.js';
 import { generateNyxImage } from './services/image-generator.js';
+import discountpunkRoutes from './routes/discountpunk.js';
 
 dotenv.config();
 
@@ -38,7 +39,27 @@ const PORT = config.port;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
-app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
+
+// Allow CORS from both SSBB client and Discount Punk site
+const allowedOrigins = [
+  CLIENT_ORIGIN,
+  'https://red-water-05c15131e.7.azurestaticapps.net',
+  'https://red-water-05c15131e-preview.westus2.7.azurestaticapps.net',
+  'https://discountpunk.com',
+  'https://www.discountpunk.com'
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, false);
+    }
+  },
+  credentials: true
+}));
+
 app.use(express.json({ limit: '20mb' }));  // large enough for base64 images
 
 hydrateSoraConfig().catch((err) => {
@@ -1107,6 +1128,9 @@ app.post('/api/harvest', async (req, res) => {
     res.status(500).json({ error: err.message || 'Harvest failed' });
   }
 });
+
+// Discount Punk CMS routes
+app.use('/api/discountpunk', discountpunkRoutes);
 
 app.get('/api/song-canvas', (req, res) => {
   const conversationIdParam = typeof req.query.conversationId === 'string' ? req.query.conversationId : null;

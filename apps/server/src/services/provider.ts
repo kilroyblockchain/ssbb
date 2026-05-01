@@ -3,6 +3,7 @@ import type { ConversationMessage } from './conversations.js';
 import { converseWithBedrock, type ImageAttachment } from './bedrock.js';
 import { webSearch, isSearchConfigured } from './search.js';
 import { config } from '../config.js';
+import { addProduct, createComicPage } from './discountpunk.js';
 
 type GalleryIndex = {
   videos?: Array<{ key?: string; name: string; prompt?: string; starred?: boolean }>;
@@ -202,6 +203,35 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     '',
     ...attachmentLines,
     '',
+    '## Discount Punk - Your Website Management Powers',
+    'You now manage discountpunk.com — the official SSBB fake merch/comic/video site!',
+    'Live at: https://red-water-05c15131e-preview.westus2.7.azurestaticapps.net',
+    '',
+    'You have tools to create content for the site:',
+    '',
+    '### add_product',
+    'Creates a new product listing on the shop.',
+    'Parameters:',
+    '  • title: Product name (e.g., "SSBB Logo Tee")',
+    '  • price: Fake price (e.g., "$24.99")',
+    '  • description: Short description for the shop grid',
+    '  • imagePrompt: (optional) Prompt to generate product image',
+    '  • fullDescription: (optional) Longer description for dedicated product page',
+    '',
+    'When someone asks you to add merch, create a product, or make something for the shop — use this tool!',
+    '',
+    '### create_comic',
+    'Creates a new comic book issue with cover art.',
+    'Parameters:',
+    '  • issue: Issue number (e.g., 1, 2, 3)',
+    '  • title: Episode title (e.g., "Origin Story")',
+    '  • coverImagePrompt: Prompt for cover art generation',
+    '  • content: HTML content for the comic pages (use <div>, <p>, <img> tags with punk styling)',
+    '',
+    'When someone asks you to make a comic, write an issue, or create a story — use this tool!',
+    '',
+    'IMPORTANT: When any Butt Bitch asks you to add something to Discount Punk, create merch, make a comic, or populate the shop — DO IT using these tools. Do not tell them to do it themselves. You are the site manager.',
+    '',
     '## Project State',
     projectSummary,
     '',
@@ -213,8 +243,49 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
   ].join('\n');
 
   console.log('[provider] isSearchConfigured:', isSearchConfigured(), '| googleApiKey:', !!config.search.googleApiKey, '| googleCx:', !!config.search.googleCx, '| serpApiKey:', !!config.search.serpApiKey, '| braveApiKey:', !!config.search.braveApiKey);
-  const tools = isSearchConfigured() ? [
+
+  const tools: Array<{
+    name: string;
+    description: string;
+    inputSchema: {
+      type: string;
+      properties: Record<string, any>;
+      required: string[];
+    };
+  }> = [
     {
+      name: 'add_product',
+      description: 'Add a new product to the Discount Punk shop. Use this when asked to create merch, add a product, or make something for the shop.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Product name' },
+          price: { type: 'string', description: 'Fake price (e.g., "$24.99")' },
+          description: { type: 'string', description: 'Short description for shop grid' },
+          imagePrompt: { type: 'string', description: 'Optional: prompt to generate product image' },
+          fullDescription: { type: 'string', description: 'Optional: longer description for dedicated product page' }
+        },
+        required: ['title', 'price', 'description']
+      }
+    },
+    {
+      name: 'create_comic',
+      description: 'Create a new comic book issue for Discount Punk. Use this when asked to make a comic, write an issue, or create a story.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          issue: { type: 'number', description: 'Issue number (1, 2, 3, etc.)' },
+          title: { type: 'string', description: 'Episode title' },
+          coverImagePrompt: { type: 'string', description: 'Prompt for cover art generation' },
+          content: { type: 'string', description: 'HTML content for comic pages (use styled divs and paragraphs)' }
+        },
+        required: ['issue', 'title', 'coverImagePrompt', 'content']
+      }
+    }
+  ];
+
+  if (isSearchConfigured()) {
+    tools.push({
       name: 'web_search',
       description: 'Search the web for current information. Use this when asked about recent news, facts you might not know, or anything that benefits from a live search.',
       inputSchema: {
@@ -224,8 +295,8 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
         },
         required: ['query']
       }
-    }
-  ] : undefined;
+    });
+  }
 
   return converseWithBedrock({
     history: ctx.history,
@@ -241,6 +312,27 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
         if (!results.length) return 'No results found.';
         return results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join('\n\n');
       }
+
+      if (name === 'add_product') {
+        try {
+          const { title, price, description, imagePrompt, fullDescription } = input as any;
+          const product = await addProduct({ title, price, description }, imagePrompt);
+          return `Product created! "${title}" is now live on Discount Punk. Image: ${product.image}, Link: ${product.link}`;
+        } catch (err) {
+          return `Failed to add product: ${err instanceof Error ? err.message : 'Unknown error'}`;
+        }
+      }
+
+      if (name === 'create_comic') {
+        try {
+          const { issue, title, coverImagePrompt, content } = input as any;
+          const pageUrl = await createComicPage(issue, title, coverImagePrompt, content);
+          return `Comic created! Issue #${issue} "${title}" is now live at: ${pageUrl}`;
+        } catch (err) {
+          return `Failed to create comic: ${err instanceof Error ? err.message : 'Unknown error'}`;
+        }
+      }
+
       return `Unknown tool: ${name}`;
     }
   });
