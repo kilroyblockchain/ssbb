@@ -358,7 +358,7 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
       if (name === 'create_comic') {
         try {
           const { issue, title, coverImagePrompt, content } = input as any;
-          const pageUrl = await createComicPage(issue, title, coverImagePrompt, content);
+          const pageUrl = await createComicPage(issue, title, coverImagePrompt, undefined, content);
           return `Comic created! Issue #${issue} "${title}" is now live at: ${pageUrl}`;
         } catch (err) {
           return `Failed to create comic: ${err instanceof Error ? err.message : 'Unknown error'}`;
