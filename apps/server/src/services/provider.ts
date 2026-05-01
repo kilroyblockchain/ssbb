@@ -3,7 +3,7 @@ import type { ConversationMessage } from './conversations.js';
 import { converseWithBedrock, type ImageAttachment } from './bedrock.js';
 import { webSearch, isSearchConfigured } from './search.js';
 import { config } from '../config.js';
-import { addProduct, createComicPage, deleteProduct, deleteVideo } from './discountpunk.js';
+import { addProduct, createComicPage, deleteProduct, deleteVideo, deleteComic } from './discountpunk.js';
 
 type GalleryIndex = {
   videos?: Array<{ key?: string; name: string; prompt?: string; starred?: boolean }>;
@@ -240,6 +240,11 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     'Parameters:',
     '  • title: Exact video title to delete',
     '',
+    '### delete_comic',
+    'Deletes a comic from the comics section by its exact title.',
+    'Parameters:',
+    '  • title: Exact comic title to delete',
+    '',
     'IMPORTANT: When any Butt Bitch asks you to add something to Discount Punk, create merch, make a comic, populate the shop, or DELETE something from the shop — DO IT using these tools. Do not tell them to do it themselves. You are the site manager.',
     '',
     '## Project State',
@@ -310,6 +315,17 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
         type: 'object',
         properties: {
           title: { type: 'string', description: 'Exact video title to delete' }
+        },
+        required: ['title']
+      }
+    },
+    {
+      name: 'delete_comic',
+      description: 'Delete a comic from the Discount Punk comics section by its exact title. Use this when asked to remove or delete a comic.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Exact comic title to delete' }
         },
         required: ['title']
       }
@@ -390,6 +406,20 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
           }
         } catch (err) {
           return `Failed to delete video: ${err instanceof Error ? err.message : 'Unknown error'}`;
+        }
+      }
+
+      if (name === 'delete_comic') {
+        try {
+          const { title } = input as any;
+          const deleted = await deleteComic(title);
+          if (deleted) {
+            return `Comic "${title}" has been deleted from Discount Punk.`;
+          } else {
+            return `Could not find comic "${title}" in the comics section.`;
+          }
+        } catch (err) {
+          return `Failed to delete comic: ${err instanceof Error ? err.message : 'Unknown error'}`;
         }
       }
 

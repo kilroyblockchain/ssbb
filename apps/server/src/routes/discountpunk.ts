@@ -1,5 +1,5 @@
 import express from 'express';
-import { readContent, addProduct, createProductPage, createComicPage, addVideo, deleteProduct, deleteVideo } from '../services/discountpunk.js';
+import { readContent, addProduct, createProductPage, createComicPage, addVideo, deleteProduct, deleteVideo, deleteComic } from '../services/discountpunk.js';
 
 const router = express.Router();
 
@@ -101,6 +101,22 @@ router.delete('/video/:title', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to delete video' });
+  }
+});
+
+// Delete a comic by title
+router.delete('/comic/:title', async (req, res) => {
+  try {
+    const { title } = req.params;
+    const deleted = await deleteComic(decodeURIComponent(title));
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Comic not found' });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to delete comic' });
   }
 });
 

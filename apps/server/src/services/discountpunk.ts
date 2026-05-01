@@ -341,3 +341,19 @@ export async function deleteVideo(title: string): Promise<boolean> {
   console.log('[discountpunk] Video deleted:', title);
   return true;
 }
+
+export async function deleteComic(title: string): Promise<boolean> {
+  const content = await readContent();
+  if (!content.comics) return false;
+
+  const initialLength = content.comics.length;
+  content.comics = content.comics.filter(c => c.title !== title);
+
+  if (content.comics.length === initialLength) {
+    return false; // Nothing was deleted
+  }
+
+  await writeContent(content);
+  console.log('[discountpunk] Comic deleted:', title);
+  return true;
+}
