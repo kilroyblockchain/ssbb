@@ -364,10 +364,15 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
       if (name === 'add_product') {
         try {
           const { title, price, description, imagePrompt, fullDescription } = input as any;
+          console.log('[provider] add_product starting:', { title });
           const product = await addProduct({ title, price, description }, imagePrompt);
+          console.log('[provider] add_product success:', { title, image: product.image });
           return `Product created! "${title}" is now live on Discount Punk. Image: ${product.image}, Link: ${product.link}`;
         } catch (err) {
-          return `Failed to add product: ${err instanceof Error ? err.message : 'Unknown error'}`;
+          const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+          const errorStack = err instanceof Error ? err.stack : '';
+          console.error('[provider] add_product failed:', { title: (input as any).title, error: errorMsg, stack: errorStack });
+          return `Failed to add product "${(input as any).title}": ${errorMsg}. This might be due to image generation timing out or Azure OpenAI throttling. You can try again, or ask the user to generate an image in the gallery first and then use "Add to Store".`;
         }
       }
 

@@ -128,11 +128,18 @@ export async function generateNyxImage(
   const failures: string[] = [];
   for (const endpoint of endpoints) {
     try {
-      return await generateFromEndpoint(endpoint);
+      console.log(`[image-generator] Attempting ${endpoint.name}...`);
+      const result = await generateFromEndpoint(endpoint);
+      console.log(`[image-generator] ✓ ${endpoint.name} succeeded`);
+      return result;
     } catch (err) {
-      failures.push(err instanceof Error ? err.message : `${endpoint.name} failed`);
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      console.error(`[image-generator] ✗ ${endpoint.name} failed:`, errorMsg);
+      failures.push(`${endpoint.name}: ${errorMsg}`);
     }
   }
 
-  throw new Error(failures.join(' | ') || 'All image generation endpoints failed');
+  const fullError = failures.join(' | ') || 'All image generation endpoints failed';
+  console.error('[image-generator] All endpoints exhausted:', fullError);
+  throw new Error(fullError);
 }
