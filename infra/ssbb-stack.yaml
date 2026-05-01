@@ -43,8 +43,17 @@ Parameters:
       {"GOOGLE_SEARCH_API_KEY":"...","GOOGLE_SEARCH_CX":"...","SERP_API_KEY":"..."}.
       Leave blank to disable BotButt web search.
 
+  AzureImageKeysSecretArn:
+    Type: String
+    Default: ''
+    Description: >
+      ARN of a Secrets Manager secret containing Azure image generation keys as JSON:
+      {"GPT_IMAGE_1_5_URI":"...","GPT_IMAGE_1_5_KEY":"...","GPT_IMAGE_2_URI":"...","GPT_IMAGE_2_KEY":"..."}.
+      Leave blank to disable BotButt image generation for Discount Punk.
+
 Conditions:
   HasSearchKeys: !Not [!Equals [!Ref SearchKeysSecretArn, '']]
+  HasAzureImageKeys: !Not [!Equals [!Ref AzureImageKeysSecretArn, '']]
 
 # ── Resources ─────────────────────────────────────────────────────────────────
 Resources:
@@ -303,15 +312,42 @@ Resources:
               Value: !Ref BedrockModelId
             - Name: NODE_ENV
               Value: production
-          Secrets: !If
-            - HasSearchKeys
-            - - Name: GOOGLE_SEARCH_API_KEY
-                ValueFrom: !Sub '${SearchKeysSecretArn}:GOOGLE_SEARCH_API_KEY::'
-              - Name: GOOGLE_SEARCH_CX
-                ValueFrom: !Sub '${SearchKeysSecretArn}:GOOGLE_SEARCH_CX::'
-              - Name: SERP_API_KEY
-                ValueFrom: !Sub '${SearchKeysSecretArn}:SERP_API_KEY::'
-            - !Ref AWS::NoValue
+          Secrets:
+            Fn::If:
+              - HasSearchKeys
+              - Fn::If:
+                  - HasAzureImageKeys
+                  - - Name: GOOGLE_SEARCH_API_KEY
+                      ValueFrom: !Sub '${SearchKeysSecretArn}:GOOGLE_SEARCH_API_KEY::'
+                    - Name: GOOGLE_SEARCH_CX
+                      ValueFrom: !Sub '${SearchKeysSecretArn}:GOOGLE_SEARCH_CX::'
+                    - Name: SERP_API_KEY
+                      ValueFrom: !Sub '${SearchKeysSecretArn}:SERP_API_KEY::'
+                    - Name: GPT_IMAGE_1_5_URI
+                      ValueFrom: !Sub '${AzureImageKeysSecretArn}:GPT_IMAGE_1_5_URI::'
+                    - Name: GPT_IMAGE_1_5_KEY
+                      ValueFrom: !Sub '${AzureImageKeysSecretArn}:GPT_IMAGE_1_5_KEY::'
+                    - Name: GPT_IMAGE_2_URI
+                      ValueFrom: !Sub '${AzureImageKeysSecretArn}:GPT_IMAGE_2_URI::'
+                    - Name: GPT_IMAGE_2_KEY
+                      ValueFrom: !Sub '${AzureImageKeysSecretArn}:GPT_IMAGE_2_KEY::'
+                  - - Name: GOOGLE_SEARCH_API_KEY
+                      ValueFrom: !Sub '${SearchKeysSecretArn}:GOOGLE_SEARCH_API_KEY::'
+                    - Name: GOOGLE_SEARCH_CX
+                      ValueFrom: !Sub '${SearchKeysSecretArn}:GOOGLE_SEARCH_CX::'
+                    - Name: SERP_API_KEY
+                      ValueFrom: !Sub '${SearchKeysSecretArn}:SERP_API_KEY::'
+              - Fn::If:
+                  - HasAzureImageKeys
+                  - - Name: GPT_IMAGE_1_5_URI
+                      ValueFrom: !Sub '${AzureImageKeysSecretArn}:GPT_IMAGE_1_5_URI::'
+                    - Name: GPT_IMAGE_1_5_KEY
+                      ValueFrom: !Sub '${AzureImageKeysSecretArn}:GPT_IMAGE_1_5_KEY::'
+                    - Name: GPT_IMAGE_2_URI
+                      ValueFrom: !Sub '${AzureImageKeysSecretArn}:GPT_IMAGE_2_URI::'
+                    - Name: GPT_IMAGE_2_KEY
+                      ValueFrom: !Sub '${AzureImageKeysSecretArn}:GPT_IMAGE_2_KEY::'
+                  - !Ref AWS::NoValue
           LogConfiguration:
             LogDriver: awslogs
             Options:
