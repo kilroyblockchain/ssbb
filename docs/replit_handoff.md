@@ -36,22 +36,35 @@ These must be completed BEFORE the Replit sprint begins on May 2:
 - [ ] Browse product catalog (Bella+Canvas 3001 recommended for tees)
 - [ ] Note: We'll upload "Eat My Ass Tee" design during sprint
 
-### 4. Prepare Environment Variables
-Create a file to give to Replit team with these filled in:
+### 4. Store API Keys in AWS Secrets Manager (SECURE)
+**Don't share raw keys!** Store them securely in AWS Secrets Manager.
+
+**Steps:**
+1. Get your Stripe keys (test mode)
+2. Get your Printful API key
+3. Update the AWS secret:
 
 ```bash
-# Stripe
-STRIPE_SECRET_KEY=sk_test_YOUR_KEY_HERE
-STRIPE_WEBHOOK_SECRET=whsec_YOUR_SECRET_HERE
-STRIPE_PUBLISHABLE_KEY=pk_test_YOUR_KEY_HERE
-
-# Printful
-PRINTFUL_API_KEY=YOUR_KEY_HERE
-
-# Email (for order confirmations - optional for MVP)
-# SENDGRID_API_KEY=YOUR_KEY_HERE
-# FROM_EMAIL=orders@discountpunk.com
+aws secretsmanager update-secret \
+  --secret-id ssbb/stripe-printful \
+  --secret-string '{
+    "STRIPE_SECRET_KEY": "sk_test_YOUR_ACTUAL_KEY",
+    "STRIPE_PUBLISHABLE_KEY": "pk_test_YOUR_ACTUAL_KEY",
+    "STRIPE_WEBHOOK_SECRET": "whsec_GET_AFTER_DEPLOY",
+    "PRINTFUL_API_KEY": "YOUR_ACTUAL_KEY"
+  }' \
+  --region us-east-1
 ```
+
+**Replit team will:**
+- Access the secret via IAM role (no keys shared)
+- Secret name: `ssbb/stripe-printful`
+- Region: `us-east-1`
+
+**To give Replit team safe access:**
+Just share the secret name: `ssbb/stripe-printful`
+
+They'll need to add this function to `src/services/secrets.ts` (similar to existing Sora/Search secrets)
 
 ### 5. Review & Approve Plan
 - [ ] Read full Replit expansion plan: `docs/replit_expansion.md`
