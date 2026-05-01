@@ -171,10 +171,10 @@ export async function converseWithBedrock(opts: ChatOptions): Promise<string> {
     : undefined;
 
   // Multi-region failover wrapper
-  async function sendToBedrockWithFailover(command: any): Promise<any> {
+  async function sendToBedrockWithFailover(clientPool: BedrockClientPool, command: any): Promise<any> {
     let lastError: any = null;
     for (const region of BEDROCK_REGIONS) {
-      const client = pool.clients.get(region);
+      const client = clientPool.clients.get(region);
       if (!client) continue;
       try {
         const resp = await client.send(command);
@@ -200,6 +200,7 @@ export async function converseWithBedrock(opts: ChatOptions): Promise<string> {
   // Tool use loop — Bedrock may request one or more tool calls before giving a final text response
   for (let round = 0; round < 5; round++) {
     const resp = await sendToBedrockWithFailover(
+      pool,
       new pool.ConverseCommand({
         modelId: config.bedrockModelId,
         messages,
