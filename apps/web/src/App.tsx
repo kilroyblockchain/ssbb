@@ -1960,6 +1960,50 @@ function GalleryPanel({
     [authHeaders, fetchGallery]
   );
 
+  const addToDiscountPunk = useCallback(
+    async (item: { key: string; name: string; type: 'image' | 'video' }) => {
+      const title = prompt(`Add "${item.name}" to Discount Punk\n\nProduct/Video title:`, item.name);
+      if (!title) return;
+
+      if (item.type === 'image') {
+        const price = prompt('Price (e.g., $35.00):', '$35.00');
+        if (!price) return;
+        const description = prompt('Short description:');
+        if (!description) return;
+
+        try {
+          const res = await fetch(`${API_BASE}/api/discountpunk/product`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders },
+            body: JSON.stringify({ title, price, description, existingImageKey: item.key }),
+          });
+          if (!res.ok) throw new Error('Failed to add product');
+          alert(`✓ "${title}" added to Discount Punk shop!`);
+        } catch (err) {
+          console.warn('[discount punk add]', err);
+          alert('Could not add to Discount Punk.');
+        }
+      } else if (item.type === 'video') {
+        const description = prompt('Video description:');
+        if (!description) return;
+
+        try {
+          const res = await fetch(`${API_BASE}/api/discountpunk/video`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders },
+            body: JSON.stringify({ title, description, videoKey: item.key }),
+          });
+          if (!res.ok) throw new Error('Failed to add video');
+          alert(`✓ "${title}" added to Discount Punk videos!`);
+        } catch (err) {
+          console.warn('[discount punk add]', err);
+          alert('Could not add to Discount Punk.');
+        }
+      }
+    },
+    [authHeaders]
+  );
+
   const handleMove = useCallback(
     async (payload: { key: string; from: 'character' | 'canvasAsset'; to: 'character' | 'canvasAsset'; title: string }) => {
       setMovingImage(true);
@@ -2311,6 +2355,9 @@ function GalleryPanel({
                 <a style={{ ...gBtn, textDecoration: 'none' }} href={img.url} target="_blank" rel="noopener noreferrer" download={img.name || 'character.png'}>
                   Download
                 </a>
+                <button style={{ ...gBtn, background: 'rgba(255,107,219,.15)', borderColor: '#ff6bdb', color: '#ff6bdb' }} onClick={() => addToDiscountPunk({ key: img.key, name: img.name || 'Character', type: 'image' })}>
+                  Add to DP
+                </button>
                 <button style={gBtn} onClick={() => handleRenameCharacter(img)}>Rename</button>
                 <button style={gBtn} onClick={() => handleDelete(img.key, 'character')}>Delete</button>
               </div>
@@ -2460,6 +2507,9 @@ function GalleryPanel({
                   >
                     {movieSel.some(i => i.key === video.key) ? '🎬✓' : '🎬+'}
                   </button>
+                  <button style={{ ...gBtn, background: 'rgba(255,107,219,.15)', borderColor: '#ff6bdb', color: '#ff6bdb' }} onClick={() => addToDiscountPunk({ key: video.key, name: video.name, type: 'video' })}>
+                    Add to DP
+                  </button>
                   <button style={gBtn} onClick={() => handleDelete(video.key, 'video')}>Delete</button>
                 </div>
               </div>
@@ -2524,6 +2574,9 @@ function GalleryPanel({
                       title={movieSel.some(i => i.key === video.key) ? 'Remove from selection' : 'Add to selection'}
                     >
                       {movieSel.some(i => i.key === video.key) ? '🎬✓' : '🎬+'}
+                    </button>
+                    <button style={{ ...gBtn, background: 'rgba(255,107,219,.15)', borderColor: '#ff6bdb', color: '#ff6bdb' }} onClick={() => addToDiscountPunk({ key: video.key, name: video.name, type: 'video' })}>
+                      Add to DP
                     </button>
                     <button style={gBtn} onClick={() => handleDelete(video.key, 'editedVideo')}>Delete</button>
                   </div>

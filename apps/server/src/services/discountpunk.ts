@@ -17,8 +17,16 @@ type Product = {
   link: string;
 };
 
+type Video = {
+  title: string;
+  description: string;
+  videoUrl: string;
+  thumbnailUrl?: string;
+};
+
 type ContentData = {
   featured: Product[];
+  videos?: Video[];
 };
 
 export async function readContent(): Promise<ContentData> {
@@ -35,12 +43,26 @@ export async function writeContent(data: ContentData): Promise<void> {
   await writeObject(BUCKET, CONTENT_KEY, JSON.stringify(data, null, 2), 'application/json');
 }
 
-export async function addProduct(product: Omit<Product, 'image' | 'link'>, imagePrompt?: string): Promise<Product> {
+export async function addProduct(
+  product: Omit<Product, 'image' | 'link'>,
+  imagePrompt?: string,
+  existingImageKey?: string
+): Promise<Product> {
   let imagePath = '/images/placeholder.jpg';
   let imageUrl = '';
 
-  // Generate image if prompt provided
-  if (imagePrompt) {
+  // Use existing gallery image if provided
+  if (existingImageKey) {
+    try {
+      imageUrl = await getPresignedUrl(BUCKET, existingImageKey, 604800);
+      imagePath = imageUrl;
+      console.log('[discountpunk] Using existing image:', existingImageKey);
+    } catch (err) {
+      console.error('[discountpunk] Failed to get existing image:', err);
+    }
+  }
+  // Otherwise generate new image if prompt provided
+  else if (imagePrompt) {
     try {
       const generated = await generateNyxImage(imagePrompt, 'gpt-image-2');
       const filename = `${Date.now()}-${product.title.toLowerCase().replace(/\s+/g, '-')}.png`;
@@ -216,4 +238,32 @@ export async function createComicPage(issue: number, title: string, coverImagePr
   console.log('[discountpunk] Comic page created in S3:', s3Key);
 
   return `/comics/${filename}`;
+}
+
+export async function addVideo(video: {
+  title: string;
+  description: string;
+  videoKey: string;
+  thumbnailKey?: string;
+}): Promise<Video> {
+  // Get presigned URLs for video and thumbnail
+  const videoUrl = await getPresignedUrl(BUCKET, video.videoKey, 604800);
+  const thumbnailUrl = video.thumbnailKey
+    ? await getPresignedUrl(BUCKET, video.thumbnailKey, 604800)
+    : undefined;
+
+  const fullVideo: Video = {
+    title: video.title,
+    description: video.description,
+    videoUrl,
+    thumbnailUrl
+  };
+
+  const content = await readContent();
+  if (!content.videos) content.videos = [];
+  content.videos.push(fullVideo);
+  await writeContent(content);
+
+  console.log('[discountpunk] Video added:', video.title);
+  return fullVideo;
 }

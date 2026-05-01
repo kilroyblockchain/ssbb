@@ -1,5 +1,5 @@
 import express from 'express';
-import { readContent, addProduct, createProductPage, createComicPage } from '../services/discountpunk.js';
+import { readContent, addProduct, createProductPage, createComicPage, addVideo } from '../services/discountpunk.js';
 
 const router = express.Router();
 
@@ -16,13 +16,13 @@ router.get('/content', async (req, res) => {
 // Add a new product
 router.post('/product', async (req, res) => {
   try {
-    const { title, price, description, imagePrompt, fullDescription } = req.body;
+    const { title, price, description, imagePrompt, existingImageKey, fullDescription } = req.body;
 
     if (!title || !price || !description) {
       return res.status(400).json({ error: 'Missing required fields: title, price, description' });
     }
 
-    const product = await addProduct({ title, price, description }, imagePrompt);
+    const product = await addProduct({ title, price, description }, imagePrompt, existingImageKey);
 
     // Create dedicated product page if fullDescription provided
     if (fullDescription) {
@@ -49,6 +49,22 @@ router.post('/comic', async (req, res) => {
     res.json({ success: true, pageUrl });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to create comic' });
+  }
+});
+
+// Add a video from gallery
+router.post('/video', async (req, res) => {
+  try {
+    const { title, description, videoKey, thumbnailKey } = req.body;
+
+    if (!title || !description || !videoKey) {
+      return res.status(400).json({ error: 'Missing required fields: title, description, videoKey' });
+    }
+
+    const video = await addVideo({ title, description, videoKey, thumbnailKey });
+    res.json({ success: true, video });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to add video' });
   }
 });
 
