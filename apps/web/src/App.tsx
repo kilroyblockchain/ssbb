@@ -2440,6 +2440,9 @@ function GalleryPanel({
                   <a style={{ ...gBtn, textDecoration: 'none' }} href={asset.url} target="_blank" rel="noopener noreferrer" download={`${(asset.title || 'canvas').replace(/\s+/g, '-')}.png`}>
                     Download
                   </a>
+                  <button style={{ ...gBtn, background: 'rgba(255,107,219,.15)', borderColor: '#ff6bdb', color: '#ff6bdb' }} onClick={() => addToDiscountPunk({ key: asset.key, name: asset.title, type: 'image' })}>
+                    Add to Store
+                  </button>
                   <button style={gBtn} onClick={() => copyUrl(asset.url)}>Copy URL</button>
                   <a style={{ ...gBtn, textDecoration: 'none' }} href={asset.url} target="_blank" rel="noopener noreferrer">Open</a>
                   <button style={gBtn} onClick={() => handleDelete(asset.key, 'canvasAsset')}>Delete</button>
