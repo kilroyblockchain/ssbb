@@ -489,4 +489,123 @@ But first: **One product. One checkout. One paid order. One fulfilled shipment.*
 **May 3, 7:00 AM (SPRINT END):** Deploy, test, first order 📦  
 **May 3+:** Iterate, improve, add Loud Butt 📣
 
+---
+
+## Deployment Plan
+
+### What Replit Will Build
+
+The Replit sprint creates **backend API updates only** - no new frontend deployment needed.
+
+**Backend Changes:**
+- New Stripe checkout endpoints (`/api/discountpunk/checkout/*`)
+- Stripe webhook handler (`/api/discountpunk/webhooks/stripe`)
+- Stocky Butt's order management tools (added to `provider.ts`)
+- Order storage in S3 (`discountpunk/orders/*.json`)
+- DPI verification function
+
+**Frontend (Already Done):**
+- ✅ Shop page with buy buttons and size selectors
+- ✅ "We ASS-cept" payment info
+- ✅ Product grid loading from API
+- ✅ Google Analytics on all pages
+- ✅ Sitemap submitted
+
+### Deployment Strategy
+
+**Backend Deployment: Azure Web App (Free Tier)**
+
+**Current Setup:**
+- Frontend: Azure Static Web Apps (already deployed)
+- Backend API: Running on AWS ECS (ssbb.pretendo.tv)
+
+**Sprint Deployment Options:**
+
+#### Option A: Deploy to Existing AWS ECS (Recommended)
+- **Why:** Backend already running there, just push updated Docker image
+- **How:**
+  1. Replit builds code locally
+  2. Build new Docker image: `docker build -t ssbb-server:stripe .`
+  3. Push to ECR: `aws ecr get-login-password | docker login...`
+  4. Update ECS task definition with new image
+  5. Force new deployment: `aws ecs update-service --force-new-deployment`
+  6. Verify at `https://ssbb.pretendo.tv/api/health`
+
+**Environment Variables Needed in ECS:**
+```bash
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PUBLISHABLE_KEY=pk_test_...
+PRINTFUL_API_KEY=...
+```
+
+#### Option B: Deploy to Azure App Service Free Tier
+- **Why:** Keep everything in Azure ecosystem
+- **Limitation:** Free tier has limited compute (60 CPU minutes/day)
+- **Better for:** Testing only, not production
+
+**Recommended:** Stick with AWS ECS for backend since it's already set up and working.
+
+### Deployment Checklist
+
+**After Sprint Code Complete:**
+- [ ] Run `npm run build` to compile TypeScript
+- [ ] Run `npm test` (if tests exist)
+- [ ] Build Docker image with new Stripe code
+- [ ] Push to AWS ECR
+- [ ] Update ECS task environment variables with Stripe keys
+- [ ] Force ECS deployment
+- [ ] Test webhook with `stripe listen --forward-to https://ssbb.pretendo.tv/api/discountpunk/webhooks/stripe`
+- [ ] Verify `/api/discountpunk/checkout/create-session` endpoint works
+- [ ] Test end-to-end: cart → checkout → Stripe → webhook → order in S3
+
+### Stripe Webhook Configuration
+
+**After Backend Deployed:**
+1. Go to Stripe Dashboard → Developers → Webhooks
+2. Add endpoint: `https://ssbb.pretendo.tv/api/discountpunk/webhooks/stripe`
+3. Select events to listen for:
+   - `payment_intent.succeeded`
+   - `checkout.session.completed`
+4. Copy webhook signing secret (`whsec_...`)
+5. Add to ECS environment variables
+6. Redeploy ECS
+
+### Testing Post-Deployment
+
+**Quick Smoke Test:**
+```bash
+# 1. Health check
+curl https://ssbb.pretendo.tv/api/health
+
+# 2. Products still load
+curl https://ssbb.pretendo.tv/api/discountpunk/content | jq '.featured[0].title'
+
+# 3. Checkout endpoint exists (will 400 without body, that's fine)
+curl -X POST https://ssbb.pretendo.tv/api/discountpunk/checkout/create-session
+
+# 4. Stocky Butt can get orders (via chat)
+# Test BotButt's sister in SSBB app
+```
+
+**Full Integration Test:**
+1. Visit https://discountpunk.com/shop.html
+2. Click "Eat My Ass Tee"
+3. Select size "M"
+4. Click "BUY NOW"
+5. Should redirect to Stripe Checkout
+6. Enter test card: `4242 4242 4242 4242`
+7. Complete checkout
+8. Should redirect to success page
+9. Check S3 for order JSON
+10. Ask Stocky Butt to `get_orders()` - should see it
+
+### Rollback Plan
+
+If deployment breaks:
+1. Revert ECS to previous task definition revision
+2. Remove Stripe env vars if causing issues
+3. Backend falls back to working state (product API still works)
+4. Frontend continues showing products (buy buttons just alert)
+
 Let's make it real. 🔥
