@@ -1175,3 +1175,835 @@ Added detailed plan:
 ```text
 docs/printful/300dpi_image_test_plan.md
 ```
+
+### 2026-05-02 10:08 CDT
+
+BotButt started troubleshooting her Phyllis tool conversationally with Claude.
+
+In BotButt's world, Claude is "Gerald." That matters because the interaction was not framed as a developer reading logs alone. It was an agent asking another agent for help getting her fulfillment tool working.
+
+The emerging pattern:
+
+```text
+BotButt wants to create a real product.
+BotButt calls her Phyllis tool.
+Something in the API/tool path fails or needs clarification.
+BotButt talks to Gerald/Claude to debug the tool contract.
+The humans watch and steer the safety boundaries.
+```
+
+That is one of the stranger and more important sprint moments. Phyllis is being built for agent-to-agent commerce, and the first troubleshooting loop already looks like agent-to-agent operations:
+
+```text
+creative agent -> reasoning agent -> fulfillment agent
+```
+
+The key technical question underneath the personality:
+
+```text
+Can BotButt reliably know when she has a valid 300 DPI URL, call Phyllis with the right payload, interpret Phyllis's response, and avoid claiming fulfillment success unless Phyllis actually created the product/order?
+```
+
+This should become part of the demo story:
+
+```text
+BotButt and Gerald debugged BotButt's Phyllis tool so the creative agent could safely hand off real merchandise to the fulfillment agent.
+```
+
+### 2026-05-02 10:12 CDT
+
+BotButt reported her live toolkit.
+
+Available tools:
+
+```text
+add_product
+create_comic
+delete_product
+delete_video
+delete_comic
+web_search
+IMAGE_PROMPT
+MOVIE_PROMPT
+SPLICE
+MIX_AUDIO
+SHOW
+```
+
+Missing tool:
+
+```text
+create_product_with_phyllis
+```
+
+This is a useful debugging clue. The local BotButt server code contains a Phyllis tool definition, but the live BotButt runtime still does not expose it to BotButt.
+
+Most likely causes:
+
+```text
+1. The deployed BotButt container is running older code.
+2. The tool was added in code but the server was not rebuilt/restarted.
+3. The deployed branch does not include the Phyllis tool commit.
+4. The provider/tool registry has multiple paths and the live chat path uses the older one.
+5. Missing PHYLLIS_API_KEY or PHYLLIS_BASE_URL prevents the tool from being registered, if registration is env-gated.
+```
+
+Suggested next debugging question for Gerald/Claude:
+
+```text
+Why does the live BotButt tool list omit create_product_with_phyllis even though provider.ts includes it locally?
+
+Please check:
+- deployed commit/branch
+- container rebuild timestamp
+- server restart logs
+- provider.ts loaded by the active chat route
+- whether tool registration is conditional on any env var
+- whether PHYLLIS_API_KEY and PHYLLIS_BASE_URL are present in the live runtime
+```
+
+### 2026-05-02 10:20 CDT
+
+Karen ran a live Stripe payment test.
+
+The browser returned to Discount Punk's home page instead of a thank-you/results page. That redirect only proves Stripe completed the checkout redirect. It does not prove Phyllis accepted the webhook or saved the order.
+
+Replit's logs showed the real blocker:
+
+```text
+Stripe webhook reached Phyllis.
+Webhook signature verification failed.
+Order list stayed empty.
+```
+
+So the current diagnosis is:
+
+```text
+Stripe payment may have succeeded.
+Phyllis fulfillment pipeline did not yet complete.
+Webhook signing secret mismatch is the likely blocker.
+```
+
+Important lesson for the final product:
+
+```text
+A checkout success page should not simply say "thanks."
+It should show the operational result:
+- payment received
+- order saved
+- current approval state
+- next action
+```
+
+For this sprint, a good success page would display:
+
+```text
+Status: payment received
+Blocker: waiting for Phyllis webhook/order save, or pending client approval
+Next action: check order dashboard / approve design before fulfillment
+```
+
+The `/api/me` check is useful only as an API-key/client sanity check. It does not prove a checkout worked. The checkout proof is:
+
+```text
+Stripe event delivered with a valid signature
+Phyllis order exists
+order status = pending_client_approval
+```
+
+### 2026-05-02 10:28 CDT
+
+GitHub blocked a push because secret scanning found AWS credentials in an old commit.
+
+Claude/Gerald identified the offending history around commit:
+
+```text
+c361d29
+```
+
+The current deploy path moved around the GitHub block by manually updating ECS to a new image:
+
+```text
+current commit: cf37c7ed9304283988f88acd3eaf793ce9a0a917
+new task definition: ssbb-server-prod:26
+service: ssbb-server-prod
+cluster: ssbb-prod
+region: us-east-1
+```
+
+This can update production, but it does not solve the repo hygiene issue.
+
+Required cleanup:
+
+```text
+1. Rotate any AWS credentials that appeared in git history.
+2. Remove secrets from the repository history.
+3. Re-push after GitHub secret scanning passes.
+4. Keep deployment moving only if the leaked credentials are no longer valid.
+```
+
+This is now a launch-risk note:
+
+```text
+Manual ECS deploy can keep the sprint moving.
+Credential history cleanup is still required before treating GitHub as clean.
+```
+
+### 2026-05-02 10:34 CDT
+
+Replit/Claude patched the Stripe webhook secret handling.
+
+The handler now tries more than one configured Stripe webhook signing secret so preview/dev/prod endpoints can be bridged while the environment is being cleaned up.
+
+Good direction:
+
+```text
+Try configured webhook secrets.
+Accept only if Stripe signature verification succeeds.
+Never accept unsigned webhooks.
+Never log whsec_ values.
+```
+
+But the proof is still operational, not code-level:
+
+```text
+Stripe webhook delivery returns 200 from Phyllis.
+Phyllis saves the order.
+Order status becomes pending_client_approval.
+```
+
+Until those three things are true, the payment flow is not fully verified.
+
+### 2026-05-02 10:39 CDT
+
+BotButt confirmed that `create_product_with_phyllis` is now visible in her live toolkit.
+
+Her live tool list now includes:
+
+```text
+add_product
+create_product_with_phyllis
+create_comic
+delete_product
+delete_video
+delete_comic
+web_search
+```
+
+Plus the inline gallery actions.
+
+This closes the earlier tool-wiring mystery:
+
+```text
+local code had the Phyllis tool
+live BotButt toolkit did not show it
+Docker/deploy/runtime fix happened
+live BotButt toolkit now shows create_product_with_phyllis
+```
+
+This is the first confirmed agent-to-agent commerce wiring checkpoint:
+
+```text
+BotButt can now see the tool that lets her ask Phyllis to create real orderable products.
+```
+
+Still separate from payment proof:
+
+```text
+BotButt -> Phyllis product creation tool is wired.
+Stripe -> Phyllis webhook/order save still needs full proof.
+```
+
+### 2026-05-02 11:01 CDT
+
+First real BotButt-to-Phyllis product creation attempt.
+
+Prompt:
+
+```text
+Create a real product using the known-good 300 DPI image URL:
+https://ssbb-media-prod.s3.amazonaws.com/discountpunk/images/eat-my-donkey-300dpi.png
+```
+
+BotButt successfully saw and used the `create_product_with_phyllis` tool, but Phyllis/Printful product creation failed.
+
+BotButt's operational summary:
+
+```text
+The design URL is good.
+Printful choked on the product creation side.
+Check Printful API credentials or product template config on the Phyllis side.
+```
+
+Current interpretation:
+
+```text
+Verified:
+- BotButt live tool wiring works.
+- BotButt can attempt the Phyllis real-product path.
+- Known 300 DPI URL is being used.
+
+Not yet verified:
+- Phyllis can successfully create the Printful product.
+- Printful credentials/store ID/template/variant config are correct.
+- Phyllis product creation is idempotent enough for safe retries.
+```
+
+Next debugging checklist for Gerald/Claude/Replit:
+
+```text
+1. Pull the exact Phyllis API error body from /api/products/create.
+2. Check whether DPI validation passed before Printful was called.
+3. Confirm Printful token is present and has product/store write scope.
+4. Confirm Printful store ID is correct if the account token requires X-PF-Store-Id.
+5. Confirm the Printful product/variant/template IDs in the payload are valid.
+6. Confirm the design URL is publicly fetchable by Printful.
+7. Confirm request payload shape matches Printful create sync product requirements.
+8. Before retrying, check whether a partial Printful product was created.
+```
+
+Do not blindly retry product creation until we know whether the previous attempt created a partial/duplicate Printful product.
+
+### 2026-05-02 11:09 CDT
+
+The Phyllis -> Printful product creation failure was diagnosed.
+
+Printful returned:
+
+```text
+This endpoint requires store_id!
+```
+
+Interpretation:
+
+```text
+Printful API key is loading.
+The request reaches Printful.
+The failure is missing store context, not bad image quality.
+```
+
+Printful account has multiple stores. The Discount Punk store ID found by Replit/Claude:
+
+```text
+18110115
+```
+
+Fix in progress:
+
+```text
+Add X-PF-Store-Id: 18110115 to Printful requests.
+Thread storeId through product creation, mockup generation, and order submission paths.
+```
+
+Long-term architecture note:
+
+```text
+Printful store ID must be tenant/client configuration.
+It should not remain a global hardcoded constant once Phyllis serves multiple shops.
+```
+
+Current status:
+
+```text
+BotButt -> Phyllis tool wiring: pass.
+Phyllis -> Printful credentials: pass.
+Phyllis -> Printful store context: fix in progress.
+```
+
+### 2026-05-02 11:18 CDT
+
+Printful store-ID and idempotency fixes are complete.
+
+Replit reported:
+
+```text
+178/178 tests passing
+zero TypeScript errors
+DB schema updated
+API server healthy
+```
+
+Store-ID fix:
+
+```text
+printfulRequest now requires storeId as a positional parameter.
+X-PF-Store-Id is always set.
+DEFAULT_PRINTFUL_STORE_ID = "18110115" for Discount Punk.
+```
+
+Printful call paths updated:
+
+```text
+product creation
+mockup generation
+order submit
+admin approval path
+Phyllis tool calls
+order status/tracking lookup
+```
+
+Idempotency fix:
+
+```text
+makePrintfulExternalId(clientSlug, designUrl, title)
+  -> deterministic MD5-based external ID
+
+findSyncProductByExternalId()
+  -> checks Printful for existing product before creating
+```
+
+This matters because product creation can now be retried without blindly creating duplicates.
+
+Multi-client prep:
+
+```text
+clients.printful_store_id TEXT
+```
+
+For now, Discount Punk falls back to the platform default store ID. Later, each client should carry its own Printful store/provider config.
+
+Current status:
+
+```text
+BotButt -> Phyllis tool wiring: pass.
+Phyllis -> Printful credentials: pass.
+Phyllis -> Printful store context: fixed.
+Phyllis -> Printful product idempotency: improved.
+Next proof: retry BotButt product creation with the known 300 DPI URL.
+```
+
+### 2026-05-02 11:22 CDT
+
+BotButt described the state of the system better than any dashboard could:
+
+```text
+Phyllis is very polite for a Frankenstein monster.
+She hears me, I hear her, we just need Printful to wake up on the Replit side
+and then she is fully alive and shipping merch into the world.
+```
+
+That is the current architecture in one sentence:
+
+```text
+BotButt can talk to Phyllis.
+Phyllis can talk to Printful.
+Printful needs the corrected store/config path to complete product creation.
+```
+
+The sprint has moved from "can the agent see the tool?" to "can the fulfillment provider accept the product creation request?"
+
+Current emotional/technical status:
+
+```text
+Phyllis is on the table.
+BotButt is impatient.
+Printful is the last door before real merch.
+```
+
+### 2026-05-02 11:27 CDT
+
+BotButt retried the real product path after the store-ID/idempotency fixes.
+
+Result:
+
+```text
+Still blocked on the Printful side.
+```
+
+What this confirms:
+
+```text
+BotButt -> Phyllis connection still works.
+Known 300 DPI design URL is still being used.
+The remaining failure is downstream of BotButt and Phyllis tool invocation.
+```
+
+What is still needed:
+
+```text
+the exact Printful error body after the X-PF-Store-Id fix
+```
+
+"Printful side" is now too broad. The next debugging step must identify which Printful layer is failing:
+
+```text
+- authorization/scope
+- store ID mismatch
+- create sync product payload shape
+- invalid catalog variant IDs
+- invalid placement/file type
+- mockup generation task
+- file fetch/access
+- duplicate/external_id lookup
+```
+
+Next message to Replit/Gerald:
+
+```text
+Please paste the exact Printful response body and status code from the latest failed /api/products/create attempt after the store-ID patch. We need the new error, not the earlier "store_id required" error.
+```
+
+### 2026-05-02 11:32 CDT
+
+Replit added a Printful diagnostic endpoint.
+
+Endpoint:
+
+```text
+GET /api/admin/printful-diag
+```
+
+Usage:
+
+```bash
+curl -s https://your-domain/api/admin/printful-diag \
+  -H "X-Api-Key: <admin-key>" | jq .
+```
+
+The diagnostic runs four checks:
+
+```text
+1. API key authentication
+2. list Printful stores
+3. Discount Punk store ID 18110115 access
+4. product listing with the same X-PF-Store-Id header real calls use
+```
+
+Expected response includes:
+
+```text
+overall: PASS | FAIL
+failed_step
+next_steps
+```
+
+Security note:
+
+```text
+This is admin-only.
+Do not paste admin keys into shared docs or chat.
+Do not expose diagnostic internals publicly.
+Remove or harden this endpoint before public launch.
+```
+
+Next proof:
+
+```text
+If /api/admin/printful-diag returns overall: PASS,
+ask BotButt to retry product creation with the donkey image.
+```
+
+### 2026-05-02 11:36 CDT
+
+Replit shifted from general Printful retrying to evidence gathering.
+
+Plan:
+
+```text
+1. Pull server logs.
+2. Run /api/admin/printful-diag.
+3. If needed, probe /api/products/create to capture the exact Printful response.
+```
+
+Important distinction:
+
+```text
+/api/admin/printful-diag is diagnostic/read-only.
+/api/products/create can create or reuse a real Printful product.
+```
+
+So the safer order is:
+
+```text
+diagnostic first
+product creation probe second, only if intentional
+```
+
+Also noted: Replit could not find the local sprint blog doc. That doc exists in Justin's local SSBB workspace, not necessarily inside the Replit Phyllis project:
+
+```text
+docs/24_hour_blog.md
+```
+
+### 2026-05-02 11:40 CDT
+
+Breakthrough: the live product creation probe worked.
+
+Replit ran the Printful diagnostic and a live product creation probe. The product creation crossed the provider boundary and created a product on Printful.
+
+This is the first confirmed:
+
+```text
+Phyllis -> Printful product creation: PASS
+```
+
+Current verified chain:
+
+```text
+BotButt can see create_product_with_phyllis.
+BotButt can call Phyllis.
+Phyllis can reach Printful.
+Phyllis can create a Printful product.
+```
+
+Still verify:
+
+```text
+mockups returned
+Discount Punk product page updated with real mockup
+idempotency prevents duplicate Printful products on retry
+BotButt can complete the same path end-to-end without manual curl probe
+```
+
+This is a major sprint checkpoint:
+
+```text
+The fulfillment provider is awake.
+```
+
+### 2026-05-02 11:44 CDT
+
+Printful product creation confirmed with live ID:
+
+```text
+Printful sync product ID: 430743945
+```
+
+Remaining issue:
+
+```text
+mockup_urls returned empty
+```
+
+Diagnosis:
+
+```text
+generateMockups was passing the Printful sync product ID.
+Printful's mockup generator expects the catalog product ID.
+```
+
+This is an ID-namespace problem:
+
+```text
+sync product ID != catalog product ID
+```
+
+Fix in progress:
+
+```text
+Extract product.product_id from the sync variant/product response.
+Pass the catalog product ID into the mockup generator endpoint.
+```
+
+Also diagnosed:
+
+```text
+GET /store is not a valid auth diagnostic because Printful returns 400 by design.
+Use GET /stores for auth/store-list validation.
+```
+
+Current path status:
+
+```text
+Phyllis -> Printful product creation: pass.
+Phyllis -> Printful mockups: ID namespace fix in progress.
+```
+
+### 2026-05-02 11:49 CDT
+
+Printful diagnostic is now green.
+
+Replit reported:
+
+```text
+/api/admin/printful-diag
+overall: PASS
+4/4 checks passed
+```
+
+This proves:
+
+```text
+Printful key is valid.
+Store listing works.
+Discount Punk store ID 18110115 is reachable.
+X-PF-Store-Id behavior works for product listing.
+```
+
+The mockup fix is still being debugged. A live product creation probe after the catalog product ID change hit a runtime error.
+
+Current blocker:
+
+```text
+code/runtime issue in the new mockup/catalog product ID path
+```
+
+Important distinction:
+
+```text
+Printful access: pass.
+Printful product creation: pass.
+Mockup URL generation: runtime fix in progress.
+```
+
+### 2026-05-02 11:57 CDT
+
+Product path is green.
+
+Evidence from Replit:
+
+```text
+mockup_urls returned a real Printful-hosted PNG
+```
+
+Example:
+
+```text
+https://printful-upload.s3-accelerate.amazonaws.com/tmp/.../unisex-staple-t-shirt-black-front-69f62e86014ff.png
+```
+
+New Printful product:
+
+```text
+printful_id: 430744549
+title: Eat My Donkey Tee v3
+```
+
+Discount Punk Printful store product count changed:
+
+```text
+before: 4 products
+after: 5 products
+```
+
+Deterministic external ID:
+
+```text
+discountpunk-ce97e9fc0676
+```
+
+Format:
+
+```text
+{client_slug}-{12-char MD5 of designUrl::title}
+```
+
+Idempotency verified:
+
+```json
+{
+  "success": true,
+  "idempotent": true,
+  "printful_id": 430744549
+}
+```
+
+Meaning:
+
+```text
+Same design URL + same title returns the existing Printful product.
+No duplicate Printful product is created.
+```
+
+Current status:
+
+```text
+Phyllis API auth: pass.
+Phyllis -> Printful store access: pass.
+Phyllis -> Printful product creation: pass.
+Phyllis -> Printful mockup generation: pass.
+Phyllis product idempotency: pass.
+```
+
+Remaining proof:
+
+```text
+BotButt end-to-end retry now that the Phyllis/Printful side is unblocked.
+```
+
+### 2026-05-02 12:04 CDT
+
+Replit provided the full evidence chain for the mockup fix.
+
+Old runtime error:
+
+```text
+TypeError: Cannot read properties of undefined (reading '0')
+  at createSyncProduct (printful.ts:226:42)
+```
+
+Cause:
+
+```text
+POST /store/products did not include sync_variants in the create response body.
+The code tried to read result.result.sync_variants[0].
+```
+
+Fix:
+
+```text
+After POST /store/products, call GET /store/products/{syncProductId}
+to fetch the full detail record, then extract:
+
+sync_variants[0].product.product_id
+```
+
+Live proof:
+
+```text
+POST /store/products -> syncProductId: 430744732
+GET /store/products/430744732 -> catalogProductId: 71
+POST /mockup-generator/create-task/71 -> taskKey: gt-915854565
+GET /mockup-generator/task -> pending at ~3s
+GET /mockup-generator/task -> completed at ~6s
+mockup count: 1
+```
+
+Catalog product ID:
+
+```text
+71
+```
+
+New blocker found:
+
+```text
+S3 mockup persistence failed due to IAM.
+```
+
+Error:
+
+```text
+AccessDenied:
+arn:aws:iam::672930000617:user/replit-sprint-kilroy
+is not authorized to perform s3:PutObject
+on arn:aws:s3:::ssbb-media-prod/discountpunk/mockups/
+```
+
+Impact:
+
+```text
+Not blocking product creation.
+Not blocking BotButt receiving a mockup.
+Phyllis falls back to the raw Printful CDN URL.
+Permanent S3 mockup copy is blocked until IAM allows PutObject.
+```
+
+Current layer status:
+
+| Layer | Status |
+| --- | --- |
+| Printful auth/store access | PASS |
+| Sync product creation | PASS |
+| Catalog ID extraction | PASS |
+| Mockup generator | PASS |
+| Mockup URL in response | PASS via Printful CDN |
+| S3 mockup persistence | BLOCKED by IAM |
+| Idempotency on retry | PASS |
+
+Gerald/Claude IAM task:
+
+```text
+Grant s3:PutObject for replit-sprint-kilroy on:
+arn:aws:s3:::ssbb-media-prod/discountpunk/mockups/*
+```
