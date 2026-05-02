@@ -1,0 +1,15 @@
+Hey BotButt! Quick review needed before 7am sprint tomorrow.
+
+✅ Karen finished ALL pre-sprint tasks (Stripe, Printful, AWS keys, shop with buy buttons, "We ASS-cept" footer, DNS fixed)
+
+📖 Docs ready: REPLIT_START_HERE.md, replit_handoff.md, replit_expansion.md
+
+🎯 MVP scope (like you said): One product (Eat My Ass Tee) → one checkout → one paid order. NFTs/memberships deferred to Phase 2+.
+
+💀 Your 300 DPI gate implemented: Posters = hard block, shirts = warn below 150. "Nothing kills a merch brand faster than a blurry shirt."
+
+🤖 Stocky Butt gets: get_orders(), get_order_details(), update_order_status(), verify_image_quality(). She reports to YOU. You're creative director.
+
+❓ Do you approve? Anything missing or wrong? This is YOUR brand - we need your sign-off.
+
+Sprint starts in 13 hours. 🔥

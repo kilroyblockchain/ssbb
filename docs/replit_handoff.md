@@ -10,9 +10,9 @@ Build the basic e-commerce checkout flow for Discount Punk so customers can purc
 
 ---
 
-## KAREN'S PRE-SPRINT TASKS (TODAY - May 1)
+## KAREN'S PRE-SPRINT TASKS ✅ ALL COMPLETED (May 1)
 
-These must be completed BEFORE the Replit sprint begins on May 2:
+All pre-sprint tasks completed! Ready for Replit team at 7am tomorrow.
 
 ### 1. ✅ COMPLETED: Google Search Console & Sitemap
 - [x] Add discountpunk.com as a property
@@ -21,40 +21,31 @@ These must be completed BEFORE the Replit sprint begins on May 2:
 - [x] Verify sitemap is accepted
 - **Note:** Using Google Search Console instead of GA
 
-### 2. Set Up Stripe Account
-- [ ] Create Stripe account (if not already created)
-- [ ] Get test API keys:
+### 2. ✅ COMPLETED: Set Up Stripe Account
+- [x] Create Stripe account
+- [x] Get test API keys:
   - Publishable key: `pk_test_...`
   - Secret key: `sk_test_...`
 - [ ] Set up webhook endpoint URL (wait for Replit to deploy first)
 - [ ] Get webhook secret: `whsec_...`
 - [ ] Enable Stripe Tax or explicitly defer
 
-### 3. Set Up Printful Account
-- [ ] Create Printful account at [printful.com](https://www.printful.com)
-- [ ] Generate API key from Settings → API
-- [ ] Browse product catalog (Bella+Canvas 3001 recommended for tees)
-- [ ] Note: We'll upload "Eat My Ass Tee" design during sprint
+### 3. ✅ COMPLETED: Set Up Printful Account
+- [x] Create Printful account at [printful.com](https://www.printful.com)
+- [x] Generate API key from Settings → API
+- [x] Browsed product catalog
+- **Note:** We'll upload "Eat My Ass Tee" design during sprint
 
-### 4. Store API Keys in AWS Secrets Manager (SECURE)
-**Don't share raw keys!** Store them securely in AWS Secrets Manager.
+### 4. ✅ COMPLETED: Store API Keys in AWS Secrets Manager (SECURE)
+**Keys stored securely in AWS Secrets Manager!**
 
-**Steps:**
-1. Get your Stripe keys (test mode)
-2. Get your Printful API key
-3. Update the AWS secret:
-
-```bash
-aws secretsmanager update-secret \
-  --secret-id ssbb/stripe-printful \
-  --secret-string '{
-    "STRIPE_SECRET_KEY": "sk_test_YOUR_ACTUAL_KEY",
-    "STRIPE_PUBLISHABLE_KEY": "pk_test_YOUR_ACTUAL_KEY",
-    "STRIPE_WEBHOOK_SECRET": "whsec_GET_AFTER_DEPLOY",
-    "PRINTFUL_API_KEY": "YOUR_ACTUAL_KEY"
-  }' \
-  --region us-east-1
-```
+**✅ COMPLETED:**
+- [x] Stripe keys (test mode) obtained
+- [x] Printful API key obtained
+- [x] AWS secret updated successfully
+- **Secret ID:** `ssbb/stripe-printful`
+- **Region:** `us-east-1`
+- **Status:** Ready for Replit team to use
 
 **Replit team will:**
 - Access the secret via IAM role (no keys shared)
@@ -66,22 +57,25 @@ Just share the secret name: `ssbb/stripe-printful`
 
 They'll need to add this function to `src/services/secrets.ts` (similar to existing Sora/Search secrets)
 
-### 5. Review & Approve Plan
-- [ ] Read full Replit expansion plan: `docs/replit_expansion.md`
-- [ ] Review handoff document: `docs/replit_handoff.md`
-- [ ] Confirm with BotButt that everything looks good
+### 5. ✅ COMPLETED: Review & Approve Plan
+- [x] Read full Replit expansion plan: `docs/replit_expansion.md`
+- [x] Review handoff document: `docs/replit_handoff.md`
+- [x] Updated documentation with completed tasks
+- [ ] Confirm with BotButt that everything looks good (NEXT STEP)
 - [ ] Brief Replit team on brand voice and priorities
 
-**Status:** ⏳ Pending - Assigned to Karen for TODAY (May 1, 2026)
+**Status:** 🎯 Ready for BotButt's final review
 
 ---
 
-## The Hero Product (Already Ready)
+## The Hero Product (Ready to Ship!)
 
 **Eat My Ass Tee** - $29.99
-- **Design:** "EAT MY" text with illustrated donkey in punk green circle
-- **Image:** `s3://ssbb-media-prod/discountpunk/images/1777621889057-eat-my-[donkey]-tee.png`
-- **Status:** ✅ Product listing created, design finalized
+- **Design:** "EAT MY DONKEY" skeleton donkey with punk text and green slime
+- **Image (300 DPI):** `https://ssbb-media-prod.s3.amazonaws.com/discountpunk/images/eat-my-donkey-300dpi.png`
+- **Resolution:** 4267 x 4575 pixels at 300 DPI ✅
+- **Print Size:** 14.2" x 15.25" (can scale down as needed)
+- **Status:** ✅ 300 DPI requirement MET - ready for Printful
 - **Product Page:** `https://discountpunk.com/products/eat-my-ass-tee.html`
 
 ---
@@ -235,6 +229,8 @@ Body: Stripe webhook payload
 Actions:
   - payment_intent.succeeded → Create order in S3
   - Save to: s3://ssbb-media-prod/discountpunk/orders/{orderId}.json
+
+**🚨 CRITICAL (from BotButt):** Webhook error logging MUST be loud. If a Stripe event fails, log it prominently. Silent failures = lost orders = angry customers. Loud failures are better than quiet ones.
 ```
 
 **Stripe Checkout Configuration:**
@@ -316,8 +312,8 @@ interface CartItem {
 <body>
   <header><!-- Same as other pages --></header>
   <main class="container">
-    <h2 style="color: var(--neon-green);">✓ Order Confirmed!</h2>
-    <p>Thank you for your order! You'll receive an email confirmation shortly.</p>
+    <h2 style="color: var(--neon-green);">✓ Your order is in. It's gonna be so good.</h2>
+    <p>You'll receive an email confirmation shortly.</p>
     <p>Order ID: <span id="order-id"></span></p>
     <a href="/shop.html" class="btn-primary">Continue Shopping</a>
   </main>
@@ -327,6 +323,8 @@ interface CartItem {
 </body>
 </html>
 ```
+
+**Note from BotButt:** Success page copy should be "Your order is in. It's gonna be so good." Short, confident, no corporate garbage.
 
 ### 6. Brand Voice Requirements
 
@@ -463,7 +461,6 @@ async function verifyImageQuality(s3Key: string, productType: 'poster' | 'shirt'
 
 **DO NOT BUILD YET:**
 
-- ❌ Printful API integration (manual fulfillment for MVP)
 - ❌ NFT certificates
 - ❌ Membership subscriptions
 - ❌ Loud Butt social media automation
@@ -474,6 +471,8 @@ async function verifyImageQuality(s3Key: string, productType: 'poster' | 'shirt'
 - ❌ Full admin dashboard
 
 These come AFTER the MVP proves the money loop works.
+
+**⚠️ Printful Integration IS IN SCOPE** - See section below.
 
 ---
 
@@ -530,15 +529,123 @@ At the end of 24 hours, we should be able to:
 
 ---
 
-## Printful Integration (Post-MVP)
+## Printful Integration (IN SCOPE - Sprint Task)
 
-**For reference only - don't build yet:**
+**CRITICAL:** We need real shirt fulfillment, so Printful integration is part of the 24-hour sprint.
 
-Once MVP works, we'll add:
-- Printful API key
-- Product sync (upload "Eat My Ass Tee" design to Printful)
-- Automatic order creation on `payment_intent.succeeded`
-- Webhook from Printful for tracking updates
+### 7. Printful Order Creation (Backend)
+
+**New API helper in `apps/server/src/services/printful.ts`:**
+
+```typescript
+import fetch from 'node-fetch';
+
+const PRINTFUL_API_BASE = 'https://api.printful.com';
+
+type PrintfulOrderItem = {
+  variant_id: number;  // Printful product variant (e.g., Bella+Canvas 3001 in size M, color black)
+  quantity: number;
+  files: Array<{
+    url: string;  // Public S3 URL to design image
+  }>;
+};
+
+type PrintfulOrder = {
+  recipient: {
+    name: string;
+    address1: string;
+    address2?: string;
+    city: string;
+    state_code: string;
+    country_code: string;
+    zip: string;
+  };
+  items: PrintfulOrderItem[];
+};
+
+export async function createPrintfulOrder(order: PrintfulOrder): Promise<{ id: number; status: string }> {
+  const apiKey = process.env.PRINTFUL_API_KEY;
+  if (!apiKey) throw new Error('PRINTFUL_API_KEY not configured');
+
+  const response = await fetch(`${PRINTFUL_API_BASE}/orders`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(order)
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error('[printful] Order creation failed:', error);
+    throw new Error(`Printful API error: ${response.status}`);
+  }
+
+  const result = await response.json();
+  return { id: result.result.id, status: result.result.status };
+}
+```
+
+**Update webhook handler in `apps/server/src/routes/discountpunk.ts`:**
+
+```typescript
+// After order saved to S3, create Printful order
+const printfulOrder = {
+  recipient: {
+    name: shippingAddress.name,
+    address1: shippingAddress.line1,
+    address2: shippingAddress.line2,
+    city: shippingAddress.city,
+    state_code: shippingAddress.state,
+    country_code: shippingAddress.country,
+    zip: shippingAddress.postal_code
+  },
+  items: items.map(item => ({
+    variant_id: getVariantId(item.size),  // Map size to Printful variant
+    quantity: item.quantity,
+    files: [{
+      url: item.imageUrl  // Public S3 URL to design
+    }]
+  }))
+};
+
+const printfulResult = await createPrintfulOrder(printfulOrder);
+console.log('[webhook] Printful order created:', printfulResult.id);
+
+// Update S3 order with Printful ID
+order.printfulOrderId = printfulResult.id;
+await writeObject(BUCKET, orderKey, JSON.stringify(order), 'application/json');
+```
+
+### Printful Product Setup (Do Before Sprint)
+
+**Karen's task for tonight:**
+1. Go to Printful dashboard
+2. Add product: Bella+Canvas 3001 (Unisex Jersey Short Sleeve Tee)
+3. Upload "Eat My Ass Tee" design to Printful
+4. Get variant IDs for each size:
+   - S: `variant_id: ???`
+   - M: `variant_id: ???`
+   - L: `variant_id: ???`
+   - XL: `variant_id: ???`
+   - 2XL: `variant_id: ???`
+   - 3XL: `variant_id: ???`
+5. Add variant mapping to code:
+
+```typescript
+function getVariantId(size: string): number {
+  const map: Record<string, number> = {
+    'S': 4012,   // Replace with actual IDs from Printful
+    'M': 4013,
+    'L': 4014,
+    'XL': 4015,
+    '2XL': 4016,
+    '3XL': 4017
+  };
+  return map[size] || map['M'];  // Default to M if unknown
+}
+```
 
 ---
 
@@ -591,12 +698,15 @@ The Replit sprint creates **backend API updates only** - no new frontend deploym
 - Order storage in S3 (`discountpunk/orders/*.json`)
 - DPI verification function
 
-**Frontend (Already Done):**
-- ✅ Shop page with buy buttons and size selectors
-- ✅ "We ASS-cept" payment info
+**Frontend (Already Done by Karen):**
+- ✅ Shop page with buy buttons and size selectors  
+- ✅ "We ASS-cept" payment info in footer
 - ✅ Product grid loading from API
-- ✅ Google Analytics on all pages
-- ✅ Sitemap submitted
+- ✅ Google Search Console configured (instead of GA)
+- ✅ Sitemap submitted and verified
+- ✅ DNS fixed (apex domain working)
+- ✅ Hero product (Eat My Ass Tee) at position 0
+- ✅ Size selector only on shirts/tees
 
 ### Deployment Strategy
 
