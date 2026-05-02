@@ -26,6 +26,8 @@ type Context = {
 };
 
 export async function generateChatResponse(ctx: Context): Promise<string> {
+  console.log('[provider] generateChatResponse called for', ctx.senderHandle);
+
   // Show last 15 user facts (not just 3)
   const userFacts = ctx.memory.user?.facts ?? [];
   const personaSummary = userFacts.length
