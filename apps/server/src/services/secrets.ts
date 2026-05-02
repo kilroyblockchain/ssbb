@@ -19,8 +19,17 @@ type SearchSecretPayload = {
   BRAVE_SEARCH_API_KEY?: string;
 };
 
+type PhyllisSecretPayload = {
+  PHYLLIS_API_KEY?: string;
+  PHYLLIS_BASE_URL?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_PUBLISHABLE_KEY?: string;
+  PRINTFUL_API_KEY?: string;
+};
+
 let soraHydrated = false;
 let searchHydrated = false;
+let phyllisHydrated = false;
 
 export async function hydrateSoraConfig(): Promise<void> {
   if (soraHydrated) return;
@@ -54,8 +63,8 @@ export async function hydrateSoraConfig(): Promise<void> {
 
 export async function hydrateSearchConfig(): Promise<void> {
   if (searchHydrated) return;
-  
-  // If we already have a working fallback set, we can skip mandatory hydration, 
+
+  // If we already have a working fallback set, we can skip mandatory hydration,
   // but let's try anyway if any are missing.
   const secretId = 'ssbb/search-keys';
   try {
@@ -68,16 +77,41 @@ export async function hydrateSearchConfig(): Promise<void> {
     const raw = result.SecretString ?? (result.SecretBinary ? Buffer.from(result.SecretBinary).toString('utf-8') : null);
     if (!raw) return;
     const data = JSON.parse(raw) as SearchSecretPayload;
-    
+
     if (data.GOOGLE_SEARCH_API_KEY) config.search.googleApiKey = data.GOOGLE_SEARCH_API_KEY;
     if (data.GOOGLE_SEARCH_CX)      config.search.googleCx     = data.GOOGLE_SEARCH_CX;
     if (data.SERP_API_KEY)          config.search.serpApiKey   = data.SERP_API_KEY;
     if (data.BRAVE_SEARCH_API_KEY)  config.search.braveApiKey  = data.BRAVE_SEARCH_API_KEY;
-    
+
     searchHydrated = true;
     console.log('[search] Loaded configuration from Secrets Manager (ssbb/search-keys).');
   } catch (err) {
     // This is fine if the secret doesn't exist, we fall back to env vars
     console.log('[search] Secrets Manager (ssbb/search-keys) not found or inaccessible, using environment variables.');
+  }
+}
+
+export async function hydratePhyllisConfig(): Promise<void> {
+  if (phyllisHydrated) return;
+
+  const secretId = 'ssbb/stripe-printful';
+  try {
+    const result = await client.send(
+      new GetSecretValueCommand({
+        SecretId: secretId,
+        VersionStage: 'AWSCURRENT'
+      })
+    );
+    const raw = result.SecretString ?? (result.SecretBinary ? Buffer.from(result.SecretBinary).toString('utf-8') : null);
+    if (!raw) return;
+    const data = JSON.parse(raw) as PhyllisSecretPayload;
+
+    if (data.PHYLLIS_API_KEY) process.env.PHYLLIS_API_KEY = data.PHYLLIS_API_KEY;
+    if (data.PHYLLIS_BASE_URL) process.env.PHYLLIS_BASE_URL = data.PHYLLIS_BASE_URL;
+
+    phyllisHydrated = true;
+    console.log('[phyllis] Loaded API key from Secrets Manager.');
+  } catch (err) {
+    console.warn('[phyllis] Failed to load Phyllis secret from Secrets Manager:', (err as Error).message);
   }
 }

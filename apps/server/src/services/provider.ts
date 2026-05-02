@@ -4,6 +4,7 @@ import { converseWithBedrock, type ImageAttachment } from './bedrock.js';
 import { webSearch, isSearchConfigured } from './search.js';
 import { config } from '../config.js';
 import { addProduct, createComicPage, deleteProduct, deleteVideo, deleteComic } from './discountpunk.js';
+import { generatePrintDesign } from './phyllis.js';
 
 type GalleryIndex = {
   videos?: Array<{ key?: string; name: string; prompt?: string; starred?: boolean }>;
@@ -209,8 +210,27 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     '',
     'You have tools to create content for the site:',
     '',
+    '### create_product_with_phyllis',
+    'Creates a REAL product that customers can actually order! Uses Phyllis Fills fulfillment service.',
+    'Parameters:',
+    '  • design_url: S3 URL of 300 DPI design (must already be uploaded)',
+    '  • title: Product name',
+    '  • description: Product description',
+    '  • colors: (optional) Array of colors, default ["black"]',
+    '',
+    'This tool:',
+    '  1. Validates the design is 300 DPI (Phyllis will reject < 150 DPI)',
+    '  2. Creates product in Printful for print-on-demand fulfillment',
+    '  3. Fetches mockup images from Printful',
+    '  4. Adds product to discountpunk.com with real mockups',
+    '  5. Product is immediately orderable by customers!',
+    '',
+    'First 10 orders/month are free, then $1.50 per order.',
+    'When someone asks you to make a REAL product that can be ordered — use this tool!',
+    'IMPORTANT: You need a 300 DPI design URL. The Eat My Donkey design is at: https://ssbb-media-prod.s3.amazonaws.com/discountpunk/images/eat-my-donkey-300dpi.png',
+    '',
     '### add_product',
-    'Creates a new product listing on the shop.',
+    'Creates a new FAKE product listing on the shop (for fun/demo).',
     'Parameters:',
     '  • title: Product name (e.g., "SSBB Logo Tee")',
     '  • price: Fake price (e.g., "$24.99")',
@@ -218,7 +238,7 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     '  • imagePrompt: (optional) Prompt to generate product image',
     '  • fullDescription: (optional) Longer description for dedicated product page',
     '',
-    'When someone asks you to add merch, create a product, or make something for the shop — use this tool!',
+    'When someone asks you to add merch for FUN (not real orders) — use this tool!',
     '',
     '### create_comic',
     'Creates a new comic book issue with cover art.',
@@ -329,6 +349,20 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
         },
         required: ['title']
       }
+    },
+    {
+      name: 'create_product_with_phyllis',
+      description: 'Create a real product on Discount Punk using an existing 300 DPI design. Calls Phyllis Fills API to create a Printful product with mockups, then adds it to the shop. Use this when someone asks you to make a REAL product that customers can actually order (not fake merch). IMPORTANT: You must provide a design_url that points to a 300 DPI image already uploaded to S3.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          design_url: { type: 'string', description: 'S3 URL of 300 DPI design (e.g., https://ssbb-media-prod.s3.amazonaws.com/discountpunk/images/design-300dpi.png)' },
+          title: { type: 'string', description: 'Product title' },
+          description: { type: 'string', description: 'Product description' },
+          colors: { type: 'array', items: { type: 'string' }, description: 'Optional: shirt colors (default: ["black"])' }
+        },
+        required: ['design_url', 'title', 'description']
+      }
     }
   ];
 
@@ -411,6 +445,50 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
           }
         } catch (err) {
           return `Failed to delete video: ${err instanceof Error ? err.message : 'Unknown error'}`;
+        }
+      }
+
+      if (name === 'create_product_with_phyllis') {
+        try {
+          const { design_url, title, description, colors } = input as any;
+          console.log('[provider] create_product_with_phyllis starting:', { title, design_url });
+
+          const { createProductWithPhyllis } = await import('./phyllis.js');
+          const result = await createProductWithPhyllis({
+            design_url,
+            title,
+            description,
+            colors: colors || ['black']
+          });
+
+          if (!result.success) {
+            throw new Error(result.error || 'Unknown error');
+          }
+
+          // Add product to Discount Punk website using the front mockup image URL directly
+          const product = await addProduct({
+            title,
+            price: '$29.99',
+            description
+          }, undefined, undefined);
+
+          // Override the image with the mockup from Phyllis
+          if (result.mockups?.front) {
+            product.image = result.mockups.front;
+          }
+
+          console.log('[provider] create_product_with_phyllis success:', {
+            title,
+            printful_id: result.printful_product_id,
+            product_link: product.link,
+            mockup: result.mockups?.front
+          });
+
+          return `Real product created! "${title}" is now live on Discount Punk and ready for actual orders. Printful product ID: ${result.printful_product_id}. Link: ${product.link}. First 10 orders/month are free on Phyllis Fills!`;
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+          console.error('[provider] create_product_with_phyllis failed:', { error: errorMsg });
+          return `Failed to create product with Phyllis Fills: ${errorMsg}`;
         }
       }
 
