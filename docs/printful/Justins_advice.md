@@ -121,6 +121,7 @@ Her job:
 - receive paid-order submission requests
 - create/confirm Printful orders
 - expose operational status and retry endpoints
+- answer grounded operational questions from admins, staff, customers, and bots
 
 Initial client:
 
@@ -158,6 +159,69 @@ Example site config:
     "prefix": "sites/discountpunk"
   }
 }
+```
+
+## Conversational Agent Layer
+
+Phyllis should eventually be talkable.
+
+Example:
+
+```text
+Phyllis, where is the Eat My Donkey order for Discount Punk for Joe Smith?
+```
+
+This should be an agent layer over the same records that power the API and dashboard.
+
+Do not let the agent invent fulfillment answers. It should query structured records and then explain them.
+
+Supported user groups:
+
+- admins: can query across clients and sites
+- staff: can query assigned clients/sites
+- customers: can query their own orders only
+- bots: can query through API/tool calls with scoped credentials
+
+Data model requirements for future conversational lookup:
+
+- store normalized customer name
+- store customer email
+- store site ID
+- store product title
+- store local order ID
+- store Stripe session/payment intent IDs
+- store Printful order ID
+- store current status
+- store status history with timestamps
+- store last known tracking/shipping info when available
+
+Search/query capabilities to plan for:
+
+- by customer name + site
+- by email
+- by product title
+- by local order ID
+- by Printful order ID
+- by Stripe payment/session ID
+- by failed status
+
+Example grounded response:
+
+```text
+I found Joe Smith's Eat My Donkey Tee order for Discount Punk.
+Status: submitted_for_fulfillment.
+Printful order: 123456789.
+Last update: May 2, 2026 08:42 CDT.
+Next step: waiting for Printful production update.
+```
+
+If something failed:
+
+```text
+I found the order, but Printful submission failed after 3 attempts.
+Status: printful_failed.
+Last error: invalid recipient zip.
+Next action: update address and retry fulfillment.
 ```
 
 ## Architecture Recommendation
@@ -682,6 +746,9 @@ Order statuses:
 
 - `pending_checkout`
 - `paid`
+- `pending_client_approval`
+- `pending_admin_approval`
+- `rejected`
 - `printful_submitting`
 - `printful_failed`
 - `printful_draft`
@@ -697,6 +764,69 @@ Critical invariant:
 ```text
 paid Stripe order + no Printful order = visible operational problem, never silent success
 ```
+
+## Approval Gate
+
+For bot-generated commerce, do not automatically submit every paid order to Printful.
+
+Recommended sprint flow:
+
+```text
+Stripe webhook
+  -> save paid order as pending_client_approval
+  -> stop
+
+Client approves
+  -> status becomes pending_admin_approval
+
+Admin approves
+  -> submit to Printful
+  -> status becomes submitted_to_printful or printful_draft
+
+Client or admin rejects
+  -> status becomes rejected
+  -> refund handled manually in Stripe for MVP
+```
+
+Why this matters:
+
+- Bot-generated designs can have quality or policy issues.
+- Variant mapping mistakes become physical mistakes if auto-submitted.
+- A human should confirm the design before Printful produces inventory.
+- The approval queue becomes an operational safety layer, not bureaucracy.
+
+No auto-approval timeout for MVP.
+
+Approval records should include:
+
+- approver role: `client` or `admin`
+- approver ID/email
+- decision: `approved` or `rejected`
+- timestamp
+- note/reason
+
+Example:
+
+```json
+{
+  "status": "pending_admin_approval",
+  "approval": {
+    "client": {
+      "decision": "approved",
+      "by": "client@example.com",
+      "at": "2026-05-02T13:20:00.000Z",
+      "note": "Design and size look correct"
+    },
+    "admin": null
+  }
+}
+```
+
+Agent behavior:
+
+- If asked where an order is, Phyllis should mention whether it is waiting on client approval, admin approval, Printful submission, or shipment.
+- If rejected, Phyllis should explain the rejection reason and next action.
+- If refund is manual, Phyllis should say "refund has not been automated; check Stripe" rather than imply it happened.
 
 ## Retry And Idempotency
 

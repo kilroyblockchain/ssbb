@@ -291,6 +291,757 @@ Fulfillment infrastructure for bot-built commerce
 
 That line is now stronger than the earlier Discount Punk-specific framing. Discount Punk remains the first client, not the product boundary.
 
+### 2026-05-02 08:19 CDT
+
+Karen expanded the product definition again:
+
+```text
+Phyllis should be an agent users can talk to.
+```
+
+Not just admins. Not just bots. Phyllis should be able to answer operational questions for admins, staff, and customers, grounded in the same order/product/usage records that power the API and dashboard.
+
+Example user question:
+
+```text
+Phyllis, where is the Eat My Donkey order for Discount Punk for Joe Smith?
+```
+
+This changes the interface model:
+
+```text
+API -> dashboard -> conversational operations agent
+```
+
+Important product implication:
+
+- The agent must query real records, not invent answers.
+- Access control matters by role:
+  - admins can ask across clients/sites
+  - staff can ask within assigned sites
+  - customers can ask only about their own orders
+- Order lookup needs flexible search:
+  - customer name
+  - email
+  - site
+  - product title
+  - local order ID
+  - Stripe session/payment ID
+  - Printful order ID
+- Responses should include status, last update, fulfillment provider status, and next action if something failed.
+
+This may not need full implementation today, but the data model should not block it. Add indexes/searchable fields now if possible.
+
+### 2026-05-02 08:20 CDT
+
+The fulfillment flow changed in a meaningful way: Phyllis should not auto-submit bot-generated orders to Printful immediately after Stripe payment.
+
+New principle:
+
+```text
+Money can be accepted automatically. Physical fulfillment needs explicit approval.
+```
+
+Reason:
+
+```text
+We must be sure about the design before we order an item.
+```
+
+The Replit agent proposed and started building a two-stage approval flow:
+
+```text
+Stripe webhook
+  -> save order as pending_client_approval
+  -> do not submit to Printful
+
+Client dashboard
+  -> client approves or rejects
+
+Client approves
+  -> order becomes pending_admin_approval
+
+Admin dashboard
+  -> admin final-approves or rejects
+
+Admin approves
+  -> submit to Printful
+  -> order becomes submitted_to_printful
+
+Reject
+  -> order becomes rejected
+  -> refund handled manually in Stripe for now
+```
+
+Approval rules decided:
+
+- client approval first
+- admin final approval second
+- no auto-approval timeout
+- rejected orders are marked rejected
+- refunds are manual in Stripe for this sprint
+- the design/order can be fixed and put through again
+
+This is the right tradeoff for bot-built products. It prevents an LLM-generated design or variant mistake from becoming a real physical order before a human has inspected it.
+
+Important consequence for the story:
+
+```text
+Phyllis is not just automation. Phyllis is controlled automation with human checkpoints where physical goods and money are involved.
+```
+
+### 2026-05-02 08:26 CDT
+
+BotButt began testing Phyllis.
+
+The Replit agent then started implementing the conversational layer:
+
+```text
+Phyllis becomes a living operations agent.
+```
+
+Target behavior:
+
+- customers can ask where their order is
+- clients can approve/reject through chat
+- admins can inspect and manage orders conversationally
+- Phyllis can answer with real order/product/usage context
+
+The agent pulled in AI integration scaffolding, then started wiring:
+
+- TypeScript configs
+- package dependencies
+- database schema updates
+- chat endpoint
+- chat UI component
+- route registration
+- typechecks/builds
+
+Current implementation snag:
+
+```text
+template library type errors:
+- missing @types/node
+- pRetry.AbortError API changed in p-retry v7
+- React types needed for the React library package
+```
+
+This is normal integration friction. The important thing is that the conversational interface should stay grounded in real Phyllis records:
+
+```text
+chat answer = query operational data -> summarize status/action
+```
+
+Do not let the agent become generic support chat. Phyllis's value is operational specificity.
+
+### 2026-05-02 08:35 CDT
+
+Replit is now testing live multi-turn Phyllis chat.
+
+The product definition sharpened again:
+
+```text
+Agents like BotButt should be able to actually chat with Phyllis.
+```
+
+This means Phyllis is not only:
+
+- an API
+- a dashboard
+- a fulfillment worker
+
+She is also an agent-to-agent operations coordinator.
+
+Current examples:
+
+```text
+BotButt: "Phyllis, how many orders are pending?"
+Phyllis: "You have 3 orders pending approval."
+
+Customer: "Phyllis, where is the Eat My Donkey order for Joe Smith?"
+Phyllis: "Order #123 is in production at Printful..."
+
+Admin: "Phyllis, approve all Discount Punk orders."
+Phyllis: "Approved 3 orders and submitted them to Printful."
+```
+
+This is a major shift in story terms:
+
+```text
+Phyllis coordinates between creative agents, humans, payment systems, and fulfillment providers.
+```
+
+Replit has reportedly updated documentation for:
+
+- AI chat guide
+- human approval workflow
+- agent-to-agent communication
+- order statuses and approval flow
+- multi-role access: customer, client, admin
+
+Next technical pressure point:
+
+```text
+Printful status and tracking integration.
+```
+
+For chat to be credible, Phyllis needs real fulfillment state:
+
+- local approval state
+- local order state
+- Printful order state
+- shipment/tracking info when available
+- failure reason and next action
+
+The Replit agent started reading the Printful integration and Phyllis routes to plan status/tracking support.
+
+### 2026-05-02 08:35 CDT
+
+Current technical hardening step:
+
+```text
+Phyllis chat needs operational structure and real Printful lookup.
+```
+
+Two changes are underway:
+
+1. Rewrite the system prompt so Phyllis answers in an operational format:
+
+```text
+status -> blocker -> next action
+```
+
+2. Add a real Printful status/tracking lookup tool.
+
+This is the right correction. A conversational fulfillment agent should not answer like a general chatbot. It should answer like an operations coordinator:
+
+```text
+Status: pending_admin_approval.
+Blocker: waiting for final approval before Printful submission.
+Next action: admin should review the design and approve or reject.
+```
+
+For shipped orders, the answer should eventually include:
+
+```text
+Status: shipped.
+Blocker: none.
+Next action: customer can track shipment with carrier link.
+Tracking: ...
+```
+
+The quality bar is simple:
+
+```text
+If Phyllis cannot query it, Phyllis should not claim it.
+```
+
+### 2026-05-02 08:44 CDT
+
+The next product layer is client-configurable chat.
+
+Karen clarified the expected admin model:
+
+```text
+All this should be configurable in the admin panel.
+You should be able to say: here is my chat API for my site, like discountpunk.com.
+```
+
+Replit translated that into a concrete implementation plan:
+
+```text
+DB:
+  allowedDomains column on clients table
+
+API:
+  GET /api/me/chat-config
+  PUT /api/me/chat-config
+  POST /api/chat/:clientSlug
+
+Chat route:
+  validates Origin against the client's allowed domains
+  scopes all answers by clientSlug/site
+
+Phyllis core:
+  multi-client order loading
+  exported core functions
+  clientSlug scoping
+
+Dashboard:
+  Chat API tab
+  endpoint URL
+  domain allowlist
+  embed snippet
+```
+
+This matters because it turns Phyllis chat from a single internal admin toy into a product feature:
+
+```text
+Each client gets its own scoped Phyllis chat API.
+```
+
+For Discount Punk, that means the site can embed or call:
+
+```text
+POST /api/chat/discountpunk
+```
+
+and Phyllis can answer customer questions without leaking other clients' orders.
+
+Security rule:
+
+```text
+Client chat must be scoped by client/site and constrained by allowed domains.
+```
+
+### 2026-05-02 08:50 CDT
+
+The client-specific chat API work is now testing cleanly.
+
+Replit reports:
+
+- database migrated with `allowedDomains`
+- public chat route added
+- `GET /api/me/chat-config`
+- `PUT /api/me/chat-config`
+- `POST /api/chat/:clientSlug`
+- origin enforcement working
+- allowed origin reaches Phyllis
+- server build passing
+- dashboard has a Chat API tab with endpoint, allowlist, and embed snippet
+
+The important implementation detail:
+
+```text
+Phyllis chat is scoped by clientSlug and allowed domains.
+```
+
+This is what makes the chat API a real per-client product feature rather than a global support widget.
+
+Karen provided the GitHub repo target:
+
+```text
+git@github.com:kilroyblockchain/phyllis.git
+```
+
+Replit should push the Phyllis project there.
+
+### 2026-05-02 09:34 CDT
+
+Naming refinement:
+
+```text
+Marketing/product name: Phyllis
+Chat/persona name: Phyllis Fills is acceptable in conversation
+Domain/deploy slug: phyllis-fills
+```
+
+The marketing site should lead with:
+
+```text
+Phyllis
+Fulfillment infrastructure for bot-built commerce
+```
+
+Reason:
+
+```text
+"Phyllis" is cleaner as a brand. "Phyllis Fills" can remain the wink inside the agent personality.
+```
+
+### 2026-05-02 08:57 CDT
+
+Gemini researched providers similar to Printful for collectible posters and fine-art fulfillment.
+
+Recommendation:
+
+```text
+theprintspace / creativehub
+```
+
+Reason:
+
+```text
+Certificate of Authenticity support matters more than commodity poster pricing for collectibles.
+```
+
+This adds a new strategic layer to Phyllis:
+
+```text
+Phyllis should route products to the right fulfillment provider by product type.
+```
+
+Provider strategy:
+
+```text
+Shirts/general merch -> Printful
+Collectible posters/fine-art drops -> theprintspace / creativehub
+```
+
+Why it matters:
+
+- Bot-generated art can scale fast.
+- Collectors need provenance.
+- Limited editions need edition numbers, certificate IDs, and verification.
+- Phyllis should enforce scarcity operationally, not merely describe it in product copy.
+
+A dedicated plan was added:
+
+```text
+docs/printful/collectible_poster_fulfillment_plan.md
+```
+
+### 2026-05-02 09:12 CDT
+
+The sprint moved into documentation mode.
+
+Replit is creating three separate documentation tracks:
+
+```text
+User-side documentation
+  For end customers using the storefront, checkout, order tracking, and Phyllis chat.
+
+Client/admin-side documentation
+  For shop owners and staff using the Phyllis dashboard, approvals, API keys, usage, and chat config.
+
+Technical documentation
+  For developers implementing against Phyllis: API reference, architecture, database schema, deployment, and secrets.
+```
+
+The agent first read route definitions, database schema, and dashboard structure so the docs reflect the actual system rather than the plan.
+
+This matters because Phyllis now has several audiences:
+
+- customers asking about orders
+- clients approving products/orders
+- admins supervising fulfillment
+- bots integrating through API keys
+- developers wiring storefronts and chat endpoints
+
+The docs need to keep those roles separate, or Phyllis will feel more complicated than she is.
+
+### 2026-05-02 09:26 CDT
+
+Testing-plan feedback is being applied.
+
+Fixes underway:
+
+- remove full API keys from docs
+- correct poster DPI threshold to 300 DPI
+- add approval state transition API tests
+- add Stripe webhook signature tests
+- add "no record, no claim" chat tests
+- clarify Origin allowlist behavior
+- make Printful submission warnings louder
+- update technical reference to match actual poster DPI code
+
+Confirmed from code:
+
+```text
+poster gate = 300 DPI
+```
+
+Next product question surfaced:
+
+```text
+How does someone go from the Phyllis website to paying on Stripe and getting their API key?
+```
+
+This is the onboarding path from marketing site to paid client.
+
+### 2026-05-02 09:30 CDT
+
+Replit is now handling two tracks in parallel:
+
+1. Finish documentation corrections.
+2. Build the self-serve onboarding flow.
+
+Documentation fixes being applied:
+
+- remove seeded credentials from client/admin guide
+- correct stale poster DPI references
+- mark unauthenticated `/api/orders/submit` as dev/internal or secure it
+- clarify MVP rejection does not automatically trigger Stripe refunds
+- distinguish `submitted_to_printful` from true production state
+- verify documented model names against implementation
+- keep shipping-country documentation tied to actual Stripe checkout config
+
+Onboarding design:
+
+```text
+Marketing CTA
+  -> Stripe setup Checkout
+  -> Stripe webhook creates Phyllis client
+  -> generated API key stored
+  -> success page polls/loads setup result
+  -> API key shown once
+  -> client enters dashboard
+```
+
+Important security decision:
+
+```text
+The webhook is the source of truth for client creation, not the success redirect.
+```
+
+The success page may load before the webhook finishes, so it should show a setup/polling state until the client record exists.
+
+MVP billing approach:
+
+```text
+Use Stripe setup mode to capture payment method without charging immediately.
+```
+
+This supports the intended usage-based model while keeping today's sprint focused on access, API keys, and usage tracking rather than full Stripe Billing.
+
+### 2026-05-02 09:32 CDT
+
+Onboarding implementation is moving from design into code.
+
+Replit reports:
+
+- documentation fixes are being applied
+- onboarding backend routes are being added
+- webhook flow will create clients/API keys from Stripe onboarding sessions
+- frontend onboarding form and success page are being added
+- dashboard app will detect onboarding URLs
+- marketing CTAs are being wired into the onboarding flow
+- servers are being restarted for testing
+
+Key architecture:
+
+```text
+Phyllis onboarding is separate from Discount Punk checkout.
+```
+
+That separation matters. Discount Punk checkout creates customer orders. Phyllis onboarding creates platform clients.
+
+Expected route shape:
+
+```text
+POST /api/onboarding/create-checkout-session
+GET  /api/onboarding/session/:sessionId
+POST /api/webhooks/stripe
+```
+
+Stripe metadata should distinguish:
+
+```text
+flow=phyllis_onboarding
+```
+
+from:
+
+```text
+flow=discountpunk_order
+```
+
+The success page should never be the only thing that creates the account. It should read the account created by the webhook, or poll until the webhook finishes.
+
+### 2026-05-02 09:35 CDT
+
+Testing plan and technical reference cleanup landed in the local docs mirror.
+
+Final fixes applied:
+
+- Printful admin approval warning now says dry-run is not implemented and admin-approve must not be automated.
+- Stripe webhook idempotency is marked as a pre-launch blocker.
+- Duplicate checkout/session order creation is tied to the same idempotency fix.
+- Origin-less chat requests now have explicit mitigation: rate limit `/api/chat/:slug` and require `customerEmail` or `orderId` for customer-scoped lookups.
+- Technical reference Products section now matches the real DPI policy:
+
+```text
+shirt: reject below 150 DPI, warn below 300 DPI
+poster: reject below 300 DPI
+```
+
+- `/api/orders/submit` is explicitly marked internal/dev-only until authenticated, firewalled, or removed.
+
+### 2026-05-02 09:39 CDT
+
+Unit tests are now in place.
+
+Replit reports:
+
+```text
+58 tests
+3 files
+all green in 1.57s
+```
+
+Test suites added:
+
+```text
+src/__tests__/dpi.test.ts                 20 tests
+src/__tests__/orderTransitions.test.ts    19 tests
+src/__tests__/onboardingValidation.test.ts 19 tests
+```
+
+Important implementation choice:
+
+```text
+Extract pure functions first, then test without mocks.
+```
+
+Code structure added:
+
+- `checkDpiThresholds(dpi, productType)` extracted from image I/O.
+- `canTransition(status, action)` added as a pure order state machine.
+- onboarding Zod schema tested directly.
+
+Covered:
+
+- DPI boundary values
+- null/missing DPI metadata
+- shirt warning/pass/reject behavior
+- poster hard gate at 300 DPI
+- approval transition validity
+- wrong-state error message format
+- onboarding company name, slug, and email validation
+
+Command:
+
+```text
+pnpm --filter @workspace/api-server run test
+```
+
+Next planned test expansion:
+
+- Stripe webhook signature and idempotency
+- tenant scoping
+- Origin allowlist behavior
+- Printful retry behavior
+
+### 2026-05-02 09:41 CDT
+
+Replit started the second unit-test expansion by extracting more policy logic into pure functions.
+
+Planned extractions:
+
+```text
+chatEmbed.ts
+  -> originAllowed()
+  -> fix no-Origin server-to-server behavior
+
+orderRecord.ts
+  -> buildOrderFromSession()
+  -> pure Stripe session to local order mapping
+
+orderFilter.ts
+  -> shouldIncludeInPendingQueue()
+  -> pure tenant/admin queue filtering
+
+printful.ts
+  -> shouldRetryPrintful()
+  -> retry network/429/5xx, do not retry hard 4xx
+```
+
+Then add four test suites:
+
+- Stripe webhook/order mapping and idempotency policy
+- tenant scoping/pending queue filters
+- Origin allowlist behavior
+- Printful retry policy
+
+This is good engineering for the sprint because the riskiest logic is becoming small and testable:
+
+```text
+policy as pure functions, side effects in routes/adapters
+```
+
+### 2026-05-02 09:51 CDT
+
+Phyllis is being made LLM-discoverable.
+
+This matters because Phyllis is an API for agents. If bots and LLMs are going to integrate with her, the marketing site should not only persuade humans; it should also explain the API clearly to machines.
+
+Replit's LLM-discovery plan:
+
+```text
+/llms.txt
+  concise LLM-facing product/API summary
+
+/llms-full.txt
+  complete endpoint and integration reference
+
+/openapi.json or /api-spec.json
+  machine-readable OpenAPI spec
+
+/robots.txt
+  crawler policy, including AI crawlers if desired
+
+index.html metadata
+  meta tags
+  OpenGraph data
+  discovery links
+  JSON-LD structured data
+```
+
+This is especially aligned with the product:
+
+```text
+Phyllis is fulfillment infrastructure for bot-built commerce.
+Bots should be able to discover, understand, and call her API.
+```
+
+The important quality bar:
+
+```text
+An LLM should be able to read the public docs and know:
+- what Phyllis does
+- how to authenticate
+- which endpoint creates products
+- which endpoint submits orders
+- how chat endpoints are scoped
+- what approval states mean
+- what not to automate, especially Printful admin approval
+```
+
+### 2026-05-02 10:03 CDT
+
+Justin reframed the LLM-discoverability work.
+
+This is not just marketing metadata. It is safety documentation for autonomous agents.
+
+The missing bar is explicit operational restraint:
+
+```text
+An LLM agent must know what not to automate.
+```
+
+The most important rule:
+
+```text
+Do not automate final admin approval.
+```
+
+Reason:
+
+```text
+Admin approval can submit a paid order to Printful/provider production.
+That can create a physical product and spend real money.
+```
+
+Added a local source-of-truth checklist for Replit to mirror into the public marketing files:
+
+```text
+docs/printful/llm_discoverability_safety_checklist.md
+```
+
+The checklist covers required content for:
+
+```text
+/llms.txt
+/llms-full.txt
+/openapi.json
+```
+
+And sets a simple acceptance test:
+
+```text
+If a fresh LLM reads the public docs and says it can freely approve or submit physical orders, the docs failed.
+```
+
 ## Decisions Log
 
 ### Name
@@ -301,7 +1052,7 @@ Reason:
 
 - memorable
 - sounds human
-- joke works: Phyllis fills orders
+- joke still works in copy: Phyllis fills orders
 - better than Stocky Butt for a reusable SaaS/API product
 
 ### Domain
@@ -390,3 +1141,37 @@ The hard part of AI commerce is not making a weird shirt. The hard part is makin
 - first dashboard retry/failure path
 - screenshots of dashboard
 - final architecture diagram
+
+### 2026-05-02 09:58 CDT
+
+We clarified the 300 DPI image path.
+
+Current truth:
+
+```text
+BotButt can create a real product with Phyllis if it already has a 300 DPI design URL.
+BotButt does not yet generate a new 300 DPI print file from scratch.
+```
+
+The known-good asset remains:
+
+```text
+https://ssbb-media-prod.s3.amazonaws.com/discountpunk/images/eat-my-donkey-300dpi.png
+```
+
+Local BotButt code has a `generatePrintDesign` function and product presets for 300 DPI canvases, but the function currently returns:
+
+```text
+Image generation not yet implemented. Please use an existing 300 DPI design URL with Phyllis directly.
+```
+
+So the sprint test plan is now split into two tracks:
+
+1. Test today's implemented flow: existing 300 DPI S3 URL -> BotButt -> Phyllis -> Printful product.
+2. Define acceptance tests for the future flow: BotButt generates/stamps/uploads a real 300 DPI PNG before asking Phyllis to create the product.
+
+Added detailed plan:
+
+```text
+docs/printful/300dpi_image_test_plan.md
+```

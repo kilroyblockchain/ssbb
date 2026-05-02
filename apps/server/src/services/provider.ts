@@ -366,6 +366,8 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     }
   ];
 
+  console.log('[provider] Tools before search check:', tools.map(t => t.name).join(', '));
+
   if (isSearchConfigured()) {
     tools.push({
       name: 'web_search',
