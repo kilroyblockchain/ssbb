@@ -36,6 +36,37 @@ Image generation not yet implemented. Please use an existing 300 DPI design URL 
 
 That means BotButt can create a real product from an existing 300 DPI URL, but cannot yet create the new 300 DPI file itself.
 
+## Current Verified Product Path
+
+As of May 2, 2026, the existing-asset path is verified end to end through product creation:
+
+```text
+BotButt -> create_product_with_phyllis -> Phyllis -> DPI validation -> Printful sync product -> Printful mockup -> Phyllis products table -> Discount Punk dashboard
+```
+
+Verified product:
+
+```text
+Title: Eat My Donkey
+Printful ID: 430745217
+External ID: discount-punk-4149b8b559c5
+Price: $29.99
+Dashboard status: Active
+```
+
+Verified behavior:
+
+- Phyllis creates or finds the Printful sync product.
+- Mockup generation returns a real shirt PNG.
+- Product creation is idempotent: same title + same design URL returns the existing product.
+- Discount Punk can see the product in the Phyllis Products tab.
+
+Still pending for full shopper E2E:
+
+- Public Discount Punk **Buy Now** button must call the real Stripe checkout flow instead of showing "coming soon."
+- Stripe webhook must save the paid order and submit it through the provider adapter.
+- Printful should show a draft/provider order; the vendor dashboard remains the final production gate.
+
 ## What Is Implemented Today
 
 ### BotButt
@@ -305,4 +336,3 @@ For customer-facing orders:
 ```text
 No Phyllis DPI pass, no checkout.
 ```
-

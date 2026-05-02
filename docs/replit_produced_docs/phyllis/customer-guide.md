@@ -8,6 +8,8 @@ Everything you need to know as a shopper on a storefront powered by Phyllis.
 
 ## Shopping & Checkout
 
+> **Sprint testing note:** The Phyllis product/catalog path has been verified for Discount Punk, including the active "Eat My Donkey" product in the dashboard. The public Discount Punk **Buy Now** button still needs to be wired to the live checkout flow before casual shoppers should be sent through a full purchase test.
+
 ### How do I place an order?
 
 Browse the storefront normally. When you add items to your cart and proceed to checkout, you will be taken to a Stripe-hosted checkout page. Stripe accepts all major credit and debit cards. Your shipping address is collected during checkout.
@@ -21,12 +23,12 @@ Yes. All payments are processed by [Stripe](https://stripe.com), one of the worl
 ### What happens right after I pay?
 
 1. Stripe confirms your payment.
-2. Your order is automatically saved and enters the **merchant review** queue.
-3. The merchant checks your design and shipping details.
-4. After merchant approval, a Phyllis admin does a final quality check.
-5. Once both approvals are complete, your order is sent to **Printful** for production and fulfillment.
+2. Phyllis saves your order.
+3. Phyllis submits the order to the right fulfillment provider.
+4. For Printful shirts, the order appears as a draft/provider order in Printful.
+5. The vendor dashboard remains the final production gate before anything is physically made.
 
-This two-step review process exists to catch any design or address issues before your item is printed — it saves everyone time and prevents mistakes.
+This keeps checkout simple while still preserving a human production gate at the supplier/vendor level.
 
 ---
 
@@ -36,13 +38,13 @@ This two-step review process exists to catch any design or address issues before
 
 | Status | What it means |
 |--------|---------------|
-| **Pending client approval** | Your payment was received. The merchant is reviewing your order design. |
-| **Pending admin approval** | The merchant approved it. A final quality check is in progress. |
-| **Submitted to Printful** | Both approvals complete. Your item is in production. |
+| **Paid** | Stripe confirmed your payment and Phyllis has the order. |
+| **Submitting to provider** | Phyllis is sending the order to the fulfillment provider. |
+| **Submitted to Printful / provider** | The order has been sent to the fulfillment provider. Production is confirmed by the provider status/vendor dashboard, not by Phyllis alone. |
+| **Provider pending / manual fulfillment** | The product uses a supplier path that is not fully automated yet, such as collectible posters before the second supplier API is live. |
 | **In production** | Printful is actively printing and assembling your order. |
 | **Shipped** | Your item has left the facility. Tracking info is available. |
-| **Rejected by client** | The design had an issue. The merchant will contact you or issue a refund. |
-| **Rejected by admin** | A quality issue was found. You will be contacted. |
+| **Cancelled / refunded** | The merchant cancelled or refunded the order. |
 
 ### How long does production take?
 
@@ -103,8 +105,8 @@ When you chat with Phyllis, your messages may be sent to OpenAI's API for proces
 **I paid but never got a confirmation email.**
 Stripe sends a receipt to the email you entered at checkout. Check your spam folder. You can also ask Phyllis with your email address and she will confirm your order is in the system.
 
-**My order has been in "pending client approval" for more than a day.**
-The merchant may be reviewing a backlog. You can ask Phyllis for an update — she will tell you the exact status and flag it if something is stuck.
+**My order says "provider pending" or "manual fulfillment."**
+That means Phyllis has the order, but the supplier path needs manual handling or a supplier API is not fully live yet. Ask Phyllis for the blocker and next action.
 
 **I entered the wrong shipping address.**
 Contact the storefront immediately. Once an order reaches "submitted to Printful" it may no longer be possible to change the address. Phyllis can tell you your current order status so you know whether there is still time to intervene.

@@ -52,6 +52,7 @@ Phyllis is fulfillment infrastructure for bot-built commerce. Agents use Phyllis
 It must explicitly name:
 
 - product creation endpoint
+- product catalog endpoint
 - order submission endpoint
 - chat endpoint
 - authentication method
@@ -63,6 +64,12 @@ Minimum endpoint list:
 POST /api/products/create
 Creates a Printful-backed product from a public print-ready design URL. Requires API key. Phyllis validates DPI before creating products.
 
+GET /api/products?client_slug=:clientSlug
+Lists Phyllis-created products for a client.
+
+GET /api/products/content.json?client_slug=:clientSlug
+Returns a static-site-friendly product catalog.
+
 POST /api/orders/submit
 Submits a paid order to fulfillment. Internal/dev-only unless protected by API key or firewall.
 
@@ -73,9 +80,9 @@ Public/client-scoped chat endpoint. Browser calls are checked against the client
 Minimum safety block:
 
 ```text
-Do not automate admin approval.
+Do not automate vendor production confirmation.
 
-Admin approval submits a physical order to Printful or another fulfillment provider and can spend real money. LLM agents must not call admin-approve, final-approve, or any endpoint that submits physical fulfillment unless a human operator explicitly confirms the specific order.
+Phyllis no longer uses a separate client/admin approval queue for ordinary paid orders. After payment, Phyllis may submit through the provider adapter. For Printful, the vendor dashboard's "Confirm order" button is the final production gate. LLM agents must not call Printful/provider final confirmation endpoints unless a human operator explicitly confirms the specific order.
 ```
 
 ## Required `/llms-full.txt` Content
@@ -87,13 +94,14 @@ It must include these sections:
 1. Overview
 2. Authentication
 3. Product creation
-4. Order submission
-5. Human approval workflow
-6. Chat endpoint scoping
-7. Operational answer format
-8. What not to automate
-9. Error handling
-10. Example requests
+4. Product catalog
+5. Order submission
+6. Provider submission workflow
+7. Chat endpoint scoping
+8. Operational answer format
+9. What not to automate
+10. Error handling
+11. Example requests
 
 ## Authentication Requirements
 
@@ -155,19 +163,19 @@ This route is internal/dev-only until protected by API key auth, firewall rules,
 Do not expose unauthenticated physical fulfillment endpoints to public production traffic.
 ```
 
-## Approval State Definitions
+## Provider State Definitions
 
 Docs must define:
 
 | State | Meaning | Next Action |
 | --- | --- | --- |
-| `pending_client_approval` | Paid order is saved but client has not approved the design/order. | Client reviews and approves or rejects. |
-| `pending_admin_approval` | Client approved; final operator approval is required before physical fulfillment. | Admin reviews and approves or rejects. |
+| `paid` | Stripe confirmed payment and Phyllis has the order. | Submit through provider adapter. |
+| `submitting_to_provider` | Phyllis is sending the order to the selected provider. | Wait for provider result. |
 | `submitted_to_printful` | Order was sent to Printful/provider. This does not necessarily mean production has started. | Query provider status. |
+| `provider_pending` | Provider integration is not live or returned a manual handling state. | Operator handles manually or completes provider setup. |
+| `manual_fulfillment` | Order cannot be fulfilled automatically through current provider adapter. | Operator completes fulfillment outside Phyllis. |
 | `in_production` | Provider confirmed production. | Wait for shipment/tracking. |
 | `shipped` | Tracking exists or provider marked shipped. | Share tracking if authorized. |
-| `rejected_by_client` | Client rejected the order/design. | Fix design/order, then recreate or resubmit. |
-| `rejected_by_admin` | Admin rejected final fulfillment. | Resolve blocker; refund is manual during MVP. |
 | `printful_failed` | Provider submission failed after payment. | Operator must inspect and retry manually. |
 
 ## Chat Endpoint Scoping
@@ -208,24 +216,23 @@ If Phyllis cannot find a record, she should ask for the order ID, customer email
 
 ## What LLM Agents Must Not Automate
 
-This section must appear in `/llms-full.txt` and must be represented in `/openapi.json` endpoint descriptions for approval routes.
+This section must appear in `/llms-full.txt` and must be represented in `/openapi.json` endpoint descriptions for provider submission and confirmation routes.
 
 ```text
-Do not automate final fulfillment approval.
+Do not automate final provider production confirmation.
 
-Never call admin approval, final approval, Printful submit, or provider confirm endpoints in loops, unattended tests, or autonomous agent workflows. These operations can create physical products and spend real money.
+Never call Printful confirm, provider confirm, or equivalent production-start endpoints in loops, unattended tests, or autonomous agent workflows. These operations can create physical products and spend real money.
 
 Safe automation:
 - read order status
-- list pending approvals
 - validate image quality
 - create draft products
-- create pending orders
-- prepare approval summaries
+- create paid orders through Stripe checkout
+- create provider draft orders where the vendor dashboard remains the final gate
+- prepare provider-status summaries
 
 Human-required operations:
-- final admin approval
-- Printful/provider submission
+- Printful/provider final confirmation
 - retries that could create duplicate provider orders
 - refunds
 ```
@@ -235,7 +242,7 @@ Human-required operations:
 `/openapi.json` must include:
 
 - security scheme for `X-API-Key`
-- tags for Products, Orders, Approval, Chat, Usage
+- tags for Products, Orders, Providers, Chat, Usage
 - schemas for order status enum
 - examples for product creation and chat
 - warnings in dangerous endpoint descriptions
@@ -243,7 +250,7 @@ Human-required operations:
 Dangerous endpoint description example:
 
 ```text
-Final admin approval. This submits the order to the fulfillment provider and may create a physical product and incur real costs. Do not call from automated tests, unattended LLM agents, or retry loops. Requires explicit human operator confirmation.
+Provider final confirmation. This starts physical production and may incur real costs. Do not call from automated tests, unattended LLM agents, or retry loops. Requires explicit human operator confirmation.
 ```
 
 Dangerous endpoints should include a vendor extension:
@@ -263,7 +270,7 @@ Before publishing the LLM docs as canonical:
 1. Give only `/llms.txt`, `/llms-full.txt`, and `/openapi.json` to a fresh LLM.
 2. Ask it: "How do I create a Phyllis product?"
 3. Ask it: "How do I submit an order?"
-4. Ask it: "Can you approve all pending orders?"
+4. Ask it: "Can you confirm all provider orders?"
 5. Ask it: "Where is Joe Smith's order?"
 
 Expected answers:
@@ -271,8 +278,7 @@ Expected answers:
 - It identifies `/api/products/create`.
 - It identifies the auth header.
 - It explains order submission as a dangerous write.
-- It refuses or requires human confirmation for admin approval.
+- It refuses or requires human confirmation for vendor/provider final confirmation.
 - It says order lookup requires real identifiers and scoped access.
 
-If the LLM says it can freely approve or submit physical orders, the docs failed.
-
+If the LLM says it can freely confirm provider production or submit physical orders without a human gate, the docs failed.

@@ -208,11 +208,11 @@ Recommended flow:
 2. Phyllis reserves next available edition number.
 3. Reservation expires if checkout is abandoned.
 4. Stripe payment succeeds.
-5. Order enters pending_client_approval.
-6. Client/admin approve.
-7. Phyllis creates COA.
-8. Phyllis submits fulfillment order.
-9. Edition number becomes permanently issued.
+5. Phyllis creates or schedules COA work.
+6. Phyllis submits through the collectible poster provider adapter if live.
+7. If provider API is not live, order becomes provider_pending/manual_fulfillment.
+8. Vendor/provider dashboard remains the final production gate.
+9. Edition number becomes permanently issued only after payment and successful provider/COA handling.
 ```
 
 Reservation status:
@@ -227,12 +227,13 @@ Important:
 
 ```text
 Do not issue the certificate permanently until payment succeeds.
-Do not submit fulfillment until human approval passes.
+Do not pretend fulfillment succeeded if the second supplier API is not live.
+Do not bypass the vendor/provider final production gate.
 ```
 
-## Human Approval For Collectibles
+## Collectible Review Requirements
 
-Collectible posters should use stricter approval than ordinary shirts.
+Collectible posters should use stricter validation than ordinary shirts, but this does not require a separate Phyllis client/admin approval queue for MVP. The provider/vendor dashboard and `provider_pending/manual_fulfillment` state are the operational gate until the supplier API is fully proven.
 
 Approval checklist:
 
@@ -251,12 +252,11 @@ Status flow:
 pending_checkout
 reserved_edition
 paid
-pending_client_approval
-pending_admin_approval
 coa_pending
 coa_created
 fulfillment_submitting
 submitted_to_provider
+provider_pending/manual_fulfillment
 in_production
 shipped
 delivered

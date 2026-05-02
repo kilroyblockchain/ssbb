@@ -23,8 +23,7 @@ After logging in you will see your account name, slug, and current month's usage
 | Tab | Who sees it | Purpose |
 |-----|-------------|---------|
 | **Orders** | All clients | View all your orders |
-| **Approvals** | All clients | Orders awaiting your review |
-| **Admin Approvals** | Admins only | Orders awaiting final admin check |
+| **Products** | All clients | View products created through Phyllis |
 | **Usage** | All clients | Monthly billing and usage metrics |
 | **Chat API** | All clients | Embed chat config and domain allowlist |
 
@@ -42,75 +41,118 @@ Shows all orders associated with your client slug (up to 50 most recent). Each o
 - **Printful order ID** (once submitted to Printful)
 - **Timestamps** — created and last updated
 
+### Order Detail Drill-Down
+
+Each order card should open a detail view. The detail view is required for debugging checkout/provider issues without leaving the dashboard.
+
+The detail view should show:
+
+- Full order ID
+- Stripe checkout session ID
+- Stripe payment intent ID
+- Customer email
+- Full shipping address
+- Full item list with title, size, quantity, unit price, and provider product/variant IDs
+- Product image/mockup URL
+- Local order status
+- Fulfillment provider, such as `printful` or `theprintspace`
+- Provider order ID, if one exists
+- Provider status, provider error, and retry count
+- Raw failure/blocker message when provider submission fails
+- Created and updated timestamps
+
+For the current sprint issue, the detail view must make this obvious:
+
+```text
+Payment/order exists in Phyllis, but no Printful order was created.
+```
+
+That state should show as a provider submission failure or blocker, not as a successful fulfillment.
+
 ### Status Color Reference
 
 | Color | Status | Meaning |
 |-------|--------|---------|
-| Yellow | `pending_client_approval` | Needs your approval |
-| Blue | `pending_admin_approval` | Waiting for admin final check |
-| Emerald | `submitted_to_printful` | In production |
+| Yellow | `paid` / `submitting_to_provider` | Payment received; Phyllis is submitting the order |
+| Emerald | `submitted_to_printful` / `submitted_to_provider` | Sent to provider; production is not guaranteed until provider status confirms it |
+| Orange | `provider_pending` / `manual_fulfillment` | Provider path needs manual handling or a future supplier API |
 | Light green | `shipped` | In transit |
-| Red | `rejected_by_client` | You rejected it |
-| Dark red | `rejected_by_admin` | Admin rejected it |
 | Grey | `cancelled` / `refunded` | Terminal states |
 
 ---
 
-## Approvals Tab (Client Stage 1)
+## Products Tab
 
-This tab shows orders in `pending_client_approval` status — orders that have been paid but not yet reviewed by you.
+The Products tab shows products created through Phyllis for your client account.
 
-**Your job at this stage:** Check the design, size, and shipping address for obvious problems. You are the first line of defense before the order goes to Printful.
+Each product card should show:
 
-### Approving an Order
+- Product title
+- Status, such as `Active`
+- Retail price
+- Printful product ID
+- Deterministic external ID
+- Created date
+- Mockup image
 
-1. Click **Approve** on any pending order.
-2. Optionally add a note (e.g., "Design looks great, confirmed color").
-3. The order moves to `pending_admin_approval` and disappears from your queue.
+Example verified Discount Punk product:
 
-### Rejecting an Order
+```text
+Title: Eat My Donkey
+Status: Active
+Price: $29.99
+Printful ID: 430745217
+External ID: discount-punk-4149b8b559c5
+```
 
-1. Click **Reject** on the order.
-2. You will be prompted for a reason note. Be specific — this note is stored and visible to the admin and to Phyllis. Example: "Design file is blurry — needs 300 DPI version."
-3. The order moves to `rejected_by_client`. No further action is taken until the underlying issue is resolved.
+If the Products tab is empty but product creation succeeded, check for a client slug mismatch. During the sprint, one bug saved products under `discountpunk` while the client slug was `discount-punk`; that prevented dashboard visibility until the product row was corrected/backfilled.
 
-> **Important:** You can only act on orders in `pending_client_approval`. If an order is already in `pending_admin_approval` or beyond, it is no longer in your approval queue.
+If a product appears without an image, check whether `mockup_urls` were saved. Phyllis should store the generated Printful mockup URL or the S3-persisted mockup URL.
 
 ---
 
-## Admin Approvals Tab (Admin Only)
+## Fulfillment Gate
 
-Admins see a second approval queue: orders in `pending_admin_approval` status.
+Phyllis no longer uses a client/admin approval queue for ordinary paid orders.
 
-**Admin's job:** Final quality gate before the order is physically sent to Printful. At this point the client has already signed off.
+The current operating model is:
 
-### Admin Approve
+```text
+Stripe payment succeeds
+-> Phyllis saves the order
+-> Phyllis submits the order through the selected provider adapter
+-> Printful shirt orders appear in the Printful dashboard
+-> Printful/vendor dashboard is the final production gate
+```
 
-Click **Admin Approve**. The system immediately:
-1. Calls the Printful API to create a production order.
-2. Stores the Printful order ID on the order record in S3.
-3. Updates the order status to `submitted_to_printful`.
-4. Logs a `order_fulfilled` usage event for the client.
+For Printful, do not automatically call the final confirmation endpoint. The Printful dashboard's **Confirm order** button is enough human review for MVP testing.
 
-This action is **irreversible** — once submitted to Printful, the order goes into production.
-
-### Admin Reject
-
-Click **Admin Reject** and enter a specific reason. The order moves to `rejected_by_admin`. The client will see this in their order list. You should reach out directly to explain next steps.
+For collectible posters or any supplier path without a live API, Phyllis should use `provider_pending` or `manual_fulfillment` and show the blocker clearly.
 
 ---
 
 ## Usage Tab
 
-Shows your billing usage by month. The free tier covers the **first 10 fulfilled orders per month** at no charge. After that:
+Shows your billing usage by month.
+
+Discount Punk is on an unlimited sprint/client plan:
+
+```text
+Plan: unlimited
+Order limit: none
+Per-order Phyllis charge: $0 during the sprint/client proof period
+```
+
+For standard future clients, the default usage model is:
 
 - **$1.50 per fulfilled order** (standard)
 - **5% capped at $3.00 per fulfilled order** (optional cap plan)
 
 The usage tab displays:
-- `fulfilledOrders` — orders that have been admin-approved and sent to Printful this month
+- `fulfilledOrders` — orders sent to the fulfillment provider this month
 - `productCreations` — number of times the `/products/create` endpoint was called
-- `freeOrdersRemaining` — how many free orders you have left this month (max 10)
+- plan name, such as `unlimited`, `free_tier`, or `usage_based`
+- `freeOrdersRemaining` only for plans that actually have a free monthly cap
 
 Usage resets on the first of each calendar month. Historical months are also shown.
 
@@ -211,14 +253,11 @@ Phyllis always responds in the **Status → Blocker → Next Action** format for
 
 ---
 
-## Seeded Credentials (Reference)
+## API Keys
 
-| Account | API Key | Notes |
-|---------|---------|-------|
-| BotButt Admin | `pk_b97bfe...` | `isAdmin: true` — full access |
-| Discount Punk | `pk_ed02eb...` | Standard client account |
+API keys are visible only in the secure admin dashboard or Replit Secrets. Do not paste keys into docs, screenshots, shared chat, or public repos.
 
-(Full keys are in the project scratchpad — do not commit them to public repos.)
+If an API key appears in chat or committed history, treat it as compromised and rotate it.
 
 ---
 
@@ -230,18 +269,18 @@ All endpoints require `X-Api-Key: pk_...` header.
 |--------|------|-------------|
 | `GET` | `/api/me` | Your account info + current month usage |
 | `GET` | `/api/me/orders` | List your orders (up to 50) |
+| `GET` | `/api/products?client_slug={slug}` | List products for a client |
+| `GET` | `/api/products/content.json?client_slug={slug}` | Static-site-friendly product JSON |
 | `GET` | `/api/me/usage` | Monthly usage history |
 | `GET` | `/api/me/chat-config` | Your chat embed config |
 | `PUT` | `/api/me/chat-config` | Update allowedDomains |
-| `GET` | `/api/orders/pending` | Pending orders for your approval stage |
-| `POST` | `/api/orders/:id/client-approve` | Approve at client stage |
-| `POST` | `/api/orders/:id/client-reject` | Reject at client stage |
-| `POST` | `/api/orders/:id/admin-approve` | Admin final approve → submits to Printful |
-| `POST` | `/api/orders/:id/admin-reject` | Admin reject |
+| `GET` | `/api/orders` | Client-scoped order list |
+| `GET` | `/api/orders/:id` | Client-scoped order details |
+| `PATCH` | `/api/orders/:id/status` | Manual operator status correction |
 | `POST` | `/api/phyllis/chat` | SSE chat with Phyllis (dashboard context) |
 | `POST` | `/api/phyllis/ask` | Non-streaming chat with Phyllis |
 
-For approve/reject endpoints, the request body is optional: `{ "note": "reason string" }`.
+Approval endpoints were removed from the ordinary fulfillment flow. Provider submission happens after payment; the vendor dashboard is the final production gate.
 
 ---
 

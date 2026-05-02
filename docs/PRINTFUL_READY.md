@@ -1,6 +1,6 @@
-# ✅ Printful Integration - Ready for Sprint
+# ✅ Printful Integration - Product Path Verified
 
-**All prep work complete! No upscaling needed tomorrow.**
+**The prepared 300 DPI asset path is now verified through Phyllis product creation, Printful sync product creation, mockup generation, and dashboard visibility.**
 
 ---
 
@@ -95,6 +95,40 @@ console.log('[webhook] Printful order created:', printfulResult.id);
 **Original plan:** Upscale on-demand with Gemini  
 **New reality:** Karen provided 300 DPI source file  
 **Result:** Just use the image directly, no upscaling needed ✅
+
+---
+
+## Verified Product Path
+
+As of May 2, 2026:
+
+```text
+BotButt -> Phyllis -> DPI validation -> Printful sync product -> Printful mockup -> Phyllis dashboard
+```
+
+Verified product:
+
+```text
+Title: Eat My Donkey
+Printful ID: 430745217
+External ID: discount-punk-4149b8b559c5
+Price: $29.99
+Status: Active
+```
+
+Implementation notes:
+
+- Printful calls require `X-PF-Store-Id: 18110115` for the Discount Punk store.
+- Product creation uses a deterministic external ID so retries do not create duplicates.
+- Mockup generation uses the Printful catalog product ID, not the sync product ID.
+- The verified catalog product ID for the current shirt path is `71`.
+- Mockups are persisted to S3 when IAM allows it; otherwise Phyllis can fall back to Printful CDN URLs.
+
+Remaining storefront task:
+
+```text
+Wire the public Discount Punk Buy Now button to the real Stripe checkout flow.
+```
 
 ---
 

@@ -50,6 +50,31 @@ To test API routes: `curl localhost:80/api/healthz`
 **Framework:** Express 4 + pino logging  
 **Auth:** custom `X-Api-Key` middleware
 
+### Current Verified Sprint State
+
+As of May 2, 2026:
+
+```text
+BotButt -> Phyllis product tool: verified
+Phyllis -> Printful product creation: verified
+Printful mockup generation: verified
+Product idempotency: verified
+Discount Punk dashboard Products tab: verified
+Public Discount Punk checkout UI: new look visible in Phyllis dashboard
+Latest paid order reached Printful: verified after follow-up
+Discount Punk billing plan: unlimited sprint/client plan
+```
+
+Verified Discount Punk product:
+
+```text
+Title: Eat My Donkey
+Printful ID: 430745217
+External ID: discount-punk-4149b8b559c5
+Price: $29.99
+Dashboard status: Active
+```
+
 ### Startup Sequence
 
 1. `hydrateSecrets()` — loads secrets from AWS Secrets Manager into a module-level cache
@@ -63,7 +88,6 @@ If `hydrateSecrets()` fails (e.g., bad AWS credentials), the server starts but a
 Defined in `src/routes/index.ts`. **Order matters** — named routes must come before wildcard routes:
 
 ```
-approvalRouter       (named: /orders/:id/client-approve, etc.)
 chatEmbedRouter      (named: /api/chat/:clientSlug)
 phyllisRouter        (named: /api/phyllis/chat, /api/phyllis/ask)
 queryRouter          (wildcard catch-all)
@@ -144,6 +168,11 @@ Request:
 Response 201:
 {
   "success": true,
+  "idempotent": false,
+  "printful_product_id": 12345,
+  "mockup_urls": ["https://s3.../mockup-0.png"],
+  "mockups": ["https://s3.../mockup-0.png"],
+  "external_id": "discount-punk-4149b8b559c5",
   "product": {
     "printful_id": 12345,
     "title": "My Tee",
@@ -163,11 +192,73 @@ Response 422: DPI below minimum
 }
 ```
 
+Idempotent response for an already-created product:
+
+```json
+{
+  "success": true,
+  "idempotent": true,
+  "printful_product_id": 430745217,
+  "mockups": ["https://ssbb-media-prod.s3.amazonaws.com/discountpunk/mockups/eat-my-donkey-mockup-0.png"],
+  "external_id": "discount-punk-4149b8b559c5"
+}
+```
+
 **DPI rules:**
 - Shirts: 300 DPI minimum (hard reject below 300)
 - Posters: 300 DPI minimum (hard reject below 300)
 
 DPI is validated using the `sharp` library by fetching the image and checking metadata.
+
+### Product Catalog
+
+```
+GET /api/products?client_slug=discount-punk
+Auth: optional/read-only, depending on deployment policy
+```
+
+Returns products stored in Phyllis's products table, using BotButt-compatible field names:
+
+```json
+{
+  "success": true,
+  "products": [
+    {
+      "title": "Eat My Donkey",
+      "printful_product_id": 430745217,
+      "mockup_urls": ["https://ssbb-media-prod.s3.amazonaws.com/discountpunk/mockups/eat-my-donkey-mockup-0.png"],
+      "mockups": ["https://ssbb-media-prod.s3.amazonaws.com/discountpunk/mockups/eat-my-donkey-mockup-0.png"],
+      "retail_price": "29.99"
+    }
+  ]
+}
+```
+
+Static-site-friendly product JSON:
+
+```
+GET /api/products/content.json?client_slug=discount-punk
+```
+
+This endpoint is shaped for static site generation:
+
+```json
+[
+  {
+    "slug": "discount-punk-4149b8b559c5",
+    "title": "Eat My Donkey",
+    "printful_product_id": 430745217,
+    "mockup_url": "https://ssbb-media-prod.s3.amazonaws.com/discountpunk/mockups/eat-my-donkey-mockup-0.png",
+    "retail_price": "29.99"
+  }
+]
+```
+
+If Discount Punk remains static, a build step can write:
+
+```bash
+curl https://phyllis-fills.replit.app/api/products/content.json?client_slug=discount-punk > src/content/products.json
+```
 
 ### Orders
 
@@ -220,6 +311,56 @@ Response 201:
 | 4XL | 5310 |
 | 5XL | 12871 |
 
+### Order Detail
+
+```
+GET /api/orders/:orderId
+Auth: X-Api-Key
+```
+
+Returns the complete order record for dashboard drill-down views.
+
+Required response fields for debugging:
+
+```json
+{
+  "id": "uuid",
+  "clientSlug": "discount-punk",
+  "status": "submitted_to_provider | provider_pending | printful_failed | ...",
+  "stripeSessionId": "cs_...",
+  "stripePaymentIntentId": "pi_...",
+  "customerEmail": "customer@example.com",
+  "shippingAddress": {
+    "name": "Customer Name",
+    "line1": "...",
+    "city": "...",
+    "state": "...",
+    "postal_code": "...",
+    "country": "US"
+  },
+  "items": [
+    {
+      "title": "Eat My Donkey",
+      "size": "XL",
+      "quantity": 1,
+      "unitPrice": "29.99",
+      "printfulProductId": 430745217,
+      "providerProductId": "430745217",
+      "providerVariantId": "..."
+    }
+  ],
+  "fulfillmentProvider": "printful",
+  "providerOrderId": null,
+  "providerStatus": "failed",
+  "providerError": "Printful error message or adapter failure",
+  "retryCount": 0,
+  "createdAt": "ISO timestamp",
+  "updatedAt": "ISO timestamp"
+}
+```
+
+If the payment/order exists in Phyllis but no Printful order exists, the API must expose the exact provider blocker. Do not hide this behind a generic dashboard status.
+
 ### Checkout (Discount Punk)
 
 ```
@@ -262,38 +403,40 @@ Response: { "received": true }
 ```
 
 **Handled events:**
-- `checkout.session.completed` → saves order to S3 as `pending_client_approval`
-- `payment_intent.succeeded` → same as above (legacy fallback)
+- `checkout.session.completed` → saves order to S3 and submits through the selected provider adapter
+- `payment_intent.succeeded` → legacy fallback only; checkout sessions should be handled by `checkout.session.completed`
 - All other events → logged and ignored
 
 Order JSON is saved to S3 at `{clientSlug}/orders/{uuid}.json`.
 
-### Approval Workflow
+### Fulfillment Submission
 
 All require `X-Api-Key`.
 
 ```
-GET  /api/orders/pending
-  → Clients see: pending_client_approval orders for their clientId
-  → Admins see: pending_admin_approval orders across all clients
+GET /api/orders
+  → Client-scoped order list
 
-POST /api/orders/:orderId/client-approve
-Body: { "note": "optional" }
-  → pending_client_approval → pending_admin_approval
+GET /api/orders/:orderId
+  → Client-scoped order details
 
-POST /api/orders/:orderId/client-reject
-Body: { "note": "reason required" }
-  → pending_client_approval → rejected_by_client
-
-POST /api/orders/:orderId/admin-approve    (admin only)
-  → pending_admin_approval → submitted_to_printful
-  → calls Printful createOrder() immediately
-  → logs usage_event: order_fulfilled
-
-POST /api/orders/:orderId/admin-reject     (admin only)
-Body: { "note": "reason" }
-  → pending_admin_approval → rejected_by_admin
+PATCH /api/orders/:orderId/status
+  → Manual status correction / operator update
 ```
+
+Phyllis no longer uses a two-stage client/admin approval queue for ordinary paid orders. After payment, the webhook submits through the selected `FulfillmentAdapter`.
+
+Printful shirt orders should be created as provider/draft orders. Do not automatically call Printful's final confirm endpoint. The Printful dashboard remains the human production gate.
+
+Provider-aware statuses:
+
+- `submitting_to_provider`
+- `submitted_to_printful`
+- `submitted_to_provider`
+- `provider_pending`
+- `manual_fulfillment`
+- `in_production`
+- `shipped`
 
 ### Phyllis AI
 
@@ -387,6 +530,25 @@ Body: { "allowedDomains": ["example.com", "www.example.com"] }   // max 20
 Response: { "ok": true }
 ```
 
+Discount Punk plan requirement:
+
+```json
+{
+  "client": {
+    "slug": "discount-punk",
+    "plan": "unlimited"
+  },
+  "currentMonth": {
+    "fulfilledOrders": 12,
+    "productCreations": 4,
+    "freeOrdersRemaining": null,
+    "billableOrders": 0
+  }
+}
+```
+
+For `plan: "unlimited"`, the dashboard should not show "10 free remaining" as a limit, should not block order submission based on count, and should not charge per order during the sprint/client proof period.
+
 ---
 
 ## Database Schema
@@ -408,8 +570,25 @@ Response: { "ok": true }
 | `contact_email` | `text` nullable | |
 | `active` | `boolean` | `true` by default; `false` blocks auth |
 | `allowed_domains` | `text[]` | Chat embed Origin allowlist |
+| `printful_store_id` | `text` nullable | Per-client Printful store ID; null falls back to platform default |
 | `created_at` | `timestamp` | |
 | `updated_at` | `timestamp` | |
+
+### `products`
+
+Stores Phyllis-created product metadata for dashboard and catalog views.
+
+Important fields include:
+
+| Column | Notes |
+|--------|-------|
+| `client_id` / `client_slug` | Client ownership and lookup scope |
+| `title` | Product title |
+| `printful_product_id` | Printful sync product ID |
+| `external_id` | Deterministic idempotency key, e.g. `discount-punk-4149b8b559c5` |
+| `mockup_urls` | Stored mockup URLs from S3 or Printful fallback |
+| `retail_price` | Display price |
+| `status` | Product status, e.g. `active` |
 
 ### `usage_events`
 
@@ -500,26 +679,22 @@ Bucket is configured via `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` secrets
                     └─────────────┬────────────────────┘
                                   │ webhook: checkout.session.completed
                                   ▼
-                    pending_client_approval
-                         │             │
-               client-approve      client-reject
-                         │             │
-                         ▼             ▼
-            pending_admin_approval  rejected_by_client
-                  │            │
-          admin-approve    admin-reject
-                  │            │
-                  ▼            ▼
-      submitted_to_printful  rejected_by_admin
-                  │
-          (Printful handles)
-                  │
-              in_production
-                  │
-               shipped
+                    submitting_to_provider
+                         │
+              ┌──────────┴──────────┐
+              ▼                     ▼
+      submitted_to_printful   provider_pending/manual_fulfillment
+              │                     │
+      vendor dashboard        manual supplier workflow
+      final confirmation
+              │
+              ▼
+        in_production
+              │
+           shipped
 ```
 
-State transitions are enforced with 409 responses if an action is attempted on an order not in the expected state. All transitions write back to S3 immediately.
+Stripe checkout completion is the canonical order-creation event. Provider submission writes back to S3 immediately with the provider order ID/status when available.
 
 ---
 
@@ -624,14 +799,39 @@ Located in `artifacts/api-server/src/lib/printful.ts`.
 
 | Function | Description |
 |----------|-------------|
-| `createSyncProduct(apiKey, opts)` | Creates a Printful sync product with variants |
-| `generateMockups(apiKey, productId, designUrl)` | Fetches up to 3 mockup image URLs |
-| `createOrder(apiKey, { recipient, items })` | Submits a fulfillment order |
+| `createSyncProduct(apiKey, storeId, opts)` | Creates a Printful sync product with variants |
+| `findSyncProductByExternalId(apiKey, storeId, externalId)` | Finds an existing product before creating a duplicate |
+| `generateMockups(apiKey, storeId, catalogProductId, designUrl)` | Fetches mockup image URLs using the Printful catalog product ID |
+| `createOrder(apiKey, storeId, { recipient, items })` | Submits a fulfillment order |
 | `getPrintfulOrder(apiKey, printfulOrderId)` | Fetches live order status + tracking |
 
 Mockups are fetched and saved to S3. If S3 upload fails, the original Printful CDN URLs are returned as a fallback.
 
 **Printful API base URL:** `https://api.printful.com`
+
+**Store context:** Printful account-level tokens require:
+
+```http
+X-PF-Store-Id: 18110115
+```
+
+For Discount Punk, the current default Printful store ID is `18110115`. Long term this belongs in `clients.printful_store_id`.
+
+**Idempotency:** Product creation uses a deterministic external ID:
+
+```text
+{client_slug}-{12-char MD5 of designUrl::title}
+```
+
+The code checks Printful for that external ID before creating a new sync product. Retries should return the existing product instead of creating duplicates.
+
+**Mockup ID namespace:** Printful mockup generation requires the catalog product ID, not the sync product ID. After creating a sync product, fetch the full sync product detail and extract:
+
+```text
+sync_variants[0].product.product_id
+```
+
+For the verified Discount Punk shirt path, the catalog product ID was `71`.
 
 ---
 
@@ -650,6 +850,20 @@ Uses `sharp` (Node.js image processing) to:
 |---------|-------------|-------|
 | `shirt` | 300 DPI | Hard reject below 300 |
 | `poster` | 300 DPI | Hard reject below 300 |
+
+Known-good sprint asset:
+
+```text
+https://ssbb-media-prod.s3.amazonaws.com/discountpunk/images/eat-my-donkey-300dpi.png
+```
+
+Specs:
+
+```text
+4267 x 4575 px
+300 DPI
+PNG with transparency
+```
 
 ---
 
@@ -689,8 +903,8 @@ To deploy: click **Publish** in the Replit workspace header. The platform handle
 |---------|-------|-----|
 | `503 Service not ready — secrets not loaded` | `hydrateSecrets()` failed at startup | Check AWS credentials; verify secrets exist in AWS Secrets Manager or Replit Secrets |
 | `422 DPI validation failed — could not process image` | Image URL is inaccessible or malformed | Ensure `design_url` is a publicly reachable URL with no auth |
-| `409 Cannot client-approve` | Order not in expected state | Check current order status before attempting action |
+| Order remains `provider_pending` | Supplier API is not wired or returned a manual handling state | Check provider adapter result and manual fulfillment notes |
 | `403 Forbidden` on chat embed | Origin not in `allowedDomains` | Add domain to the Chat API tab in the dashboard |
-| Route wildcard catching named routes | `queryRouter` or `adminRouter` before named routes | Keep `approvalRouter` and `chatEmbedRouter` above `queryRouter` in `routes/index.ts` |
+| Route wildcard catching named routes | `queryRouter` or `adminRouter` before named routes | Keep `chatEmbedRouter` above `queryRouter` in `routes/index.ts` |
 | Orders visible to wrong client | `clientSlug` mismatch | Verify `clients.slug` exactly matches the S3 prefix used at order creation time |
 | `401 Unauthorized` | API key missing or inactive client | Ensure `active: true` in clients table; confirm `X-Api-Key` header is set |

@@ -10,9 +10,13 @@ Reference names used throughout this plan:
 
 ---
 
-## ⚠️ Printful Warning
+## ⚠️ Provider Production Warning
 
-**Never run `POST /api/orders/:id/admin-approve` in automated tests.** `PRINTFUL_DRY_RUN` is not implemented yet, and no sandbox mode is currently wired. Admin approval immediately submits a live order to Printful's production API and triggers real fulfillment. This cannot be undone. Do not automate admin approval until dry-run/sandbox behavior is implemented and verified.
+Phyllis no longer uses client/admin approval queues for ordinary paid orders. After Stripe payment, the webhook submits through the selected provider adapter.
+
+For Printful, tests may create draft/provider orders, but must **not** automatically call Printful's final confirmation endpoint. The Printful dashboard's **Confirm order** button is the production gate.
+
+For collectible posters or any provider without a live API integration, the expected safe state is `provider_pending` or `manual_fulfillment`, not fake success.
 
 ---
 
@@ -42,27 +46,29 @@ Reference names used throughout this plan:
 | 1 | Navigate to `/` | Login screen with `pk_...` input |
 | 2 | Submit invalid key `pk_invalid123` | Error — dashboard does not load |
 | 3 | Log in with `$CLIENT_KEY` | Dashboard loads; "Discount Punk" name visible |
-| 4 | Verify client tabs | Orders, Approvals, Usage, Chat API present |
-| 5 | Verify no admin tab | "Admin Approvals" is NOT visible |
+| 4 | Verify client tabs | Orders, Products, Usage, Chat API present |
+| 5 | Verify no approval tab | "Approvals" / "Admin Approvals" are NOT visible for the ordinary fulfillment flow |
 | 6 | Log out | Returns to login screen |
 | 7 | Log in with `$ADMIN_KEY` | Dashboard loads with admin name |
-| 8 | Verify admin tab | "Admin Approvals" tab is present |
+| 8 | Verify admin access | Admin panel loads without rendering client-only approval actions |
 
 ---
 
 ## Suite 3 — Dashboard Order Management
 
-**Goal:** Verify order list, approvals queue, and action buttons render correctly.
+**Goal:** Verify order list, provider statuses, product cards, and usage render correctly.
 
 | # | Step | Expected |
 |---|------|----------|
 | 1 | Log in with `$CLIENT_KEY` | Dashboard visible |
 | 2 | Click Orders tab | Order list loads (empty or populated) |
 | 3 | Verify order card fields | Status badge, customer email, items, total, timestamp visible on each card |
-| 4 | Click Approvals tab | Queue loads; empty state or pending orders |
-| 5 | If orders in queue: verify actions | Approve and Reject buttons present on each |
-| 6 | Log in with `$ADMIN_KEY` | Admin dashboard |
-| 7 | Click Admin Approvals tab | Admin queue loads with pending_admin_approval orders |
+| 4 | Verify no approval queue is required | Ordinary paid orders should not require client/admin approval buttons |
+| 5 | Click Products tab | Product list loads with provider badge |
+| 6 | For Printful products | Shows Printful product ID / external ID / mockup |
+| 7 | For collectible poster products | Shows `theprintspace`/provider badge and `provider_pending` when supplier API is not live |
+| 8 | Click an order card | Detail drawer/page opens with full order, Stripe, customer, item, provider, and error fields |
+| 9 | If an order failed provider submission | Detail view shows provider error/blocker; not a generic success state |
 
 ---
 
@@ -74,7 +80,7 @@ Reference names used throughout this plan:
 |---|------|----------|
 | 1 | Log in with `$CLIENT_KEY` | Dashboard |
 | 2 | Click Usage tab | Monthly usage table: fulfilled orders, product creations |
-| 3 | Verify free tier indicator | "Free orders remaining this month" count present |
+| 3 | Verify Discount Punk plan | Shows unlimited plan; does not show 10-order cap as a limit |
 | 4 | Click Chat API tab | Slug "discount-punk" and endpoint `/api/chat/discount-punk` visible |
 | 5 | Add domain `test-e2e-domain.com` | Domain appears in list |
 | 6 | Click Save | Success feedback |
@@ -115,29 +121,18 @@ Reference names used throughout this plan:
 
 ---
 
-## Suite 7 — Approval State Machine (API)
+## Suite 7 — Provider Submission
 
-**Goal:** Verify state transitions and 409 guards. Use `$CLIENT_KEY` / `$ADMIN_KEY` headers.
+**Goal:** Verify paid orders route through the provider adapter without a Phyllis approval queue.
 
-### 7a — Happy path (manual, not automated — see Printful warning above)
-
-| # | API Call | Start state | Expected result |
-|---|----------|-------------|-----------------|
-| 1 | `POST /api/orders/:id/client-approve` | `pending_client_approval` | 200; status → `pending_admin_approval` |
-| 2 | `POST /api/orders/:id/admin-approve` | `pending_admin_approval` | **Manual only.** 200; status → `submitted_to_printful`; Printful order ID returned |
-| 3 | `POST /api/orders/:id/client-reject` (separate order) | `pending_client_approval` | 200; status → `rejected_by_client`; statusNote saved |
-| 4 | `POST /api/orders/:id/admin-reject` (separate order) | `pending_admin_approval` | 200; status → `rejected_by_admin`; statusNote saved |
-
-### 7b — Wrong-state guards (safe to automate)
-
-| # | API Call | Start state | Expected |
-|---|----------|-------------|----------|
-| 5 | `POST /api/orders/:id/client-approve` | `pending_admin_approval` | **409** — "Cannot client-approve an order with status: pending_admin_approval" |
-| 6 | `POST /api/orders/:id/client-approve` | `submitted_to_printful` | **409** |
-| 7 | `POST /api/orders/:id/admin-approve` | `pending_client_approval` | **409** — "Cannot admin-approve an order with status: pending_client_approval" |
-| 8 | `POST /api/orders/:id/client-approve` | non-existent order ID | **404** — "Order not found" |
-| 9 | Client attempts to approve order belonging to different client | any | **403** — "Not your order" |
-| 10 | Non-admin attempts `admin-approve` | any | **403** — requires admin key |
+| # | Scenario | Expected |
+|---|----------|----------|
+| 1 | Printful shirt checkout completes | Order is saved and submitted to Printful/provider path |
+| 2 | Printful response succeeds | Order has provider order ID and status `submitted_to_printful` or equivalent |
+| 3 | Printful dashboard check | Draft/provider order is visible; final confirmation remains vendor-side |
+| 4 | Collectible poster checkout completes with theprintspace stub | Order becomes `provider_pending` or `manual_fulfillment`; no fake fulfillment claim |
+| 5 | Provider API fails | Order records a visible failure/blocker; no silent success |
+| 6 | Replayed Stripe event | No duplicate order/provider submission |
 
 ---
 
@@ -149,9 +144,9 @@ Reference names used throughout this plan:
 |---|------|----------|
 | 1 | `POST /api/webhooks/stripe` with no `stripe-signature` header | **400** — "Missing stripe-signature" |
 | 2 | `POST /api/webhooks/stripe` with a tampered signature | **400** — "Invalid webhook signature" |
-| 3 | Valid `checkout.session.completed` event with `metadata.type: "order"` (signed with `STRIPE_WEBHOOK_SECRET`) | **200** `{ received: true }`; new order JSON appears in S3 at `{slug}/orders/{uuid}.json` with status `pending_client_approval` |
+| 3 | Valid `checkout.session.completed` event with `metadata.type: "order"` (signed with `STRIPE_WEBHOOK_SECRET`) | **200** `{ received: true }`; new order JSON appears in S3 at `{slug}/orders/{uuid}.json` and is submitted through provider adapter |
 | 4 | Replay the same event ID | **200** (Stripe expects idempotent 200s); verify no duplicate order created in S3 |
-| 5 | `payment_intent.succeeded` event with `metadata.type: "order"` | Same as #3 — order saved as `pending_client_approval` |
+| 5 | `payment_intent.succeeded` event with `metadata.type: "order"` | Legacy fallback only; checkout-created payment intents should not create duplicate partial orders |
 | 6 | Unhandled event type (e.g. `customer.created`) | **200** — logged and ignored; no crash |
 
 > **Note on idempotency (#4):** The current implementation does not deduplicate by Stripe event ID — each `checkout.session.completed` creates a new UUID. This is a known gap. Track by `stripeSessionId` in S3 before asserting uniqueness, or implement idempotency key checking.
@@ -200,9 +195,9 @@ Reference names used throughout this plan:
 | 2 | `GET /api/me` with `$CLIENT_KEY` | 200 with client profile |
 | 3 | `GET /api/me` with no key | 401 |
 | 4 | `GET /api/me` with `pk_invalid` | 403 |
-| 5 | `GET /api/orders/pending` with `$CLIENT_KEY` | 200 — client's pending orders only |
-| 6 | `GET /api/orders/pending` with `$ADMIN_KEY` | 200 — all pending_admin_approval orders |
-| 7 | `POST /api/orders/:id/admin-approve` with `$CLIENT_KEY` | 403 — not admin |
+| 5 | `GET /api/orders` with `$CLIENT_KEY` | 200 — client's orders only |
+| 6 | `GET /api/orders` with `$ADMIN_KEY` | 200 — admin-visible order list |
+| 7 | Removed approval endpoints | Approval routes should not be present in ordinary flow |
 | 8 | `GET /api/me/chat-config` with `$CLIENT_KEY` | 200 `{ slug, allowedDomains }` |
 | 9 | `PUT /api/me/chat-config` with 21 domains | 400 — exceeds max 20 |
 
@@ -213,10 +208,14 @@ Reference names used throughout this plan:
 Run after any significant change:
 
 - [ ] Login with both client and admin keys still works
+- [ ] Client Products tab shows Phyllis-created products with mockup, Printful ID, external ID, status, and price
+- [ ] `GET /api/products?client_slug=discount-punk` returns the canonical Eat My Donkey product
+- [ ] `GET /api/products/content.json?client_slug=discount-punk` returns static-site-friendly product JSON
+- [ ] Public Discount Punk Buy Now button calls real Stripe checkout, not "coming soon"
 - [ ] `PhyllisChat` greeting is **client greeting** when opened after login (not customer greeting) — fixed by `key` prop in `App.tsx`
 - [ ] `chatEmbedRouter` is registered **before** `queryRouter` in `routes/index.ts`
-- [ ] `approvalRouter` is registered **before** `queryRouter` in `routes/index.ts`
-- [ ] State machine 409s: client-approve on already-approved → 409; admin-approve on client-pending → 409
+- [ ] No ordinary order requires client/admin approval before provider submission
+- [ ] Printful orders remain draft/unconfirmed until the vendor dashboard confirmation step
 - [ ] S3 write completes before 200/201 response returns
 - [ ] Chat embed 403 if Origin not in allowedDomains (and allowedDomains is non-empty)
 - [ ] `hydrateSecrets()` failure → 503, not 500, on secret-dependent routes
@@ -230,8 +229,9 @@ Run after any significant change:
 | Gap | Status | Notes |
 |-----|--------|-------|
 | Stripe webhook idempotency | 🚨 Pre-launch blocker | Replayed events create duplicate orders. Fix by deduplicating on Stripe event ID or checkout session ID before writing to S3. |
-| No Printful dry-run mode | Not implemented | `PRINTFUL_DRY_RUN` env var is not wired. Admin-approve tests must be manual only. |
+| No Printful dry-run mode | Not implemented | Do not automate Printful final confirmation. Draft/provider order creation is acceptable for controlled tests. |
 | Origin-less requests bypass allowlist | Intentional, mitigate before launch | Server-to-server callers have no Origin. Add rate limiting to `/api/chat/:slug` and require `customerEmail` or `orderId` for customer-scoped lookups to reduce blind enumeration risk. |
 | Stripe checkout limited to US/CA/GB/AU | Intentional | `shipping_address_collection.allowed_countries` in `routes/checkout.ts`. |
 | No deduplication of orders by Stripe session | 🚨 Pre-launch blocker | Same as webhook idempotency: dedupe by Stripe event ID or checkout session ID before writing to S3. |
 | S3 and DB share dev/prod environment | Intentional (current) | Be cautious running create/write tests — they affect real data. |
+| Public Buy Now still placeholder | Active storefront blocker | Product creation is verified, but shoppers cannot complete purchase until Discount Punk button calls Stripe checkout. |

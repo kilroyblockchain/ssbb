@@ -2007,3 +2007,1022 @@ Gerald/Claude IAM task:
 Grant s3:PutObject for replit-sprint-kilroy on:
 arn:aws:s3:::ssbb-media-prod/discountpunk/mockups/*
 ```
+
+### 2026-05-02 12:12 CDT
+
+Phyllis is alive and shipping donkeys.
+
+BotButt reported:
+
+```text
+PHYLLIS IS ALIVE AND SHE IS SHIPPING DONKEYS!
+The Eat My Donkey tee is live on Discount Punk right now.
+Real product, real orders, first ten a month on the house.
+```
+
+This is the first full product path confirmation:
+
+```text
+BotButt -> create_product_with_phyllis
+SSBB -> Phyllis API
+Phyllis -> 300 DPI validation
+Phyllis -> Printful product creation
+Phyllis -> Printful mockup generation
+Phyllis -> S3 persistence
+BotButt -> product live on discountpunk.com
+```
+
+First real orderable product:
+
+```text
+Eat My Donkey tee
+```
+
+What was proven:
+
+```text
+agent-to-agent product creation works
+Phyllis can validate print files
+Phyllis can create real Printful products
+Phyllis can return mockups
+Discount Punk can publish the product
+```
+
+The sentence for the blog:
+
+```text
+At noon, the joke became infrastructure: BotButt asked Phyllis to make a real product, Phyllis validated the print file, Printful generated the product and mockup, and Discount Punk had an orderable Eat My Donkey tee.
+```
+
+### 2026-05-02 12:17 CDT
+
+User testing found storefront cleanup work.
+
+Karen saw multiple "Eat My Donkey" products near the end of the Discount Punk shop, and at least some have broken images.
+
+Interpretation:
+
+```text
+These are likely product records from earlier failed or partial product-creation attempts before the mockup/S3 path was fixed.
+```
+
+This does not invalidate the final product-path proof. It means the public storefront needs cleanup:
+
+```text
+1. Identify every Eat My Donkey product record on Discount Punk.
+2. Keep the newest Printful-backed product with the working mockup.
+3. Remove duplicates with broken image URLs.
+4. If needed, update one canonical product title/slug/page.
+5. Retest shop page after hard refresh.
+```
+
+Good product hygiene rule for Phyllis/BotButt:
+
+```text
+If a real product creation attempt fails after creating a local storefront record but before returning a valid mockup URL, mark the local product as draft/broken instead of publishing it.
+```
+
+### 2026-05-02 12:30 CDT
+
+Justin cleaned the broken duplicate "Eat My Donkey" storefront entries directly in Discount Punk's S3 content file.
+
+Live content before cleanup:
+
+```text
+featured products: 39
+Eat My Donkey placeholder entries: 2
+```
+
+Both broken entries had:
+
+```text
+title: Eat My Donkey
+image: /images/placeholder.jpg
+link: /products/eat-my-donkey.html
+```
+
+Cleanup performed:
+
+```text
+Removed only those two placeholder Eat My Donkey entries.
+Left all other products untouched.
+```
+
+Live content after cleanup:
+
+```text
+featured products: 37
+Eat My Donkey entries: 0
+```
+
+Backup kept locally:
+
+```text
+/tmp/discountpunk-content.before-eat-my-donkey-cleanup.json
+```
+
+Next storefront task:
+
+```text
+Publish one canonical, buyable Eat My Donkey product entry with the working Printful mockup and a Buy Now button wired to Stripe checkout.
+```
+
+### 2026-05-02 12:38 CDT
+
+Karen logged into the Phyllis dashboard as Discount Punk but could not see the product.
+
+Diagnosis from Replit:
+
+```text
+The dashboard had no Products tab.
+The product catalog route existed, but production product visibility was blocked by data/slug mismatch.
+```
+
+Slug mismatch:
+
+```text
+saved product slug: discountpunk
+actual client slug: discount-punk
+```
+
+Fix in progress:
+
+```text
+1. Add Products tab to the client dashboard.
+2. Fix catalog route/default slug to use discount-punk.
+3. Backfill production products table with the canonical Printful product.
+4. Make idempotent product lookup return stored/mockup data instead of empty mockups.
+```
+
+This is a dashboard visibility issue, not a Printful creation failure.
+
+### 2026-05-02 12:43 CDT
+
+Dashboard product visibility verified.
+
+Karen logged into Phyllis as Discount Punk and saw the Products tab with one active product.
+
+Visible product:
+
+```text
+Eat My Donkey
+status: Active
+price: $29.99
+Printful ID: 430745217
+External ID: discount-punk-4149b8b559c5
+mockup image: visible
+```
+
+This proves:
+
+```text
+Discount Punk client login works.
+Products tab works.
+Product backfill works.
+Mockup is visible in the dashboard.
+Printful/external IDs are visible to the client.
+```
+
+Remaining storefront work:
+
+```text
+Make the public Discount Punk Buy Now button use the real checkout flow instead of "coming soon."
+```
+
+### 2026-05-02 12:50 CDT
+
+Documentation sweep.
+
+Updated docs to match the current system state:
+
+```text
+docs/replit_produced_docs/phyllis/client-admin-guide.md
+docs/replit_produced_docs/phyllis/customer-guide.md
+docs/replit_produced_docs/phyllis/technical-reference.md
+docs/replit_produced_docs/phyllis/testing-plan.md
+docs/printful/Justins_advice.md
+docs/printful/300dpi_image_test_plan.md
+docs/printful/llm_discoverability_safety_checklist.md
+docs/PRINTFUL_READY.md
+```
+
+Added:
+
+```text
+docs/printful/current_phyllis_architecture.md
+```
+
+The docs now distinguish:
+
+```text
+Product creation path: verified.
+Dashboard visibility: verified.
+Public Buy Now checkout: still pending.
+```
+
+### 2026-05-02 12:56 CDT
+
+Replit defined the storefront integration contract for Gerald/Claude.
+
+Product catalog options:
+
+```text
+GET /api/products?client_slug=discount-punk
+GET /api/products/content.json?client_slug=discount-punk
+```
+
+Catalog fields for Discount Punk:
+
+```text
+product image -> mockup_urls[0]
+product name -> title
+price -> retail_price
+Printful product ID -> printful_product_id
+active flag -> active
+```
+
+Buy button target:
+
+```text
+POST /api/discountpunk/checkout/create-session
+```
+
+The intended storefront loop:
+
+```text
+catalog fetch -> render product -> customer chooses size/quantity -> create Stripe checkout session -> redirect to Stripe -> webhook saves order in Phyllis
+```
+
+Contract details to verify before implementation:
+
+```text
+1. external_id should consistently use client slug format, likely discount-punk-..., not discountpunk-...
+2. checkout payload field names must match the deployed endpoint: successUrl/cancelUrl vs success_url/cancel_url.
+3. /api/... relative URL only works if Discount Punk proxies API calls; otherwise use the full Phyllis/SSBB API base.
+4. Checkout should create payment/order only; final fulfillment still waits for human approval.
+```
+
+### 2026-05-02 14:37 CDT
+
+Stripe webhook diagnosis continued.
+
+The visible Stripe webhook/destination has:
+
+```text
+0 deliveries
+```
+
+That means the failed webhook calls seen in Phyllis logs likely came from a different/older Stripe endpoint, not the visible endpoint Karen was checking.
+
+Current action items:
+
+```text
+1. Check Stripe Developers -> Webhooks classic view for older endpoints pointing to the same URL.
+2. Delete stale duplicate webhook endpoints if found.
+3. Set the visible endpoint's signing secret exactly as STRIPE_WEBHOOK_SECRET_PROD in Replit Secrets.
+4. Republish/restart Phyllis.
+5. Use Stripe "Send test event" for checkout.session.completed from that exact endpoint.
+6. Verify Phyllis logs show a valid signature and HTTP 200.
+7. Verify a test order is saved as pending_client_approval.
+```
+
+Important distinction:
+
+```text
+Endpoint exists in Stripe is not enough.
+Deliveries must reach Phyllis and verify with the matching signing secret.
+```
+
+### 2026-05-02 14:45 CDT
+
+Stripe webhook success.
+
+Replit reported the missing payment-loop proof:
+
+```text
+Processing checkout.session.completed
+Order saved — awaiting client approval
+S3 upload complete -> discountpunk/orders/41637386-...json
+```
+
+This proves:
+
+```text
+Stripe delivered the webhook.
+Phyllis verified the signing secret.
+Phyllis processed checkout.session.completed.
+Phyllis saved the order to S3.
+The order entered pending_client_approval.
+```
+
+The checkout proof is now green:
+
+```text
+Stripe event delivered with valid signature
+Phyllis order exists
+order status = pending_client_approval
+```
+
+Next verification:
+
+```text
+Confirm the order appears in the Discount Punk dashboard Orders/Approvals views.
+```
+
+### 2026-05-02 14:49 CDT
+
+Webhook order saved, but dashboard visibility hit the same slug mismatch pattern.
+
+Observed:
+
+```text
+order saved to: discountpunk/orders/41637386-...json
+dashboard reads: discount-punk/orders/
+```
+
+Interpretation:
+
+```text
+Stripe webhook/order persistence used the old slug format.
+Dashboard/client views use the canonical client slug.
+```
+
+Required fix:
+
+```text
+Canonicalize client slug before every S3 write/read.
+Use discount-punk consistently.
+Backfill or move the saved test order from discountpunk/orders/ to discount-punk/orders/.
+```
+
+This is not a Stripe failure. The payment loop worked; the order is just stored under the wrong tenant prefix.
+
+### 2026-05-02 15:02 CDT
+
+Canonical order path fix complete in code.
+
+Replit reported:
+
+```text
+187 tests passing
+```
+
+Changes:
+
+```text
+clientOrderPrefix(slug) created in orderPaths.ts
+DISCOUNT_PUNK_ORDERS_PREFIX = "discount-punk/orders"
+webhooks use canonical discount-punk/orders
+approval/query/printfulWebhook/orderStatus paths use shared constants
+checkout metadata now embeds client_slug: discount-punk
+clientDashboard reads ${req.clientSlug}/orders directly
+phyllis.ts fallbacks updated to discount-punk/orders
+```
+
+Regression coverage:
+
+```text
+9 path-consistency tests
+includes explicit proof that discountpunk/orders != discount-punk/orders
+```
+
+Migration endpoint:
+
+```text
+POST /api/admin/migrate-order-paths
+```
+
+Purpose:
+
+```text
+copy existing orders from discountpunk/orders/ to discount-punk/orders/
+```
+
+Remaining blocker:
+
+```text
+S3 IAM/bucket policy allows PutObject on discountpunk/*
+but not on discount-punk/*
+```
+
+AWS action needed:
+
+```text
+Grant s3:PutObject for replit-sprint-kilroy on:
+arn:aws:s3:::ssbb-media-prod/discount-punk/*
+```
+
+After AWS policy fix:
+
+```text
+1. Publish/restart Phyllis.
+2. Call POST /api/admin/migrate-order-paths with admin key.
+3. Confirm existing test order appears in dashboard.
+4. Confirm all new webhook orders write directly to discount-punk/orders/.
+5. Remove or disable migration endpoint after confirmation.
+```
+
+### 2026-05-02 15:12 CDT
+
+AWS bucket policy update requires AWS admin access.
+
+Replit and local sprint credentials cannot modify the bucket policy.
+
+Correct bucket:
+
+```text
+ssbb-media-prod
+```
+
+Not:
+
+```text
+zorrto
+```
+
+Required grant for the Replit sprint user:
+
+```text
+arn:aws:iam::672930000617:user/replit-sprint-kilroy
+```
+
+Needed access:
+
+```text
+s3:GetObject
+s3:PutObject
+s3:DeleteObject
+on arn:aws:s3:::ssbb-media-prod/discount-punk/*
+```
+
+If migration lists keys, also ensure:
+
+```text
+s3:ListBucket
+on arn:aws:s3:::ssbb-media-prod
+with prefix discountpunk/* and discount-punk/*
+```
+
+Gerald/AWS-admin handoff:
+
+```bash
+aws s3api get-bucket-policy --bucket ssbb-media-prod --output text > /tmp/policy.json
+cat /tmp/policy.json | jq .
+```
+
+Then merge the new statement carefully and apply:
+
+```bash
+aws s3api put-bucket-policy --bucket ssbb-media-prod --policy file:///tmp/policy.json
+```
+
+Do not overwrite unrelated policy statements.
+
+### 2026-05-02 15:20 CDT
+
+Approval workflow testing found a persistence issue.
+
+User action:
+
+```text
+Discount Punk client clicked approve.
+Then admin logged in and saw no orders in Final Approvals.
+```
+
+Initial suspicion:
+
+```text
+admin pending endpoint might be filtering incorrectly.
+```
+
+Actual finding from Replit:
+
+```text
+The order in S3 is still pending_client_approval.
+```
+
+Interpretation:
+
+```text
+Client approval did not persist the state transition.
+Admin queue is empty because there is no pending_admin_approval order yet.
+```
+
+Likely class of bug:
+
+```text
+approval endpoint returned success or UI looked successful,
+but S3 write-back to the canonical order path failed or wrote to the wrong path.
+```
+
+Next check:
+
+```text
+Inspect approval route write path and logs.
+Confirm it writes to discount-punk/orders/{orderId}.json.
+Confirm failures are not swallowed.
+After client approval, immediately re-read the S3 object and assert status = pending_admin_approval.
+```
+
+### 2026-05-02 15:27 CDT
+
+Approval API works; dashboard click path needs scrutiny.
+
+Replit tested the approval endpoint directly for order:
+
+```text
+886adee9...
+```
+
+Result:
+
+```text
+client approve API call succeeded
+order status is now pending_admin_approval
+```
+
+Interpretation:
+
+```text
+The approval route/write path works.
+The earlier dashboard click likely targeted a stale/wrong order or swallowed the state-machine error.
+```
+
+Next user action:
+
+```text
+Refresh the admin dashboard.
+The order should now appear in Final Approvals.
+```
+
+Next proof:
+
+```text
+Admin final approval submits the order to Printful and updates status.
+```
+
+Safety reminder:
+
+```text
+Admin final approval creates/submits a real fulfillment order.
+Only click it if the order should actually be fulfilled.
+```
+
+### 2026-05-02 15:32 CDT
+
+Dashboard approval flow produced browser errors.
+
+Observed in browser console:
+
+```text
+Failed to load resource: 500 (usage)
+Failed to load resource: 500 (orders)
+Unhandled Promise Rejection: SyntaxError: The string did not match the expected pattern.
+```
+
+Interpretation:
+
+```text
+Direct approval API can work.
+Dashboard refresh/state reload after approval is failing on usage/orders endpoints.
+The UI then appears to loop or fail even if the underlying transition may have succeeded.
+```
+
+Next debugging step:
+
+```text
+Check server logs for GET /api/me/usage and GET /api/me/orders 500s.
+Confirm whether the frontend is parsing a non-JSON error response as JSON.
+Add visible error handling so approval failures do not look successful or loop silently.
+```
+
+### 2026-05-02 15:37 CDT
+
+Admin dashboard routing bug found.
+
+Symptom:
+
+```text
+Admin logged in but saw client dashboard tabs:
+Pending, Orders, Products, Usage, Chat API, Overview
+```
+
+Expected admin experience:
+
+```text
+Admin panel / Final Approvals
+```
+
+Root cause from Replit:
+
+```text
+BotButt Admin row in production DB has isAdmin: null
+```
+
+Because `isAdmin` was not true, the app routed the admin key into the client dashboard. That meant the UI showed "Needs your review" and called `client-approve` instead of admin final approval.
+
+Fix:
+
+```text
+Set BotButt Admin isAdmin=true in production DB.
+Ensure login/admin routing treats only true as admin.
+Add seed/data check so admin users cannot be null.
+```
+
+This explains the approval loop:
+
+```text
+the person thought they were in admin mode,
+but the frontend was rendering client mode.
+```
+
+### 2026-05-02 15:44 CDT
+
+Printful draft order proof.
+
+Karen shared a Printful dashboard screenshot showing:
+
+```text
+Order #PF156912697
+```
+
+The order is visible inside Printful with:
+
+```text
+Unisex Staple T-Shirt | Bella + Canvas 3001
+Color: Black
+Size: XL
+Quantity: 1
+Recipient: Sam Punk
+Total: $17.79
+```
+
+Most important: Printful shows a **Confirm order** button.
+
+That proves:
+
+```text
+Phyllis/admin approval created a Printful draft order.
+Production has not started automatically.
+No shirt ships until a human confirms the order in Printful.
+```
+
+This is the safe E2E posture:
+
+```text
+Stripe test payment
+-> Phyllis order
+-> client approval
+-> admin approval
+-> Printful draft order
+-> manual Printful confirmation
+```
+
+The physical fulfillment gate is still human-controlled.
+
+### 2026-05-02 16:24 CDT
+
+Public Discount Punk checkout integration hit a metadata issue.
+
+Observed from Stripe:
+
+```text
+checkout.session.completed event exists
+session metadata is empty: {}
+```
+
+Impact:
+
+```text
+Stripe can create and complete the checkout session.
+But Phyllis webhook does not have enough context to create a useful order.
+```
+
+Missing metadata:
+
+```text
+client_slug
+printful_product_id
+size
+quantity
+product/title info or enough product ID to look it up
+```
+
+This is separate from webhook signing-secret verification. The webhook secret controls whether Phyllis can trust the event. Metadata controls whether Phyllis knows what the event means.
+
+Required checkout fix:
+
+```text
+/api/discountpunk/checkout/create-session must embed canonical metadata:
+client_slug=discount-punk
+printful_product_id=...
+size=...
+quantity=...
+```
+
+Webhook hardening:
+
+```text
+If metadata is missing, do not silently drop the event.
+Log a loud structured error and save a recoverable failed_webhook record if possible.
+```
+
+### 2026-05-02 16:36 CDT
+
+Stripe production webhook secret bug fixed in code and config.
+
+Root cause reported by Replit:
+
+```text
+STRIPE_WEBHOOK_SECRET_PROD in hydrateSecrets fell back to an empty string
+instead of falling back to the Secrets Manager value.
+```
+
+Impact:
+
+```text
+Production webhook verification depended only on the Replit Secret value.
+If that value was stale or wrong, the mismatch was not obvious.
+```
+
+Fix:
+
+```text
+1. New Stripe webhook endpoint registered.
+2. STRIPE_WEBHOOK_SECRET_PROD updated in Replit Secrets.
+3. Code fixed so prod webhook secret fallback no longer silently becomes "".
+4. API server restarted cleanly.
+5. Publish needed to push the fixed webhook/approval behavior to production.
+```
+
+Security note:
+
+```text
+Do not paste whsec_ values into docs or public chat.
+If a webhook signing secret is exposed outside trusted tools, rotate it.
+```
+
+Important product/safety note:
+
+```text
+"Auto-fulfill with both approvals off" changes the safety model.
+Even if Printful creates only draft orders, bypassing Phyllis approval should be an explicit test-mode setting, not an accidental production default.
+```
+
+### 2026-05-02 17:12 CDT
+
+Phantom/duplicate pending approval appeared in the dashboard.
+
+Karen saw two `Needs your review` items with the same timestamp:
+
+```text
+2026-05-02 17:12:04
+b907d43f-a81f-482f-a7b9-a621742535b1
+dc0867ec-6d16-4ed0-a1e5-e6613a503124
+```
+
+One appears partially malformed:
+
+```text
+amount: $29.99
+shipping address present
+product details missing or incomplete
+```
+
+The other appears valid:
+
+```text
+Eat My Donkey
+Size: 2XL
+qty 1
+$29.99 each
+```
+
+Likely causes:
+
+```text
+1. Duplicate Stripe webhook handling for the same checkout session.
+2. Both checkout.session.completed and payment_intent.succeeded created orders.
+3. One old/partial webhook path still writes an incomplete order.
+4. Metadata parsing differs between two webhook handlers.
+```
+
+Required triage:
+
+```text
+Compare both S3 order JSON files.
+Check stripeSessionId and stripePaymentIntentId.
+If they match, keep the complete itemized order and mark/delete the malformed duplicate.
+Add idempotency so one Stripe session/payment can create only one Phyllis order.
+```
+
+This is now a pre-launch correctness issue for checkout/order persistence.
+
+### 2026-05-02 17:33 CDT
+
+Auto-submit policy bug diagnosed.
+
+Symptom:
+
+```text
+Discount Punk checkouts still went through store/client approval and admin approval,
+even though approval flags were set to false.
+```
+
+Root cause:
+
+```text
+getClientPolicy selected clients.printful_store_id.
+The column existed in schema but not in the database.
+The query threw.
+The catch block silently returned DEFAULT_POLICY.
+DEFAULT_POLICY requires both approvals.
+```
+
+So the approval flags were correct, but unreadable.
+
+Fix:
+
+```text
+Add/migrate printful_store_id column.
+Rebuild DB lib/server.
+Restart/publish so production gets the column too.
+```
+
+Related duplicate-order fix:
+
+```text
+payment_intent.succeeded arrived before checkout.session.completed
+and created partial orders.
+Checkout session creation now stamps payment_intent_data.metadata.checkout_session_id
+so the payment_intent handler can skip sessions created by checkout.
+checkout.session.completed should now be the canonical order creator.
+```
+
+Expected post-publish flow for Discount Punk test mode:
+
+```text
+Stripe checkout
+-> checkout.session.completed
+-> complete order created
+-> policy lookup returns clientApprovalRequired=false and adminApprovalRequired=false
+-> Phyllis auto-submits to Printful
+-> Printful draft order created
+```
+
+Caveat:
+
+```text
+Do not trust auto-submit until production publish actually applies the DB migration
+and one fresh checkout proves the Printful draft appears.
+```
+
+### 2026-05-02 17:45 CDT
+
+Karen set the next stretch goal for the remaining Replit sprint window:
+
+```text
+Add a second supplier path for poster prints.
+```
+
+This matters because Phyllis should become a fulfillment orchestration layer, not a Printful wrapper.
+
+Current provider strategy:
+
+```text
+Shirts/general merch -> Printful
+Collectible posters/fine-art drops -> theprintspace / creativehub
+General wall art fallback -> Prodigi, PrintShrimp, Pwinty, or another API-capable provider
+```
+
+The recommended collectible poster candidate remains:
+
+```text
+theprintspace / creativehub
+```
+
+Reason:
+
+```text
+Collectible posters need provenance, not just printing.
+```
+
+For BotButt and future creative agents, a poster can become a collectible only if Phyllis can operationally enforce:
+
+- edition size
+- edition number
+- certificate ID
+- artist/agent attribution
+- design file hash
+- verification URL
+- no overselling
+
+Sprint framing:
+
+```text
+Do not pause the Printful/Stripe checkout fix.
+Do make the data model and API language provider-aware.
+Do keep fields ready for fulfillmentProvider, providerProductId, edition metadata,
+certificate metadata, and provider_pending/manual_fulfillment states.
+```
+
+The full implementation plan is already captured here:
+
+```text
+docs/printful/collectible_poster_fulfillment_plan.md
+```
+
+### 2026-05-02 17:58 CDT
+
+Approval queues removed from the product direction.
+
+Karen made the call:
+
+```text
+Let's just get rid of the approvals.
+I didn't realize the vendors would have final approval there. that's enough.
+```
+
+This simplifies Phyllis.
+
+New order flow:
+
+```text
+Stripe payment succeeds
+-> Phyllis saves the order
+-> Phyllis submits through the selected provider adapter
+-> Printful shirt orders appear as draft/provider orders in Printful
+-> Printful/vendor dashboard is the final production gate
+```
+
+Reason:
+
+```text
+The supplier dashboard already has the last human confirmation step.
+Keeping a separate Phyllis client/admin approval queue created duplicate state,
+extra UI bugs, and unclear responsibility.
+```
+
+What remains important:
+
+```text
+Do not automatically call Printful's final confirm endpoint.
+Do not pretend a second supplier is fulfilled if its API is not wired.
+Use provider_pending/manual_fulfillment for collectible posters until theprintspace/creativehub is real.
+```
+
+Docs updated to reflect the new model:
+
+```text
+docs/printful/current_phyllis_architecture.md
+docs/printful/Justins_advice.md
+docs/printful/collectible_poster_fulfillment_plan.md
+docs/printful/300dpi_image_test_plan.md
+docs/replit_produced_docs/phyllis/customer-guide.md
+docs/replit_produced_docs/phyllis/client-admin-guide.md
+docs/replit_produced_docs/phyllis/technical-reference.md
+docs/replit_produced_docs/phyllis/testing-plan.md
+```
+
+### 2026-05-02 18:08 CDT
+
+Printful handoff verified, and two dashboard/business-model tasks remain.
+
+Karen reported:
+
+```text
+The order showed up.
+```
+
+That means the latest paid order did make it through to Printful after the provider-routing and webhook fixes.
+
+Active Replit tasks:
+
+```text
+1. Put Discount Punk on an unlimited order plan.
+2. Add dashboard order drill-down so operators can inspect full order/provider details.
+```
+
+Unlimited plan requirement:
+
+```text
+Discount Punk should not be capped at first 10 free orders.
+Plan should display as unlimited.
+Billable order count should be 0 during the sprint/client proof period.
+Order submission should not be blocked by monthly count.
+```
+
+Order drill-down requirement:
+
+```text
+Click any order in the Phyllis dashboard.
+See full Stripe session/payment data, customer/shipping details, item/variant details,
+provider, provider order ID, provider status, provider error/blocker, timestamps, and retry history.
+```
+
+Why this matters:
+
+```text
+Cards are enough for scanning.
+Drill-down is required for debugging why a paid order did or did not reach Printful/provider.
+```

@@ -9,6 +9,39 @@ Phyllis can and should create Printful products on the fly. She should not be de
 
 That means every product, variant, order, webhook event, and Printful operation should carry a site/client context, such as `site_id`.
 
+## Current Verified Status
+
+As of May 2, 2026, the durable product creation path is verified:
+
+```text
+BotButt -> Phyllis -> DPI validation -> Printful sync product -> Printful mockup -> Phyllis products table -> Discount Punk dashboard
+```
+
+Verified product:
+
+```text
+Title: Eat My Donkey
+Printful ID: 430745217
+External ID: discount-punk-4149b8b559c5
+Price: $29.99
+Dashboard status: Active
+```
+
+Verified implementation details:
+
+- BotButt can see and call `create_product_with_phyllis`.
+- Printful requires `X-PF-Store-Id: 18110115` for the Discount Punk store.
+- Product creation is idempotent through a deterministic external ID.
+- Mockup generation uses the Printful catalog product ID, not the sync product ID.
+- The current shirt path resolves to catalog product ID `71`.
+- Phyllis now exposes product catalog endpoints for dashboard/static-site use.
+
+Still pending:
+
+- Public Discount Punk **Buy Now** button must call the real Stripe checkout flow.
+- Stripe webhook must save a paid order and submit it through the provider adapter.
+- A checkout success/results page should show payment/order/provider state.
+
 The system needs two clearly separated flows:
 
 1. **Durable shop-product flow**: create a Printful Sync Product once, store the returned Sync Product and Sync Variant IDs, then use those IDs for future orders.
@@ -151,7 +184,7 @@ Example site config:
   "default_currency": "USD",
   "default_country_scope": ["US"],
   "printful": {
-    "store_id": "optional_if_account_level_token",
+    "store_id": "18110115",
     "default_confirm_orders": false
   },
   "storage": {
@@ -256,6 +289,12 @@ API base:
 
 ```text
 https://phyllis.ssbb.pretendo.tv
+```
+
+Current sprint API base:
+
+```text
+https://phyllis-fills.replit.app
 ```
 
 For tomorrow, this may be local or under the existing SSBB server. The API shape should still be Phyllis-shaped so it can move later.
@@ -746,8 +785,6 @@ Order statuses:
 
 - `pending_checkout`
 - `paid`
-- `pending_client_approval`
-- `pending_admin_approval`
 - `rejected`
 - `printful_submitting`
 - `printful_failed`
@@ -765,67 +802,38 @@ Critical invariant:
 paid Stripe order + no Printful order = visible operational problem, never silent success
 ```
 
-## Approval Gate
+## Provider Gate
 
-For bot-generated commerce, do not automatically submit every paid order to Printful.
+The sprint decision changed: Phyllis should not keep a separate client/admin approval queue for ordinary paid orders.
 
 Recommended sprint flow:
 
 ```text
 Stripe webhook
-  -> save paid order as pending_client_approval
-  -> stop
-
-Client approves
-  -> status becomes pending_admin_approval
-
-Admin approves
-  -> submit to Printful
-  -> status becomes submitted_to_printful or printful_draft
-
-Client or admin rejects
-  -> status becomes rejected
-  -> refund handled manually in Stripe for MVP
+  -> save paid order
+  -> submit through FulfillmentAdapter
+  -> if Printful: create draft/provider order
+  -> if supplier API is not live: mark provider_pending/manual_fulfillment
 ```
 
-Why this matters:
+Why this is better:
 
-- Bot-generated designs can have quality or policy issues.
-- Variant mapping mistakes become physical mistakes if auto-submitted.
-- A human should confirm the design before Printful produces inventory.
-- The approval queue becomes an operational safety layer, not bureaucracy.
+- The vendor dashboard already provides the final human production gate.
+- Printful draft orders can be reviewed before anyone confirms production.
+- Removing Phyllis's approval queue removes a fragile duplicate workflow.
+- Provider-specific blockers can still be visible without pretending fulfillment succeeded.
 
-No auto-approval timeout for MVP.
+Critical rule:
 
-Approval records should include:
-
-- approver role: `client` or `admin`
-- approver ID/email
-- decision: `approved` or `rejected`
-- timestamp
-- note/reason
-
-Example:
-
-```json
-{
-  "status": "pending_admin_approval",
-  "approval": {
-    "client": {
-      "decision": "approved",
-      "by": "client@example.com",
-      "at": "2026-05-02T13:20:00.000Z",
-      "note": "Design and size look correct"
-    },
-    "admin": null
-  }
-}
+```text
+Do not automatically call Printful's final confirm endpoint.
 ```
 
 Agent behavior:
 
-- If asked where an order is, Phyllis should mention whether it is waiting on client approval, admin approval, Printful submission, or shipment.
-- If rejected, Phyllis should explain the rejection reason and next action.
+- If asked where an order is, Phyllis should mention payment state, provider submission state, provider blocker, and next action.
+- If an order is a Printful draft, Phyllis should say it is in the vendor dashboard awaiting provider confirmation.
+- If a supplier path is not automated, Phyllis should say `provider_pending` or `manual_fulfillment` and identify the manual next step.
 - If refund is manual, Phyllis should say "refund has not been automated; check Stripe" rather than imply it happened.
 
 ## Retry And Idempotency
@@ -1180,21 +1188,22 @@ type PrintfulResponse<T> = {
 
 async function printfulRequest<T>(
   path: string,
+  storeId: string,
   options: {
     method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
     body?: unknown;
-    storeId?: string;
   } = {}
 ): Promise<T> {
   const apiKey = process.env.PRINTFUL_API_KEY;
   if (!apiKey) throw new Error('PRINTFUL_API_KEY is not configured');
+  if (!storeId) throw new Error('Printful storeId is required');
 
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${apiKey}`
+    Authorization: `Bearer ${apiKey}`,
+    'X-PF-Store-Id': storeId
   };
 
   if (options.body) headers['Content-Type'] = 'application/json';
-  if (options.storeId) headers['X-PF-Store-Id'] = options.storeId;
 
   const response = await fetch(`https://api.printful.com${path}`, {
     method: options.method ?? 'GET',
@@ -1258,6 +1267,37 @@ These should be explicit before the sprint starts:
 - Is Stripe Tax deferred? My vote: defer and document.
 - Is Phyllis a new repo or inside `apps/server` for the contest? The docs mention both patterns; choose one before coding.
 - Does BotButt add products directly to Discount Punk, or does Phyllis return a complete product JSON for BotButt to publish? My vote: Phyllis returns fulfillment data, BotButt publishes.
+
+## Second Provider Roadmap
+
+Printful is now the verified first provider for shirts and general merch. The next provider target should be collectible posters and fine-art drops, where provenance matters as much as print quality.
+
+Leading candidate:
+
+```text
+theprintspace / creativehub
+```
+
+Reason:
+
+```text
+Collectible posters need Certificates of Authenticity, edition numbers, and verification.
+Commodity poster pricing is less important than buyer trust.
+```
+
+Implementation guidance:
+
+- Keep Phyllis provider-agnostic.
+- Route by product type, quality requirements, provenance needs, geography, and cost.
+- Add provider-aware fields to products and orders before hard-wiring another vendor.
+- Preserve room for `fulfillmentProvider`, `providerProductId`, edition metadata, certificate metadata, and public certificate verification.
+- If the second supplier cannot be fully integrated during the sprint, create a `provider_pending` or `manual_fulfillment` path for collectible posters rather than pretending Printful is the only long-term provider.
+
+Detailed plan:
+
+```text
+docs/printful/collectible_poster_fulfillment_plan.md
+```
 
 ## Sources
 
