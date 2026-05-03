@@ -15,7 +15,7 @@ async function getStripe(): Promise<Stripe> {
     if (!stripeKey) {
       throw new Error('STRIPE_SECRET_KEY not configured');
     }
-    stripe = new Stripe(stripeKey, { apiVersion: '2024-12-18.acacia' });
+    stripe = new Stripe(stripeKey, { apiVersion: '2026-04-22.dahlia' });
   }
   return stripe;
 }

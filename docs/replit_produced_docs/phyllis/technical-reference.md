@@ -63,6 +63,8 @@ Discount Punk dashboard Products tab: verified
 Public Discount Punk checkout UI: new look visible in Phyllis dashboard
 Latest paid order reached Printful: verified after follow-up
 Discount Punk billing plan: unlimited sprint/client plan
+Python print-prep endpoint: implemented and tested
+API test suite: 188/188 passing after print-prep work
 ```
 
 Verified Discount Punk product:
@@ -148,6 +150,77 @@ Base path: `/api`
 GET /api/healthz
 Response: { ok: true, uptime: number }
 ```
+
+### Print Prep
+
+```
+POST /api/print-prep/process
+Auth: X-Api-Key
+```
+
+Prepares a low-resolution/generated/display image for print. This endpoint belongs on the Phyllis side because Phyllis is the print-readiness and fulfillment gate.
+
+Request:
+
+```json
+{
+  "clientSlug": "discount-punk",
+  "sourceImageUrl": "https://...",
+  "productType": "shirt",
+  "targetWidth": 3600,
+  "targetHeight": 4500,
+  "removeBackground": true,
+  "upscale": true,
+  "sharpen": true
+}
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "printReadyUrl": "https://ssbb-media-prod.s3.amazonaws.com/discount-punk/images/print-ready/{hash}.png",
+  "width": 3600,
+  "height": 4500,
+  "dpi": 300,
+  "hasAlpha": true,
+  "qualityPassed": true,
+  "sourceImageUrl": "https://...",
+  "sourceWidth": 1024,
+  "sourceHeight": 1024,
+  "prepMethod": "rembg+pillow-lanczos+sharpen",
+  "warnings": ["MVP resize used; not AI super-resolution"]
+}
+```
+
+Processing:
+
+```text
+download source image
+-> remove background with rembg
+-> upscale to real print pixels
+-> preserve aspect ratio
+-> center on transparent canvas
+-> apply mild sharpening
+-> save PNG with 300 DPI metadata
+-> upload to S3
+-> run existing Phyllis quality validation
+```
+
+Rules:
+
+- 300 DPI metadata alone is not enough; the output must also have enough pixels.
+- Do not stretch source art to the target shape.
+- Do not create a product if print prep or quality validation fails.
+- Reuse deterministic output when source image + target size + product type are unchanged.
+- The default shirt canvas is `3600 x 4500`.
+- The output S3 path is `discount-punk/images/print-ready/{sha256}.png`.
+- `removeBackground: true` uses Python `rembg`/U2-Net through ONNX Runtime. The first call may take roughly 30 seconds while the model downloads; later calls should be faster.
+- If output dimensions, alpha channel, or DPI fail validation, return `422` and do not upload the file.
+- Dev smoke testing proved the image pipeline. A dev-only S3 IAM limitation may block upload with restricted credentials; production should use the full project credentials path.
+
+BotButt should call this only when a product does not already exist. Existing products skip print prep and go straight to checkout.
 
 ### Products
 

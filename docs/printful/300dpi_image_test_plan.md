@@ -5,12 +5,25 @@ Scope: BotButt, Phyllis, Discount Punk, Printful
 
 ## Current Answer
 
-BotButt does not currently generate a new 300 DPI print image from scratch.
+BotButt does not currently generate a new 300 DPI print image from scratch by itself.
 
-The working path today is:
+Replit has implemented the Python print-prep path on the Phyllis side. That means BotButt should not do the image processing locally; BotButt should ask Phyllis to prepare the image when a product does not already exist.
+
+The verified path today is:
 
 ```text
 prepared 300 DPI image URL -> BotButt create_product_with_phyllis -> Phyllis DPI gate -> Printful product/mockups
+```
+
+The first-order path is now:
+
+```text
+displayed/generated 72 DPI image URL
+-> BotButt checks for existing product
+-> if missing, BotButt calls Phyllis /api/print-prep/process
+-> Phyllis returns printReadyUrl
+-> BotButt calls /api/products/create with printReadyUrl
+-> checkout proceeds with returned product ID
 ```
 
 The known-good Discount Punk asset is:
@@ -34,7 +47,174 @@ In the BotButt code, `generatePrintDesign` exists but is not implemented yet. It
 Image generation not yet implemented. Please use an existing 300 DPI design URL with Phyllis directly.
 ```
 
-That means BotButt can create a real product from an existing 300 DPI URL, but cannot yet create the new 300 DPI file itself.
+That means BotButt can create a real product from an existing 300 DPI URL now. It can also create a real product from a displayed/generated image by asking Phyllis to produce the print-ready file first. The remaining BotButt integration work is to call `/api/print-prep/process` only when no existing product is found, then pass the returned `printReadyUrl` into `/api/products/create`.
+
+## Free Python Print-Prep Path
+
+Decision:
+
+```text
+Use Python, not Adobe Photoshop API, for the MVP print-prep pipeline.
+```
+
+Reason:
+
+```text
+Avoid per-image API costs while we prove the workflow.
+```
+
+The target internal utility is:
+
+```text
+input web/generated image
+-> remove background
+-> upscale to real print pixels
+-> preserve transparency
+-> stamp 300 DPI metadata
+-> save PNG
+-> upload to S3
+-> run Phyllis DPI/quality gate
+```
+
+Target API:
+
+```text
+POST /api/print-prep/process
+```
+
+Implemented request shape:
+
+```json
+{
+  "clientSlug": "discount-punk",
+  "sourceImageUrl": "https://...",
+  "productType": "shirt",
+  "removeBackground": true,
+  "upscale": true,
+  "sharpen": true
+}
+```
+
+Implemented response shape:
+
+```json
+{
+  "success": true,
+  "printReadyUrl": "https://ssbb-media-prod.s3.amazonaws.com/discount-punk/images/print-ready/{hash}.png",
+  "width": 3600,
+  "height": 4500,
+  "dpi": 300,
+  "hasAlpha": true,
+  "qualityPassed": true,
+  "prepMethod": "rembg+pillow-lanczos+sharpen",
+  "warnings": ["MVP resize used; not AI super-resolution"]
+}
+```
+
+BotButt usage rule:
+
+```text
+Only call print-prep if the product does not already exist.
+If the product exists, reuse the existing Phyllis/Printful product ID and skip all image prep.
+```
+
+Recommended Python stack:
+
+| Step | Library | Purpose |
+|------|---------|---------|
+| Background removal | `rembg` | AI background removal using U2-Net/ONNX |
+| MVP upscale/canvas | `Pillow` Lanczos | Increase pixel dimensions, preserve aspect ratio, pad to transparent print canvas |
+| Sharpen | `Pillow`/image filter | Mild post-resize sharpening |
+| Metadata/final PNG | `Pillow` | Save transparent PNG and set 300 DPI metadata |
+
+Future stack:
+
+| Step | Library | Purpose |
+|------|---------|---------|
+| True super-resolution | `Real-ESRGAN` or similar | Replace MVP Lanczos for generated-from-small-source art before high-volume selling |
+
+Important:
+
+```text
+300 DPI metadata alone is not enough.
+The file must also have enough pixels for the intended print size.
+```
+
+Implementation notes:
+
+- `rembg` uses a U2-Net ONNX model. First call can be slow while the model downloads; later calls should be faster.
+- Current MVP resize is Pillow/Lanczos plus mild sharpening, not true AI super-resolution.
+- The output S3 key is deterministic, so repeated calls with the same inputs reuse the same print-ready file.
+- If Phyllis cannot verify output dimensions, transparency, and 300 DPI metadata, the endpoint returns `422` and does not upload.
+- Replit's dev smoke test found a dev IAM upload limitation; production should use the full project credentials path.
+
+For example:
+
+| Product | Target pixels | Meaning |
+|---------|---------------|---------|
+| T-shirt print area | 3600 x 4500 | 12 x 15 inches at 300 DPI |
+| Poster 11x17 | 3300 x 5100 | 11 x 17 inches at 300 DPI |
+| Letter | 2550 x 3300 | 8.5 x 11 inches at 300 DPI |
+
+Implementation rule:
+
+```text
+Preserve aspect ratio. Do not blindly stretch art to 3600 x 4500.
+If needed, upscale proportionally and then pad transparent canvas to the target print area.
+```
+
+Example utility shape:
+
+```python
+import io
+from PIL import Image
+from rembg import remove
+
+
+def fit_on_transparent_canvas(img: Image.Image, target_size: tuple[int, int]) -> Image.Image:
+    target_w, target_h = target_size
+    img = img.convert("RGBA")
+
+    scale = min(target_w / img.width, target_h / img.height)
+    resized = img.resize(
+        (round(img.width * scale), round(img.height * scale)),
+        Image.Resampling.LANCZOS,
+    )
+
+    canvas = Image.new("RGBA", target_size, (0, 0, 0, 0))
+    x = (target_w - resized.width) // 2
+    y = (target_h - resized.height) // 2
+    canvas.alpha_composite(resized, (x, y))
+    return canvas
+
+
+def process_for_print(input_path: str, output_path: str, target_size=(3600, 4500)) -> None:
+    with open(input_path, "rb") as source:
+        subject_bytes = remove(source.read())
+
+    image = Image.open(io.BytesIO(subject_bytes)).convert("RGBA")
+
+    # MVP fallback. Replace this step with Real-ESRGAN for higher quality.
+    print_canvas = fit_on_transparent_canvas(image, target_size)
+
+    print_canvas.save(output_path, format="PNG", dpi=(300, 300))
+```
+
+Acceptance criteria:
+
+- Output is PNG.
+- Output keeps alpha/transparency.
+- Output dimensions match or exceed target print pixels.
+- Output metadata reports 300 DPI.
+- Phyllis accepts the output through `/api/verify-image-quality`.
+- Phyllis rejects the output if dimensions or metadata are insufficient.
+
+MVP warning:
+
+```text
+Lanczos resize is acceptable for a quick test utility.
+Real-ESRGAN or another true super-resolution model should replace it before selling generated-from-small-source art.
+```
 
 ## Current Verified Product Path
 
@@ -247,34 +427,40 @@ Fail criteria:
 - BotButt uses a web/preview image for fulfillment.
 - Product appears without Phyllis validation.
 
-### Test 6: BotButt Must Not Claim New 300 DPI Generation Works Yet
+### Test 6: BotButt Creates First Product Through Phyllis Print Prep
 
-Purpose: avoid false confidence and bad orders.
+Purpose: verify the new first-order path for a displayed/generated image that is not already a print product.
 
 Prompt to BotButt:
 
 ```text
-Generate a brand new 300 DPI print-ready shirt design and create it as a real product.
+Create a real Discount Punk shirt product from the image currently displayed in chat.
 ```
 
 Expected result today:
 
-- BotButt should either ask for an existing 300 DPI URL or clearly report that print design generation is not implemented yet.
-- BotButt must not claim the product is print-ready unless it has a real 300 DPI URL.
+1. BotButt checks whether a Phyllis product already exists for the design.
+2. If no product exists, BotButt calls `POST /api/print-prep/process` with the displayed image URL.
+3. BotButt waits for `printReadyUrl`.
+4. BotButt calls `/api/products/create` with `printReadyUrl`, not the original display image.
+5. BotButt starts checkout using the returned product ID.
 
 Pass criteria:
 
-- BotButt refuses or redirects to the existing-asset flow.
-- No product is created from a low-res generated preview.
+- Phyllis returns a 300 DPI transparent PNG at `discount-punk/images/print-ready/{hash}.png`.
+- BotButt never sends the original 72 DPI/display image to `/api/products/create`.
+- Product creation succeeds or fails with a clear Phyllis error.
+- If Phyllis print prep returns `422`, BotButt does not create a product or start checkout.
 
 Fail criteria:
 
-- BotButt says it created a 300 DPI print file without a real file.
+- BotButt says it created a 300 DPI print file without a real `printReadyUrl`.
 - BotButt sends a normal generated image to Phyllis as if it were print-ready.
+- BotButt repeats print prep when the product already exists.
 
-### Test 7: Future BotButt 300 DPI Generation Acceptance Test
+### Test 7: Future BotButt Native 300 DPI Generation Acceptance Test
 
-Purpose: define what “implemented” means when BotButt gets true print file generation.
+Purpose: define what “implemented” means if BotButt later gets its own true print file generation instead of delegating print prep to Phyllis.
 
 Future implementation must:
 
@@ -310,17 +496,16 @@ Acceptance criteria:
 Recommended task text:
 
 ```text
-Implement BotButt's generatePrintDesign path for real 300 DPI print assets.
+Integrate BotButt with Phyllis print prep for first-order product creation.
 
 Requirements:
-- generate or receive high-resolution source art
-- composite onto product preset canvas with Sharp
-- export a 300 DPI PNG via Sharp metadata
-- upload the print file and web preview to S3
-- return design_300dpi and design_web URLs
-- never pass design_web to Phyllis fulfillment endpoints
-- add unit tests for dimensions, density, URL shape, and failure paths
-- add an integration test proving Phyllis accepts design_300dpi and rejects low-DPI files
+- before checkout, check whether the product already exists
+- if it exists, reuse the existing Phyllis/Printful product ID
+- if it does not exist, call POST /api/print-prep/process with the displayed image URL
+- pass only the returned printReadyUrl to /api/products/create
+- never pass the display/web preview image to Phyllis product creation
+- surface 422 quality errors clearly to the user
+- add tests proving existing products skip print prep and missing products call print prep exactly once
 ```
 
 ## Go/No-Go Rule

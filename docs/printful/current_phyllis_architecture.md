@@ -1,7 +1,7 @@
 # Current Phyllis Architecture
 
 Date: May 2, 2026  
-Status: product creation path verified; public checkout and provider-routing work in progress
+Status: product creation path verified; public checkout/provider routing live; Python print-prep endpoint implemented and tested
 
 ## One-Line Summary
 
@@ -13,10 +13,15 @@ Phyllis is fulfillment infrastructure for bot-built commerce: agents create prod
 BotButt
   creative/site agent for Discount Punk
   sees create_product_with_phyllis
-  calls Phyllis with title, description, colors, and a 300 DPI design URL
+  checks whether a design already has a Phyllis product
+  if missing, asks Phyllis to print-prep the displayed/generated image
+  then calls Phyllis with title, description, colors, and a print-ready URL
 
     -> Phyllis API
        authenticates/scopes the client
+       accepts 72 DPI/generated source images through /api/print-prep/process
+       removes background, upscales, sharpens, preserves transparency, and stamps 300 DPI
+       uploads print-ready PNG to S3
        validates image DPI
        computes deterministic Printful external_id
        checks for existing Printful product
@@ -58,12 +63,14 @@ BotButt
 ```text
 BotButt -> Phyllis tool visibility: PASS
 BotButt -> Phyllis product request: PASS
+Phyllis print-prep endpoint: PASS
 Phyllis -> Printful auth/store access: PASS
 Phyllis -> Printful product creation: PASS
 Printful mockup generation: PASS
 Product idempotency: PASS
 Dashboard Products tab visibility: PASS
 Broken duplicate storefront entries removed: PASS
+API unit/regression suite: PASS, 188/188
 ```
 
 Verified product:
@@ -84,6 +91,86 @@ Stripe webhook -> Phyllis order saved and submitted through provider adapter
 Printful shirt order -> draft order visible in Printful dashboard
 Collectible poster order -> provider_pending/manual_fulfillment until second supplier is live
 Checkout success/results page
+BotButt first-order path -> call print-prep only when product is missing
+```
+
+## Print-Prep Endpoint
+
+Replit implemented the free Python print-prep path on the Phyllis side.
+
+Target endpoint:
+
+```text
+POST /api/print-prep/process
+```
+
+Purpose:
+
+```text
+Take the 72 DPI/display image BotButt is already showing,
+turn it into a transparent 300 DPI print-ready PNG,
+upload it to S3,
+then run Phyllis quality validation before product creation.
+```
+
+Verified response shape:
+
+```json
+{
+  "success": true,
+  "printReadyUrl": "https://ssbb-media-prod.s3.amazonaws.com/discount-punk/images/print-ready/{hash}.png",
+  "width": 3600,
+  "height": 4500,
+  "dpi": 300,
+  "hasAlpha": true,
+  "qualityPassed": true,
+  "prepMethod": "rembg+pillow-lanczos+sharpen",
+  "warnings": ["MVP resize used; not AI super-resolution"]
+}
+```
+
+Implementation notes:
+
+- `rembg`/U2-Net removes the background. First production call may be slow while the ONNX model is downloaded.
+- Pillow/Lanczos fits the artwork into the target canvas while preserving aspect ratio.
+- The shirt target is `3600 x 4500`; poster targets can use their own configured print dimensions.
+- The output is centered on a transparent PNG canvas and saved with 300 DPI metadata.
+- The S3 key is deterministic from client, source URL, product type, and prep flags, so repeated calls reuse the same print-ready asset.
+- The endpoint returns `422` and does not upload when the prepared file fails the quality gate.
+- Dev smoke tests exposed an IAM-only S3 upload limitation in the dev environment; production uses the project credentials path.
+
+Provider split:
+
+```text
+BotButt owns the creative/design object and knows what is being sold.
+Phyllis owns print readiness, S3 durability, DPI validation, product creation, and fulfillment.
+```
+
+Expected first-order flow:
+
+```text
+Customer tries to buy design
+-> BotButt checks Phyllis/its cache for an existing product
+-> if product exists: use existing product ID and skip prep
+-> if product is missing: send displayed 72 DPI image to /api/print-prep/process
+-> Phyllis returns printReadyUrl after background removal/upscale/sharpen/DPI validation
+-> BotButt calls /api/products/create with printReadyUrl
+-> checkout proceeds with the returned product ID
+```
+
+Rules:
+
+- Do not use Adobe Photoshop API for MVP; avoid per-image cost.
+- Do not use the 72 DPI image directly for product creation.
+- Do not claim a product is print-ready until Phyllis validates the prepared PNG.
+- Do not re-run print-prep when the product already exists.
+- Preserve aspect ratio; pad on a transparent canvas instead of stretching.
+- Treat Pillow/Lanczos as MVP fallback; Real-ESRGAN or similar super-resolution can replace it later.
+
+Detailed handoff:
+
+```text
+docs/printful/handoff_plans.md
 ```
 
 ## Provider Strategy

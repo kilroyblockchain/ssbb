@@ -4,7 +4,7 @@ import { converseWithBedrock, type ImageAttachment } from './bedrock.js';
 import { webSearch, isSearchConfigured } from './search.js';
 import { config } from '../config.js';
 import { addProduct, createComicPage, deleteProduct, deleteVideo, deleteComic } from './discountpunk.js';
-import { generatePrintDesign } from './phyllis.js';
+import { generatePrintDesign, ensurePhyllisProduct, createProductWithPhyllis, createProductFromPreview } from './phyllis.js';
 
 type GalleryIndex = {
   videos?: Array<{ key?: string; name: string; prompt?: string; starred?: boolean }>;
@@ -213,23 +213,61 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     'You have tools to create content for the site:',
     '',
     '### create_product_with_phyllis',
-    'Creates a REAL product that customers can actually order! Uses Phyllis Fills fulfillment service.',
+    'Creates a REAL product from an EXISTING 300 DPI design that customers can order!',
     'Parameters:',
     '  • design_url: S3 URL of 300 DPI design (must already be uploaded)',
     '  • title: Product name',
     '  • description: Product description',
     '  • colors: (optional) Array of colors, default ["black"]',
     '',
+    'Use this when: You have a pre-made 300 DPI design URL (like botbutt-300dpi.png or eat-my-donkey-300dpi.png)',
+    '',
+    '### find_gallery_image_url',
+    'Finds the S3 URL of a gallery image by name or keyword.',
+    'Parameters:',
+    '  • search_term: Name or keyword (e.g., "dump cake", "zombie cat")',
+    '',
+    'Use this when: User wants to make a product from a gallery image but you don\'t have the URL.',
+    '',
+    '### create_product_from_gallery_image',
+    'Creates a REAL product from an approved gallery image!',
+    'Parameters:',
+    '  • image_url: S3 URL of the gallery image',
+    '  • title: Product name',
+    '  • description: Product description',
+    '  • product_type: (optional) "shirt", "poster", or "letter"',
+    '',
+    'IMPORTANT WORKFLOW:',
+    '  1. User says: "Make that Dump Cake image a shirt"',
+    '  2. If you don\'t have the S3 URL: call find_gallery_image_url first',
+    '  3. Once you have the URL: call this tool to create the product',
+    '  4. Phyllis preps for print (removes background, upscales to 300 DPI)',
+    '  5. Product goes live and is orderable!',
+    '',
+    'AUTOMATIC WORKFLOW: When user asks to make a product from a gallery image:',
+    '  → Call find_gallery_image_url("search term")',
+    '  → Get the URL',
+    '  → Call create_product_from_gallery_image with that URL',
+    '  → Done! No need to ask user for the URL.',
+    '',
+    '### ensure_product_exists',
+    'On-demand product creation for checkout! Checks if product exists, creates if needed.',
+    'Parameters:',
+    '  • title: Product title',
+    '  • description: Product description',
+    '  • source_image_url: Web image URL (can be low-res, will be prepped)',
+    '  • product_type: (optional) "shirt", "poster", or "letter"',
+    '  • retail_price: (optional) Price, default "29.99"',
+    '',
     'This tool:',
-    '  1. Validates the design is 300 DPI (Phyllis will reject < 150 DPI)',
-    '  2. Creates product in Printful for print-on-demand fulfillment',
-    '  3. Fetches mockup images from Printful',
-    '  4. Adds product to discountpunk.com with real mockups',
-    '  5. Product is immediately orderable by customers!',
+    '  1. Checks Phyllis catalog for existing product',
+    '  2. If exists: returns product ID for checkout',
+    '  3. If not: preps image and creates product automatically',
+    '',
+    'Use this when: Customer tries to buy something that may not be a real product yet.',
     '',
     'First 10 orders/month are free, then $1.50 per order.',
-    'When someone asks you to make a REAL product that can be ordered — use this tool!',
-    'IMPORTANT: You need a 300 DPI design URL. The Eat My Donkey design is at: https://ssbb-media-prod.s3.amazonaws.com/discountpunk/images/eat-my-donkey-300dpi.png',
+    'Known 300 DPI designs: eat-my-donkey-300dpi.png, botbutt-300dpi.png',
     '',
     '### add_product',
     'Creates a new FAKE product listing on the shop (for fun/demo).',
@@ -365,6 +403,46 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
         },
         required: ['design_url', 'title', 'description']
       }
+    },
+    {
+      name: 'find_gallery_image_url',
+      description: 'Find the S3 URL of an image in the gallery by name or description. Use this when you need the URL of a gallery image to create a product.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          search_term: { type: 'string', description: 'Name or keyword to search for (e.g., "dump cake", "zombie cat")' }
+        },
+        required: ['search_term']
+      }
+    },
+    {
+      name: 'create_product_from_gallery_image',
+      description: 'Create a real product from an image in the gallery. Use this AFTER the user has approved a design in the gallery. This preps the image for print and creates the product. WORKFLOW: First generate image and show in gallery, wait for user approval, then use this tool to make it a real product.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          image_url: { type: 'string', description: 'S3 URL of the approved gallery image' },
+          title: { type: 'string', description: 'Product title' },
+          description: { type: 'string', description: 'Product description' },
+          product_type: { type: 'string', enum: ['shirt', 'poster', 'letter'], description: 'Product type (default: shirt)' }
+        },
+        required: ['image_url', 'title', 'description']
+      }
+    },
+    {
+      name: 'ensure_product_exists',
+      description: 'Check if a product exists, and if not, create it from a web image URL. This is the on-demand product creation flow for checkout. First checks catalog, then preps the image and creates product if needed. Use this when a customer tries to buy something that may not exist yet.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Product title to check/create' },
+          description: { type: 'string', description: 'Product description' },
+          source_image_url: { type: 'string', description: 'Web image URL (can be 72 DPI, will be prepped for print)' },
+          product_type: { type: 'string', enum: ['shirt', 'poster', 'letter'], description: 'Product type (default: shirt)' },
+          retail_price: { type: 'string', description: 'Price (default: "29.99")' }
+        },
+        required: ['title', 'description', 'source_image_url']
+      }
     }
   ];
 
@@ -493,6 +571,166 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
           const errorMsg = err instanceof Error ? err.message : 'Unknown error';
           console.error('[provider] create_product_with_phyllis failed:', { error: errorMsg });
           return `Failed to create product with Phyllis Fills: ${errorMsg}`;
+        }
+      }
+
+      if (name === 'find_gallery_image_url') {
+        try {
+          const { search_term } = input as any;
+          console.log('[provider] find_gallery_image_url:', search_term);
+
+          // Import S3 utilities
+          const { S3Client, ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+          const s3 = new S3Client({ region: 'us-east-1' });
+
+          // Search canvas-assets for matching files
+          const response = await s3.send(new ListObjectsV2Command({
+            Bucket: 'ssbb-media-prod',
+            Prefix: 'canvas-assets/',
+            MaxKeys: 100
+          }));
+
+          if (!response.Contents?.length) {
+            return 'No images found in gallery.';
+          }
+
+          // Search for matching filename (case-insensitive)
+          const searchLower = search_term.toLowerCase();
+          const matches = response.Contents
+            .filter(obj => obj.Key?.toLowerCase().includes(searchLower))
+            .sort((a, b) => (b.LastModified?.getTime() || 0) - (a.LastModified?.getTime() || 0))
+            .slice(0, 5); // Top 5 matches
+
+          if (matches.length === 0) {
+            return `No gallery images found matching "${search_term}". Try a different search term or check the gallery.`;
+          }
+
+          // Return the most recent match
+          const mostRecent = matches[0];
+          const url = `https://ssbb-media-prod.s3.amazonaws.com/${mostRecent.Key}`;
+
+          const result = [`Found: ${url}`];
+          if (matches.length > 1) {
+            result.push(`\nAlso found ${matches.length - 1} other matches:`);
+            matches.slice(1).forEach(m => {
+              result.push(`  - https://ssbb-media-prod.s3.amazonaws.com/${m.Key}`);
+            });
+          }
+
+          console.log('[provider] find_gallery_image_url result:', url);
+          return result.join('\n');
+
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+          console.error('[provider] find_gallery_image_url failed:', { error: errorMsg });
+          return `Failed to search gallery: ${errorMsg}`;
+        }
+      }
+
+      if (name === 'create_product_from_gallery_image') {
+        try {
+          const { image_url, title, description, product_type } = input as any;
+          console.log('[provider] create_product_from_gallery_image starting:', { title, image_url });
+
+          const { createProductFromPreview } = await import('./phyllis.js');
+          const result = await createProductFromPreview({
+            preview_url: image_url,
+            title,
+            description,
+            product_type: product_type || 'shirt',
+            colors: ['black']
+          });
+
+          if (!result.success) {
+            throw new Error(result.error || 'Unknown error');
+          }
+
+          // Add product to Discount Punk website
+          const product = await addProduct({
+            title,
+            price: '$29.99',
+            description
+          }, undefined, undefined);
+
+          // Override with Phyllis mockup if available
+          if (result.mockup_urls?.[0]) {
+            product.image = result.mockup_urls[0];
+          }
+
+          console.log('[provider] create_product_from_gallery_image success:', {
+            title,
+            printful_id: result.printful_product_id,
+            print_ready_url: result.print_ready_url
+          });
+
+          const warnings = result.prep_warnings?.length ? `\n\n⚠️ Quality notes: ${result.prep_warnings.join(', ')}` : '';
+
+          return `Product created from approved design! "${title}" is now live on Discount Punk and ready for orders. Printful ID: ${result.printful_product_id}. Print-ready file: ${result.print_ready_url}${warnings}`;
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+          console.error('[provider] create_product_from_gallery_image failed:', { error: errorMsg });
+
+          // Check if this is the "not implemented" error from Phyllis
+          if (errorMsg.includes('print-prep') || errorMsg.includes('Print preparation')) {
+            return `The print-prep service isn't live yet on Phyllis. For now, please use create_product_with_phyllis with an existing 300 DPI image URL.`;
+          }
+
+          return `Failed to create product from gallery image: ${errorMsg}`;
+        }
+      }
+
+      if (name === 'ensure_product_exists') {
+        try {
+          const { title, description, source_image_url, product_type, retail_price } = input as any;
+          console.log('[provider] ensure_product_exists starting:', { title, source_image_url });
+
+          const { ensurePhyllisProduct } = await import('./phyllis.js');
+          const result = await ensurePhyllisProduct({
+            title,
+            description,
+            source_image_url,
+            product_type: product_type || 'shirt',
+            retail_price: retail_price || '29.99'
+          });
+
+          if (!result.success) {
+            throw new Error(result.error || 'Unknown error');
+          }
+
+          if (result.product_existed) {
+            console.log('[provider] ensure_product_exists: product already existed');
+            return `Product "${title}" already exists (Printful ID: ${result.printful_product_id}). Ready for checkout!`;
+          }
+
+          // New product created - add to website
+          const product = await addProduct({
+            title,
+            price: `$${result.retail_price || '29.99'}`,
+            description
+          }, undefined, undefined);
+
+          // Override with Phyllis mockup
+          if (result.mockup_urls?.[0]) {
+            product.image = result.mockup_urls[0];
+          }
+
+          console.log('[provider] ensure_product_exists: new product created:', {
+            printful_id: result.printful_product_id,
+            print_ready_url: result.print_ready_url
+          });
+
+          const warnings = result.prep_warnings?.length ? `\n\n⚠️ Quality notes: ${result.prep_warnings.join(', ')}` : '';
+
+          return `Product created on-demand! "${title}" is now ready for checkout. Printful ID: ${result.printful_product_id}. Print-ready file: ${result.print_ready_url}${warnings}`;
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+          console.error('[provider] ensure_product_exists failed:', { error: errorMsg });
+
+          if (errorMsg.includes('print-prep') || errorMsg.includes('Print preparation')) {
+            return `The print-prep service isn't available yet. Cannot create product on-demand from web images. Please use an existing 300 DPI design with create_product_with_phyllis instead.`;
+          }
+
+          return `Failed to ensure product exists: ${errorMsg}`;
         }
       }
 

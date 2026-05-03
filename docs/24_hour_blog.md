@@ -3026,3 +3026,128 @@ Why this matters:
 Cards are enough for scanning.
 Drill-down is required for debugging why a paid order did or did not reach Printful/provider.
 ```
+
+### 2026-05-02 18:22 CDT
+
+Python print-prep became an active implementation track.
+
+Karen decided not to pay for Adobe/Photoshop API during the sprint.
+
+Decision:
+
+```text
+Use Python for MVP print prep.
+```
+
+Claude and Replit are both working from:
+
+```text
+docs/printful/handoff_plans.md
+```
+
+Phyllis-side goal:
+
+```text
+POST /api/print-prep/process
+```
+
+Purpose:
+
+```text
+Take BotButt's displayed/generated 72 DPI image,
+remove background,
+upscale to real print pixels,
+preserve transparency,
+sharpen,
+stamp 300 DPI metadata,
+upload to S3,
+run Phyllis quality validation,
+return printReadyUrl.
+```
+
+BotButt-side goal:
+
+```text
+Customer tries to buy design.
+BotButt checks whether product already exists.
+If product exists: skip prep and reuse product ID.
+If product does not exist: send displayed image to Phyllis print-prep,
+then create the Phyllis/Printful product,
+then start checkout.
+```
+
+Important invariant:
+
+```text
+The 72 DPI display image is never sent directly to /api/products/create.
+Only a Phyllis-validated printReadyUrl can become a real product.
+```
+
+MVP stack:
+
+```text
+rembg -> background removal
+Pillow/Lanczos -> MVP resize/pad/sharpen/DPI export
+Real-ESRGAN or similar -> later higher-quality super-resolution
+```
+
+### 2026-05-02 18:38 CDT
+
+Replit shipped the Phyllis print-prep endpoint.
+
+Endpoint:
+
+```text
+POST /api/print-prep/process
+```
+
+Verified behavior:
+
+```text
+source image -> rembg background removal
+-> Pillow/Lanczos fit to transparent print canvas
+-> mild sharpen
+-> 300 DPI PNG metadata
+-> deterministic S3 key
+-> Phyllis quality gate
+-> printReadyUrl
+```
+
+Verified response shape:
+
+```json
+{
+  "success": true,
+  "printReadyUrl": "https://ssbb-media-prod.s3.amazonaws.com/discount-punk/images/print-ready/{hash}.png",
+  "width": 3600,
+  "height": 4500,
+  "dpi": 300,
+  "hasAlpha": true,
+  "qualityPassed": true,
+  "prepMethod": "rembg+pillow-lanczos+sharpen",
+  "warnings": ["MVP resize used; not AI super-resolution"]
+}
+```
+
+Important implementation notes:
+
+```text
+First rembg/U2-Net call may take about 30 seconds while the ONNX model downloads.
+Repeated identical calls are idempotent and reuse the same print-ready S3 key.
+If dimensions, transparency, or DPI fail validation, Phyllis returns 422 and does not upload.
+Dev smoke test exposed an IAM-only S3 upload limitation; production should use project credentials.
+```
+
+Test result:
+
+```text
+188/188 tests passing after the print-prep work.
+```
+
+BotButt next step:
+
+```text
+If product exists: skip print-prep and use the existing product ID.
+If product is missing: call /api/print-prep/process with the displayed/generated image,
+then call /api/products/create with the returned printReadyUrl.
+```

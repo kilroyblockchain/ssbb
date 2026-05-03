@@ -171,6 +171,42 @@ For collectible posters or any provider without a live API integration, the expe
 
 ---
 
+## Suite 9b — Python Print Prep
+
+**Goal:** Verify a displayed/generated low-resolution image can be prepared for print before product creation.
+
+**Current status:** Endpoint implemented; API regression suite was green at 188/188 after the print-prep work.
+
+| # | Test | Expected |
+|---|------|----------|
+| 1 | `POST /api/print-prep/process` with reachable 72 DPI source image | 200; returns `printReadyUrl` |
+| 2 | Inspect returned image | PNG, alpha channel present, 300 DPI metadata |
+| 3 | Shirt target | Output is 3600 x 4500 or configured shirt target size |
+| 4 | Aspect ratio preservation | Artwork is centered/padded on transparent canvas, not stretched |
+| 5 | Quality validation | Returned `printReadyUrl` passes `/api/verify-image-quality` |
+| 6 | Bad source URL | 400/422 with visible error; no product is created |
+| 7 | Same source + same target repeated | Reuses deterministic output or returns same print-ready asset |
+| 8 | BotButt first-order path with no existing product | Calls print prep, then `/api/products/create`, then checkout |
+| 9 | BotButt path when product exists | Skips print prep and product creation; uses existing product ID |
+
+Implementation-specific checks:
+
+| # | Test | Expected |
+|---|------|----------|
+| 10 | `removeBackground: true` on first production-like call | May take ~30s while `rembg` downloads the U2-Net ONNX model; request eventually returns or surfaces a clear processing error |
+| 11 | Same input + flags repeated | Same deterministic S3 key under `discount-punk/images/print-ready/{sha256}.png`; no duplicate processing work |
+| 12 | Prepared image fails alpha/dimensions/DPI validation | **422**; no S3 object is uploaded; no product creation is attempted |
+| 13 | Dev environment with restricted S3 credentials | Image processing may pass while upload fails; report IAM/upload blocker distinctly from image-quality failure |
+
+Regression rule:
+
+```text
+No product creation from the 72 DPI display image directly.
+Only the Phyllis-validated printReadyUrl may be sent to /api/products/create.
+```
+
+---
+
 ## Suite 10 — Origin Allowlist (Chat Embed)
 
 **Goal:** Verify public chat endpoint enforces `allowedDomains`.
