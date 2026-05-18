@@ -6,6 +6,65 @@ import { config } from '../config.js';
 
 const router = express.Router();
 
+function sanitizePhyllisAssetUrl(url: unknown): unknown {
+  if (typeof url !== 'string') return url;
+
+  if (url.includes("discount-punk/mockups/i'm-a-butt-bitch,-too-tee-mockup-0.png")) {
+    return 'https://ssbb-media-prod.s3.amazonaws.com/discount-punk/mockups/im-a-butt-bitch-too-tee-mockup-0.png';
+  }
+
+  return url;
+}
+
+function sanitizePhyllisProduct(product: any): any {
+  return {
+    ...product,
+    mockup_urls: Array.isArray(product.mockup_urls) ? product.mockup_urls.map(sanitizePhyllisAssetUrl) : product.mockup_urls,
+    mockups: Array.isArray(product.mockups) ? product.mockups.map(sanitizePhyllisAssetUrl) : product.mockups,
+    image: sanitizePhyllisAssetUrl(product.image)
+  };
+}
+
+function getProductMockupUrl(product: any): string | undefined {
+  if (!product) return undefined;
+
+  const mockup = Array.isArray(product.mockup_urls) ? product.mockup_urls[0] : undefined;
+  if (typeof mockup === 'string') return sanitizePhyllisAssetUrl(mockup) as string;
+
+  if (product.mockups && typeof product.mockups === 'object') {
+    const front = product.mockups.front;
+    if (typeof front === 'string') return sanitizePhyllisAssetUrl(front) as string;
+
+    const first = Object.values(product.mockups).find((value): value is string => typeof value === 'string');
+    if (first) return sanitizePhyllisAssetUrl(first) as string;
+  }
+
+  return typeof product.image === 'string' ? sanitizePhyllisAssetUrl(product.image) as string : undefined;
+}
+
+function getProductPrintUrl(product: any): string | undefined {
+  if (!product) return undefined;
+
+  return typeof product.print_ready_url === 'string' ? product.print_ready_url
+    : typeof product.design_url === 'string' ? product.design_url
+      : typeof product.designUrl === 'string' ? product.designUrl
+        : undefined;
+}
+
+async function fetchPhyllisProductByPrintfulId(
+  phyllisBaseUrl: string,
+  printfulProductId: string | number
+): Promise<any | undefined> {
+  const response = await fetch(`${phyllisBaseUrl}/api/products?client_slug=discount-punk`);
+  if (!response.ok) {
+    throw new Error(`Phyllis product lookup failed: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  const products = Array.isArray(data.products) ? data.products : [];
+  return products.find((product: any) => String(product.printful_product_id ?? product.provider_product_id ?? product.id) === String(printfulProductId));
+}
+
 // Initialize Stripe (will be hydrated from secrets)
 let stripe: Stripe | null = null;
 async function getStripe(): Promise<Stripe> {
@@ -149,7 +208,8 @@ router.get('/products', async (req, res) => {
     }
 
     const data = await response.json();
-    res.json(data);
+    const products = Array.isArray(data.products) ? data.products.map(sanitizePhyllisProduct) : data.products;
+    res.json({ ...data, products });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to fetch products from Phyllis' });
   }
@@ -160,8 +220,8 @@ router.post('/checkout/create-session', async (req, res) => {
   try {
     const { printful_product_id, size, quantity = 1, success_url, cancel_url } = req.body;
 
-    if (!printful_product_id || !size) {
-      return res.status(400).json({ error: 'Missing required fields: printful_product_id, size' });
+    if (!Array.isArray(req.body.items) && (!printful_product_id || !size)) {
+      return res.status(400).json({ error: 'Missing required fields: items, or printful_product_id and size' });
     }
 
     await hydratePhyllisConfig();
@@ -172,7 +232,42 @@ router.post('/checkout/create-session', async (req, res) => {
       throw new Error('PHYLLIS_API_KEY not configured');
     }
 
-    console.log('[discountpunk] Creating checkout session:', { printful_product_id, size, quantity });
+    let checkoutBody: Record<string, unknown>;
+    if (Array.isArray(req.body.items)) {
+      checkoutBody = {
+        items: req.body.items,
+        success_url: success_url || 'https://discountpunk.com/success.html',
+        cancel_url: cancel_url || 'https://discountpunk.com/shop.html'
+      };
+    } else {
+      const product = await fetchPhyllisProductByPrintfulId(phyllisBaseUrl, printful_product_id);
+      const imageUrl = getProductMockupUrl(product);
+      const printUrl = getProductPrintUrl(product);
+
+      checkoutBody = {
+        printful_product_id,
+        size,
+        quantity,
+        items: product ? [{
+          productTitle: product.title || product.name || 'Discount Punk Tee',
+          productType: product.product_type || product.productType || 'tshirt',
+          imageUrl,
+          printUrl,
+          size,
+          quantity,
+          price: Number(product.price || 29.99)
+        }] : undefined,
+        success_url: success_url || 'https://discountpunk.com/success.html',
+        cancel_url: cancel_url || 'https://discountpunk.com/shop.html'
+      };
+    }
+
+    console.log('[discountpunk] Creating checkout session:', {
+      printful_product_id,
+      size,
+      quantity,
+      itemCount: Array.isArray(checkoutBody.items) ? checkoutBody.items.length : 0
+    });
 
     const response = await fetch(`${phyllisBaseUrl}/api/discountpunk/checkout/create-session`, {
       method: 'POST',
@@ -180,13 +275,7 @@ router.post('/checkout/create-session', async (req, res) => {
         'Content-Type': 'application/json',
         'X-API-Key': phyllisApiKey
       },
-      body: JSON.stringify({
-        printful_product_id,
-        size,
-        quantity,
-        success_url: success_url || 'https://discountpunk.com/success.html',
-        cancel_url: cancel_url || 'https://discountpunk.com/shop.html'
-      })
+      body: JSON.stringify(checkoutBody)
     });
 
     if (!response.ok) {

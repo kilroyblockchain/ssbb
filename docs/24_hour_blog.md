@@ -3151,3 +3151,350 @@ If product exists: skip print-prep and use the existing product ID.
 If product is missing: call /api/print-prep/process with the displayed/generated image,
 then call /api/products/create with the returned printReadyUrl.
 ```
+
+### 2026-05-02 21:24 CDT
+
+The print-prep/product path moved from "works in theory" to "hardened against real agent behavior."
+
+Problem discovered in live BotButt runs:
+
+```text
+BotButt sometimes called create_product_with_phyllis with only design_url.
+The design_url was a signed 72 DPI canvas preview.
+Because no source_image_url was present, the SSBB retry/prep logic did not run.
+Phyllis rejected the file at the DPI gate.
+BotButt then narrated "Gerald needs to fix it" instead of completing the workflow.
+```
+
+Root cause:
+
+```text
+The happy-path contract assumed the creative agent would choose the correct two-step sequence.
+Real agents do not always choose the correct sequence.
+The fulfillment boundary needs to be defensive.
+```
+
+SSBB-side hardening:
+
+```text
+createProductWithPhyllis now treats any non-/print-ready/ design_url as a source image.
+It extracts the S3 key from signed ssbb-media-prod URLs.
+It strips signed query parameters and normalizes to the clean durable S3 URL.
+It calls prepareImageForPrint before /api/products/create.
+Only the returned printReadyUrl is sent to product creation.
+```
+
+The server image with this defensive path was built and deployed to ECS.
+
+Phyllis-side hardening:
+
+```text
+/api/products/create now auto-upgrades low-DPI images internally.
+If a caller sends a 72 DPI canvas URL, Phyllis runs print-prep itself before rejecting.
+The response can include print_prep_applied: true.
+The stored product design_url should be the upgraded /print-ready/ URL.
+```
+
+This is the right ownership split:
+
+```text
+SSBB/BotButt should try to send print-ready files.
+Phyllis must still protect itself when callers send preview files.
+Fulfillment infrastructure cannot depend on the creative agent being perfectly obedient.
+```
+
+Background removal also split into two paths.
+
+Problem:
+
+```text
+removeBackground: false preserved the white AI canvas background.
+On black shirt mockups this appeared as a white square behind the design.
+```
+
+Rejected approach:
+
+```text
+rembg/U2-Net salient-object removal is too aggressive for typography art.
+It can decide the "main subject" is only one part of the graphic and delete text like "EAT MY".
+```
+
+New auto-upgrade approach:
+
+```text
+thresholdBgRemoval: true
+```
+
+Behavior:
+
+```text
+Pure Sharp/colorimetric white removal.
+Pixels where all RGB channels are near-white are made transparent.
+Hard cutoff at 245/255.
+Soft blend band from 220-245 for anti-aliased edges.
+Pink letters, green slime, black outlines, and drawn elements survive because at least one channel is below the threshold.
+```
+
+The explicit print-prep endpoint can still use rembg when a caller intentionally asks for subject-based background removal:
+
+```text
+POST /api/print-prep/process
+removeBackground: true
+```
+
+But `/api/products/create` auto-upgrade should use threshold white removal so typography designs survive.
+
+One infrastructure gate surfaced during the live test:
+
+```text
+User arn:aws:iam::672930000617:user/replit-sprint-kilroy
+was not allowed to s3:PutObject
+to ssbb-media-prod/discount-punk/images/print-ready/*
+```
+
+Fix applied:
+
+```text
+Narrow IAM inline policy:
+s3:PutObject
+arn:aws:s3:::ssbb-media-prod/discount-punk/images/print-ready/*
+```
+
+After that, live print-prep returned:
+
+```text
+printReadyUrl:
+https://ssbb-media-prod.s3.amazonaws.com/discount-punk/images/print-ready/75b328e096e09da0c3dc09c9bf0ae567acaab77b631cae4f3a97925799490a3e.png
+
+width: 3600
+height: 4500
+dpi: 300
+qualityPassed: true
+prepMethod: rembg+pillow-lanczos+sharpen
+```
+
+A separate storefront bug appeared with:
+
+```text
+I'm a Butt Bitch, Too Tee
+```
+
+Symptoms:
+
+```text
+The product load threw SyntaxError in the browser.
+The static content record had:
+/products/i'm-a-butt-bitch,-too-tee.html
+and placeholder image.
+Phyllis mockup URLs also contained raw apostrophe/comma characters:
+.../mockups/i'm-a-butt-bitch,-too-tee-mockup-0.png
+```
+
+Fixes:
+
+```text
+SSBB slug generation now strips quotes and non-alphanumeric punctuation.
+Old static content.json entry was backfilled to:
+/products/im-a-butt-bitch-too-tee.html
+The unsafe S3 mockup object was copied to:
+discount-punk/mockups/im-a-butt-bitch-too-tee-mockup-0.png
+The SSBB Phyllis catalog proxy now sanitizes that known unsafe mockup URL before returning products to the shop.
+```
+
+Product hygiene lesson:
+
+```text
+Never let raw generated titles become URLs or S3 keys without slugification.
+Product titles can contain jokes, punctuation, and apostrophes.
+Product URLs and object keys should be boring.
+```
+
+Current status after this round:
+
+```text
+Phyllis print-prep endpoint works.
+Phyllis can upload print-ready files.
+Phyllis products/create is being hardened to auto-upgrade low-DPI files.
+SSBB server is deployed with a defensive pre-products/create print-prep path.
+Known unsafe "I'm a Butt Bitch, Too Tee" storefront URL issue has a backfill and code-level guard.
+```
+
+### 2026-05-02 21:36 CDT
+
+Order verification round.
+
+The last checkout looked like it did not show up in Printful, but the failure signal was misleading.
+
+Browser console showed hCaptcha iframe permission-policy errors:
+
+```text
+Permission policy 'Camera' check failed for document with origin 'https://newassets.hcaptcha.com'.
+Permission policy 'Microphone' check failed for document with origin 'https://newassets.hcaptcha.com'.
+Not allowed to call enumerateDevices.
+```
+
+Those are hCaptcha fingerprinting/device-inspection attempts being denied by the browser permission policy. They are noisy, but they are not the order fulfillment failure path.
+
+The real chain looked healthy:
+
+```text
+Stripe checkout sessions were complete and paid.
+Phyllis created matching orders.
+Phyllis marked the orders submitted_to_printful.
+Phyllis recorded Printful order IDs:
+156946186
+156946464
+```
+
+A direct Printful API check from SSBB failed with:
+
+```text
+401 Unauthorized
+The access token provided is invalid.
+```
+
+That points at the local SSBB `ssbb/stripe-printful` secret being stale or not the same credential Phyllis uses, not at the Stripe-to-Phyllis checkout flow failing.
+
+Replit-side fix:
+
+```text
+Use the correct Printful credential on the Phyllis side.
+Keep Phyllis as the source of truth for the fulfillment submission step.
+```
+
+One remaining cleanup:
+
+```text
+Stripe still has an old enabled Replit dev webhook endpoint.
+That can leave pending_webhooks: 1 on otherwise successful Stripe events.
+Disable the stale webhook endpoint once the production Phyllis webhook is confirmed.
+```
+
+### 2026-05-02 21:41 CDT
+
+Checkout print-file split.
+
+The final fulfillment issue was not the checkout image customers see. It was the file handed to Printful.
+
+New rule:
+
+```text
+imageUrl = Stripe checkout display image, usually the shirt mockup.
+printUrl = Printful print file, the flat 300 DPI design PNG from products/create or print-prep.
+```
+
+Phyllis now accepts `printUrl` per checkout item, and the SSBB checkout proxy forwards it.
+
+SSBB also keeps the old storefront path working:
+
+```text
+Existing shop request:
+printful_product_id + size + quantity
+
+SSBB proxy behavior:
+look up the Phyllis product by printful_product_id
+use mockup_urls[0] as imageUrl
+use print_ready_url/design_url as printUrl
+forward both to Phyllis checkout/create-session
+```
+
+That lets current product pages continue posting the old payload while Printful receives the correct print-ready design file.
+
+Deploy status:
+
+```text
+Server build passed.
+ECS server deploy completed.
+Live URL: https://ssbb.pretendo.tv
+```
+
+### 2026-05-02 22:16 CDT
+
+Live shop checkout patch.
+
+The previous SSBB proxy fix was correct but did not cover the public shop page because `discountpunk.com/shop.html` was posting directly to Phyllis:
+
+```text
+POST https://phyllis-fills.replit.app/api/discountpunk/checkout/create-session
+imageUrl: productData.mockup_urls[0]
+printUrl: missing
+```
+
+That meant the live shop depended entirely on Phyllis fallback behavior. It also rendered duplicate active products from the Phyllis catalog, including an old `Dump Cake Tee` record whose `design_url` pointed at the Eat My Donkey print file.
+
+Static shop fix:
+
+```text
+imageUrl = product mockup URL for Stripe checkout display
+printUrl = product print_ready_url/design_url/designUrl for Printful fulfillment
+active products are deduped by normalized title
+latest created_at/updated_at product wins
+```
+
+Deployment:
+
+```text
+Patched /Users/karenkilroy/zorro_kilroy/discountpunk.com/shop.html
+Staged static files to /tmp/discountpunk-static-deploy
+Deployed production Azure Static Web App
+Verified live https://discountpunk.com/shop.html includes printUrl
+```
+
+Phyllis server-side hardening still matters:
+
+```text
+ProviderOrderItem now needs printUrl in the type path.
+Before Printful submission, Phyllis should resolve the product designUrl from its DB by title/client when printUrl is absent.
+Final fallback should be imageUrl only when no product DB match exists.
+```
+
+### 2026-05-03 02:12 CDT
+
+Final demo wrap.
+
+The system made it all the way through the real path.
+
+What shipped:
+
+```text
+BotButt accepted an approved design.
+Phyllis prepared the image for print.
+The design became a real 300 DPI print file.
+The product and mockup were created.
+Discount Punk showed the product in the live shop.
+Stripe checkout completed.
+Printful received the correct fulfillment data.
+```
+
+The demo proof product:
+
+```text
+REPLIT ROCKS! t-shirt
+```
+
+The important architecture decision was separating the customer-facing image from the fulfillment file:
+
+```text
+Mockup image -> Stripe checkout and shop display
+Print-ready design PNG -> Printful fulfillment
+```
+
+That split turned out to be the difference between a pretty storefront and a reliable fulfillment system.
+
+Final phrasing for the demo:
+
+```text
+BotButt designs it.
+Phyllis preps it.
+Discount Punk sells it.
+Printful ships it.
+Replit rocks.
+```
+
+End state:
+
+```text
+The live flow works end to end.
+The demo shirt was successfully ordered through the system.
+The remaining work is polish, cleanup, duplicate product hygiene, and better observability.
+```

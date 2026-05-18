@@ -1,6 +1,7 @@
 import sharp from 'sharp';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { hydratePhyllisConfig } from './secrets.js';
+import { readBuffer, writeBuffer } from './s3.js';
 
 const s3 = new S3Client({ region: 'us-east-1' });
 
@@ -11,9 +12,22 @@ const PRINT_PRESETS = {
   'letter': { width: 2550, height: 3300 }        // 8.5" × 11" at 300 DPI
 };
 
-function getPrintPrepSourceUrl(sourceImageUrl: string, imageKey?: string): string {
-  if (imageKey) {
-    return `https://ssbb-media-prod.s3.amazonaws.com/${imageKey}`;
+async function getPrintPrepSourceUrl(sourceImageUrl: string, imageKey?: string): Promise<string> {
+  const key = imageKey || getS3ImageKey(sourceImageUrl);
+
+  if (key?.startsWith('canvas-assets/')) {
+    // canvas-assets/ is private and Phyllis (Replit) can't access presigned URLs for it.
+    // Copy the image to the public discountpunk/images/print-prep/ path so Phyllis gets a plain URL.
+    const filename = key.split('/').pop() || `${Date.now()}.png`;
+    const publicKey = `discountpunk/images/print-prep/${filename}`;
+    console.log('[phyllis] copying canvas-asset to public path:', { from: key, to: publicKey });
+    const { buffer, contentType } = await readBuffer('ssbb-media-prod', key);
+    await writeBuffer('ssbb-media-prod', publicKey, buffer, contentType || 'image/png');
+    return `https://ssbb-media-prod.s3.amazonaws.com/${publicKey}`;
+  }
+
+  if (key) {
+    return `https://ssbb-media-prod.s3.amazonaws.com/${key}`;
   }
 
   try {
@@ -118,6 +132,7 @@ export async function createProductFromPreview(params: {
   description: string;
   product_type?: 'shirt' | 'poster' | 'letter';
   colors?: string[];
+  client_id?: string;
 }): Promise<{
   success: boolean;
   printful_product_id?: number;
@@ -137,7 +152,8 @@ export async function createProductFromPreview(params: {
       image_key: params.image_key,
       product_type: params.product_type || 'shirt',
       colors: params.colors || ['black'],
-      retail_price: '29.99'
+      retail_price: '29.99',
+      client_id: params.client_id
     });
 
     if (!result.success) {
@@ -301,7 +317,7 @@ export async function prepareImageForPrint(params: {
 
     const productType = params.product_type || 'shirt';
     const preset = PRINT_PRESETS[productType === 'shirt' ? 't-shirt' : productType === 'poster' ? 'poster-11x17' : 'letter'];
-    const sourceImageUrl = getPrintPrepSourceUrl(params.source_image_url, params.image_key);
+    const sourceImageUrl = await getPrintPrepSourceUrl(params.source_image_url, params.image_key);
 
     console.log('[phyllis] Preparing image for print:', {
       source: sourceImageUrl,
@@ -519,6 +535,7 @@ export async function ensurePhyllisProduct(params: {
   product_type?: 'shirt' | 'poster' | 'letter';
   colors?: string[];
   retail_price?: string;
+  client_id?: string;
 }): Promise<{
   success: boolean;
   product_existed: boolean;
@@ -571,10 +588,11 @@ export async function ensurePhyllisProduct(params: {
 
     const product = await createProductWithPhyllis({
       design_url: prep.printReadyUrl,
-      source_image_url: params.source_image_url, // Pass through for traceability
+      source_image_url: params.source_image_url,
       title: params.title,
       description: params.description,
-      colors: params.colors || ['black']
+      colors: params.colors || ['black'],
+      client_id: params.client_id
     });
 
     if (!product.success) {

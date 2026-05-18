@@ -1397,6 +1397,7 @@ function GalleryPanel({
   onDescribeImage,
   onRequestMoviePrompt,
   onRequestMultiMoviePrompt,
+  onMakeProductFromCanvasImage,
   onGalleryIndex,
   onOpenVideoEditor,
   highlightedKeys = [],
@@ -1410,6 +1411,7 @@ function GalleryPanel({
   onDescribeImage: (item: { key: string; name: string; url: string }) => Promise<void>;
   onRequestMoviePrompt: (item: { key: string; name: string }) => Promise<void>;
   onRequestMultiMoviePrompt: (items: MultiMovieItem[]) => Promise<void>;
+  onMakeProductFromCanvasImage: (item: GalleryCanvasAsset) => Promise<void>;
   onGalleryIndex: (index: GalleryIndex) => void;
   onOpenVideoEditor: (videoKey: string, videoUrl: string, videoName: string, audioKey?: string, audioUrl?: string, audioName?: string) => void;
   highlightedKeys?: string[];
@@ -1443,6 +1445,7 @@ function GalleryPanel({
   const [dragData, setDragData] = useState<{ kind: 'character' | 'canvasAsset'; key: string; title: string } | null>(null);
   const [movingImage, setMovingImage] = useState(false);
   const [moviePromptKey, setMoviePromptKey] = useState<string | null>(null);
+  const [productPromptKey, setProductPromptKey] = useState<string | null>(null);
   const [charDragActive, setCharDragActive] = useState(false);
   const [assetDragActive, setAssetDragActive] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<string[]>([]); // names being uploaded
@@ -1939,6 +1942,21 @@ function GalleryPanel({
       }
     },
     [onRequestMoviePrompt]
+  );
+
+  const handleMakeProduct = useCallback(
+    async (asset: GalleryCanvasAsset) => {
+      setProductPromptKey(asset.key);
+      try {
+        await onMakeProductFromCanvasImage(asset);
+      } catch (err) {
+        console.warn('[gallery make product]', err);
+        alert('BotButt could not start the product workflow for that image.');
+      } finally {
+        setProductPromptKey(null);
+      }
+    },
+    [onMakeProductFromCanvasImage]
   );
 
   const handleDelete = useCallback(
@@ -2447,6 +2465,14 @@ function GalleryPanel({
                     {movieSel.some(i => i.key === asset.key) ? '🎬✓' : '🎬+'}
                   </button>
                   <button style={gBtn} onClick={() => setPreviewImage({ title: asset.title, url: asset.url })}>View</button>
+                  <button
+                    style={{ ...gBtn, background: 'rgba(255,215,0,.14)', borderColor: '#ffd700', color: '#ffd700' }}
+                    onClick={() => handleMakeProduct(asset)}
+                    disabled={productPromptKey === asset.key}
+                    title="Ask BotButt to create a real product from this exact image URL"
+                  >
+                    {productPromptKey === asset.key ? 'Sending…' : 'Make product'}
+                  </button>
                   <a style={{ ...gBtn, textDecoration: 'none' }} href={asset.url} target="_blank" rel="noopener noreferrer" download={`${(asset.title || 'canvas').replace(/\s+/g, '-')}.png`}>
                     Download
                   </a>
@@ -3583,10 +3609,17 @@ async function sendMessage(
     setBotStatus('thinking');
     postToAvatar({ type: 'bb-emotion', state: 'thinking' });
     try {
-      const resp = await fetch(`${API_BASE}/api/chat`, {
+      const resp = await fetch(`${API_BASE}/api/botbutt/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ message: displayText, mode, attachments, clientMessageId: userMsg.id, galleryIndex: galleryIndexRef.current ?? undefined }),
+        body: JSON.stringify({
+          message: displayText,
+          mode,
+          attachments,
+          clientMessageId: userMsg.id,
+          galleryIndex: galleryIndexRef.current ?? undefined,
+          profile: 'ssbb-full'
+        }),
       });
       if (!resp.ok) {
         const errBody = await resp.json().catch(() => ({}));
@@ -3764,6 +3797,32 @@ async function sendMessage(
       throw err;
     }
   }, [authHeaders, sendMessage]);
+
+  const makeProductFromCanvasImage = useCallback(async (asset: GalleryCanvasAsset) => {
+    const safeTitle = asset.title || 'Canvas Image';
+    const storeChoice = window.confirm('Add to 250birthday.us?\n\nOK = 250birthday.us\nCancel = Discount Punk');
+    const store = storeChoice ? '250birthday-us' : 'discountpunk';
+    const storeName = storeChoice ? '250birthday.us' : 'Discount Punk';
+    const prompt = [
+      `BotButt, create a real product from this exact approved Canvas Image for ${storeName}.`,
+      '',
+      `Image title: ${safeTitle}`,
+      `image_url: ${asset.url}`,
+      `image_key: ${asset.key}`,
+      `store: ${store}`,
+      'product_type: shirt',
+      '',
+      'Rules:',
+      '- Use this exact image_url. Do not search the gallery and do not substitute another image.',
+      '- Treat this button click as approval to start the product workflow for this specific image.',
+      '- If /api/products/create rejects the image for DPI or quality, call /api/print-prep/process with this exact image_url.',
+      '- Retry /api/products/create with design_url = printReadyUrl.',
+      '- Send source_image_url = this exact image_url for traceability.',
+      '- If you need a better title, description, size/color, or price, ask before creating the product.'
+    ].join('\n');
+
+    await sendMessage(undefined, prompt, undefined, { ignoreDraft: true });
+  }, [sendMessage]);
 
   // ── File drop ─────────────────────────────────────────────────────────────
   async function handleDrop(e: React.DragEvent) {
@@ -4223,6 +4282,7 @@ async function sendMessage(
                   onDescribeImage={describeGalleryImage}
                   onRequestMoviePrompt={requestMoviePrompt}
                   onRequestMultiMoviePrompt={requestMultiMoviePrompt}
+                  onMakeProductFromCanvasImage={makeProductFromCanvasImage}
                   onGalleryIndex={(idx) => {
                     galleryIndexRef.current = idx;
                     cachedAudioTracksRef.current = idx.audioTracks.map(a => ({ key: a.key, name: a.name, url: a.url ?? '' }));

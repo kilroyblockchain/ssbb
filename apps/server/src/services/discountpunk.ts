@@ -42,6 +42,14 @@ type ContentData = {
   comics?: Comic[];
 };
 
+function slugifyTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/['"]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 export async function readContent(): Promise<ContentData> {
   try {
     const raw = await readObject(BUCKET, CONTENT_KEY);
@@ -93,7 +101,7 @@ export async function addProduct(
     }
   }
 
-  const slug = product.title.toLowerCase().replace(/\s+/g, '-');
+  const slug = slugifyTitle(product.title);
   const link = `/products/${slug}.html`;
 
   const fullProduct: Product = {
@@ -110,7 +118,7 @@ export async function addProduct(
 }
 
 export async function createProductPage(product: Product, fullDescription: string): Promise<string> {
-  const slug = product.title.toLowerCase().replace(/\s+/g, '-');
+  const slug = slugifyTitle(product.title);
   const filename = `${slug}.html`;
   const s3Key = `${PRODUCTS_PREFIX}${filename}`;
 

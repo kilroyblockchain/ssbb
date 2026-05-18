@@ -49,23 +49,29 @@ function parseCanvasProductRequest(text: string): {
   imageKey?: string;
   title: string;
   productType: 'shirt' | 'poster' | 'letter';
+  clientId: string;
 } | null {
-  if (!/create a real Discount Punk product from this exact approved Canvas Image/i.test(text)) {
+  if (!/create a real product from this exact approved Canvas Image/i.test(text)) {
     return null;
   }
 
-  const imageUrl = /image_url:\s*(https?:\/\/\S+?)(?=\s+image_key:|\s+client_slug:|\s+product_type:|\s+Rules:|$)/is.exec(text)?.[1];
+  const imageUrl = /image_url:\s*(https?:\/\/\S+?)(?=\s+image_key:|\s+client_slug:|\s+store:|\s+product_type:|\s+Rules:|$)/is.exec(text)?.[1];
   if (!imageUrl) return null;
 
-  const imageKey = /image_key:\s*(\S+?)(?=\s+client_slug:|\s+product_type:|\s+Rules:|$)/is.exec(text)?.[1];
+  const imageKey = /image_key:\s*(\S+?)(?=\s+client_slug:|\s+store:|\s+product_type:|\s+Rules:|$)/is.exec(text)?.[1];
   const rawTitle = /Image title:\s*(.+?)(?=\s+image_url:|$)/is.exec(text)?.[1]?.trim();
   const productType = /product_type:\s*(shirt|poster|letter)/i.exec(text)?.[1]?.toLowerCase();
+  const store = /store:\s*(\S+?)(?=\s+product_type:|\s+Rules:|$)/is.exec(text)?.[1];
+  const clientId = store === '250birthday-us' ? '250birthday-us' : 'discountpunk';
+
+  const defaultTitle = clientId === '250birthday-us' ? '250birthday.us Canvas Tee' : 'Discount Punk Canvas Tee';
 
   return {
     imageUrl,
     imageKey,
-    title: rawTitle || 'Discount Punk Canvas Tee',
-    productType: productType === 'poster' || productType === 'letter' ? productType : 'shirt'
+    title: rawTitle || defaultTitle,
+    productType: productType === 'poster' || productType === 'letter' ? productType : 'shirt',
+    clientId
   };
 }
 
@@ -74,17 +80,20 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
 
   const canvasProductRequest = parseCanvasProductRequest(ctx.text);
   if (canvasProductRequest) {
+    const { clientId } = canvasProductRequest;
     const imageUrl = cleanS3ImageUrl(canvasProductRequest.imageUrl, canvasProductRequest.imageKey);
     const title = canvasProductRequest.title.length > 80
       ? `${canvasProductRequest.title.slice(0, 77).trim()}...`
       : canvasProductRequest.title;
-    const description = `Discount Punk ${canvasProductRequest.productType} created from approved Canvas image.`;
+    const storeName = clientId === '250birthday-us' ? '250birthday.us' : 'Discount Punk';
+    const description = `${storeName} ${canvasProductRequest.productType} created from approved Canvas image.`;
 
     console.log('[provider] direct canvas product workflow starting:', {
       title,
       imageUrl,
       imageKey: canvasProductRequest.imageKey,
-      productType: canvasProductRequest.productType
+      productType: canvasProductRequest.productType,
+      clientId
     });
 
     try {
@@ -94,24 +103,28 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
         title,
         description,
         product_type: canvasProductRequest.productType,
-        colors: ['black']
+        colors: ['black'],
+        client_id: clientId
       });
 
       if (!result.success) {
         throw new Error(result.error || 'Unknown error');
       }
 
-      const product = await addProduct({
-        title,
-        price: '$29.99',
-        description
-      }, undefined, undefined);
+      if (clientId === 'discountpunk') {
+        const product = await addProduct({
+          title,
+          price: '$29.99',
+          description
+        }, undefined, undefined);
 
-      if (result.mockup_urls?.[0]) {
-        product.image = result.mockup_urls[0];
+        if (result.mockup_urls?.[0]) {
+          product.image = result.mockup_urls[0];
+        }
       }
 
-      return `Product created from approved Canvas image. "${title}" is now live on Discount Punk and ready for orders. Printful ID: ${result.printful_product_id}. Print-ready file: ${result.print_ready_url}`;
+      const storeUrl = clientId === '250birthday-us' ? 'https://250birthday.us/shop.html' : 'discountpunk.com';
+      return `Product created from approved Canvas image. "${title}" is now live on ${storeName} and ready for orders. Printful ID: ${result.printful_product_id}. Shop: ${storeUrl}`;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
       console.error('[provider] direct canvas product workflow failed:', { error: errorMsg });
