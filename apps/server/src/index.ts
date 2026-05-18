@@ -8,19 +8,12 @@ import { Server as SocketIOServer } from 'socket.io';
 import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
 import multer from 'multer';
-import {
-  getProjectMemory,
-  getUserMemory,
-  rememberProjectFact,
-  rememberUserFact,
-  updateLastSession,
-  type PersonaMemory
-} from './services/memory.js';
-import { generateChatResponse } from './services/provider.js';
+import { getProjectMemory } from './services/memory.js';
 import { buildSongCanvasHtml } from './services/canvas.js';
 import { requireAuth } from './middleware/auth.js';
 import { config, ensureAwsConfig } from './config.js';
-import { appendToConversation, fetchConversation } from './services/conversations.js';
+import { fetchConversation } from './services/conversations.js';
+import { generateLoginGreeting, resolveConversationId, runChatTurn } from './services/chat.js';
 import { runHarvest } from './services/harvest.js';
 import { synthesizeSpeech } from './services/tts.js';
 import { readObject, writeObject, writeBuffer, listObjects, getPresignedUrl, deleteObject, copyObject, readBuffer } from './services/s3.js';
@@ -46,7 +39,9 @@ const allowedOrigins = [
   'https://red-water-05c15131e.7.azurestaticapps.net',
   'https://red-water-05c15131e-preview.westus2.7.azurestaticapps.net',
   'https://discountpunk.com',
-  'https://www.discountpunk.com'
+  'https://www.discountpunk.com',
+  'https://250birthday.us',
+  'https://www.250birthday.us'
 ];
 
 app.use(cors({
@@ -156,6 +151,8 @@ const chatSchema = z.object({
   attachments: z.array(imageAttachmentSchema).max(5).optional(),
   clientMessageId: z.string().uuid().optional(),
   galleryIndex: galleryIndexSchema,
+  profile: z.enum(['ssbb-full', 'ssbb-chat-fast', 'phyllis-commerce', 'admin-fulfillment']).optional(),
+  capabilities: z.array(z.string().min(1).max(100)).max(20).optional(),
 });
 
 const soraJobSchema = z.object({
@@ -188,8 +185,7 @@ const allReactions: Record<string, Record<string, { type: string; users: string[
 
 app.get('/api/chat/history', async (req, res) => {
   const mode = req.query.mode === 'private' ? 'private' : 'shared';
-  const conversationId =
-    mode === 'shared' ? 'butt-bitch-hang' : `private-${(req.user?.email || 'anon').replace(/[^a-z0-9@._-]/gi, '')}`;
+  const conversationId = resolveConversationId(mode, req.user?.email || null);
   const history = await fetchConversation(conversationId);
   // Include reactions for every message in this history
   const reactionsMap: Record<string, Record<string, { type: string; users: string[] }>> = {};
@@ -230,114 +226,87 @@ app.post('/api/chat', async (req, res) => {
     return res.status(400).json({ error: parse.error.flatten() });
   }
 
-  const { message, mode, attachments, clientMessageId, galleryIndex } = parse.data;
-  const userEmail = req.user?.email || null;
-  const trimmed = message.trim();
-  const id = clientMessageId ?? uuid();
-
-  const userMemory = userEmail ? getUserMemory(userEmail) : undefined;
-  const conversationId =
-    mode === 'shared'
-      ? 'butt-bitch-hang'
-      : `private-${(userEmail || 'anonymous').replace(/[^a-z0-9@._-]/gi, '')}`;
-
   try {
-    const history = await fetchConversation(conversationId);
-
-    const rememberMatch = /remember\s+(?:that\s+)?(.+)/i.exec(trimmed);
-    if (rememberMatch) {
-      const nugget = rememberMatch[1];
-      const targetIsProject =
-        /\bwe\b|\bproject\b|\bepisode\b|\bbutt bitches\b/i.test(nugget) || mode === 'shared';
-      if (targetIsProject) {
-        rememberProjectFact(nugget, 'chat');
-      } else if (userEmail) {
-        rememberUserFact(userEmail, nugget, 'chat');
-      }
-    }
-
-    const senderHandle = userEmail ? userEmail.split('@')[0] : undefined;
-    const responseText = await generateChatResponse({
-      mode,
-      text: trimmed,
-      userEmail,
-      senderHandle,
-      memory: {
-        project: getProjectMemory(),
-        user: userMemory
-      },
-      history,
-      attachments,
-      galleryIndex
+    const result = await runChatTurn({
+      ...parse.data,
+      userEmail: req.user?.email || null
     });
 
-    // Track last conversation topic per user so BotButt can pick up where they left off
-    if (userEmail && mode === 'private') {
-      updateLastSession(userEmail, trimmed);
+    if (result.userMessage.mode === 'shared') {
+      io.emit('chat:message', {
+        id: result.userMessage.id,
+        text: result.userMessage.text,
+        author: 'butt',
+        mode: result.userMessage.mode,
+        userEmail: result.userMessage.userEmail,
+        createdAt: result.userMessage.createdAt
+      });
+      io.emit('chat:message', {
+        id: result.botMessage.id,
+        text: result.botMessage.text,
+        author: 'bot',
+        mode: result.botMessage.mode,
+        createdAt: result.botMessage.createdAt
+      });
     }
 
-    const userMsg = {
-      id,
-      text: trimmed,
-      author: 'butt' as const,
-      createdAt: new Date().toISOString(),
-      mode,
-      conversationId,
-      userEmail: userEmail ?? undefined
-    };
-    const botMsg = {
-      id: uuid(),
-      text: responseText,
-      author: 'bot' as const,
-      createdAt: new Date().toISOString(),
-      mode,
-      conversationId
-    };
-
-    await appendToConversation(conversationId, userMsg);
-    await appendToConversation(conversationId, botMsg);
-
-    const payload = { id: botMsg.id, text: responseText, createdAt: botMsg.createdAt };
-    if (mode === 'shared') {
-      io.emit('chat:message', { id: userMsg.id, text: trimmed, author: 'butt', mode, userEmail: userEmail ?? undefined, createdAt: userMsg.createdAt });
-      io.emit('chat:message', { ...payload, author: 'bot', mode });
-    }
-    res.json(payload);
+    res.json(result.payload);
   } catch (err: any) {
     console.error('[chat] error:', err);
     res.status(503).json({ error: err.message || 'BotButt hit a snag' });
   }
 });
 
-// ── Greeting: personalised welcome when a Butt Bitch logs in ─────────────────
-app.post('/api/chat/greeting', async (req, res) => {
-  const userEmail = req.user?.email || null;
-  const handle = userEmail ? userEmail.split('@')[0] : 'Butt Bitch';
-  const handleCap = handle.replace(/^(.)/, (c: string) => c.toUpperCase());
+app.post('/api/botbutt/chat', async (req, res) => {
+  const parse = chatSchema.safeParse(req.body);
+  if (!parse.success) {
+    console.error('[botbutt/chat] schema validation failed:', JSON.stringify(parse.error.flatten()));
+    return res.status(400).json({ error: parse.error.flatten() });
+  }
 
   try {
-    const userMemory = userEmail ? getUserMemory(userEmail) : undefined;
-    const responseText = await generateChatResponse({
-      mode: 'shared',
-      text: `${handleCap} just logged into the SSBB collab space. Give her a short, punchy one-sentence welcome — like she just walked into the room. Use your personal notes about her if you have any. Be natural, not formal.`,
-      userEmail,
-      senderHandle: undefined,
-      memory: { project: getProjectMemory(), user: userMemory },
-      history: []
+    const result = await runChatTurn({
+      ...parse.data,
+      userEmail: req.user?.email || null
     });
 
-    const botMsg = {
-      id: uuid(),
-      text: responseText,
-      author: 'bot' as const,
-      createdAt: new Date().toISOString(),
-      mode: 'shared' as const,
-      conversationId: 'butt-bitch-hang'
-    };
+    if (result.userMessage.mode === 'shared') {
+      io.emit('chat:message', {
+        id: result.userMessage.id,
+        text: result.userMessage.text,
+        author: 'butt',
+        mode: result.userMessage.mode,
+        userEmail: result.userMessage.userEmail,
+        createdAt: result.userMessage.createdAt
+      });
+      io.emit('chat:message', {
+        id: result.botMessage.id,
+        text: result.botMessage.text,
+        author: 'bot',
+        mode: result.botMessage.mode,
+        createdAt: result.botMessage.createdAt
+      });
+    }
 
-    await appendToConversation('butt-bitch-hang', botMsg);
-    io.emit('chat:message', { id: botMsg.id, text: responseText, author: 'bot', mode: 'shared', createdAt: botMsg.createdAt });
-    res.json({ id: botMsg.id, text: responseText, createdAt: botMsg.createdAt });
+    res.json(result.payload);
+  } catch (err: any) {
+    console.error('[botbutt/chat] error:', err);
+    res.status(503).json({ error: err.message || 'BotButt hit a snag' });
+  }
+});
+
+// ── Greeting: personalised welcome when a Butt Bitch logs in ─────────────────
+app.post('/api/chat/greeting', async (req, res) => {
+  try {
+    const botMsg = await generateLoginGreeting(req.user?.email || null);
+    io.emit('chat:message', {
+      id: botMsg.id,
+      text: botMsg.text,
+      author: 'bot',
+      mode: 'shared',
+      createdAt: botMsg.createdAt
+    });
+    res.json({ id: botMsg.id, text: botMsg.text, createdAt: botMsg.createdAt });
   } catch (err: any) {
     console.error('[greeting]', err);
     res.status(503).json({ error: err.message || 'Greeting failed' });

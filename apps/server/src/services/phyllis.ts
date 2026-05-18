@@ -11,6 +11,42 @@ const PRINT_PRESETS = {
   'letter': { width: 2550, height: 3300 }        // 8.5" × 11" at 300 DPI
 };
 
+function getPrintPrepSourceUrl(sourceImageUrl: string, imageKey?: string): string {
+  if (imageKey) {
+    return `https://ssbb-media-prod.s3.amazonaws.com/${imageKey}`;
+  }
+
+  try {
+    const url = new URL(sourceImageUrl);
+    url.search = '';
+
+    if (url.hostname === 'ssbb-media-prod.s3.us-east-1.amazonaws.com') {
+      url.hostname = 'ssbb-media-prod.s3.amazonaws.com';
+    }
+
+    return url.toString();
+  } catch {
+    return sourceImageUrl;
+  }
+}
+
+function getS3ImageKey(imageUrl: string): string | undefined {
+  try {
+    const url = new URL(imageUrl);
+
+    if (
+      url.hostname === 'ssbb-media-prod.s3.amazonaws.com' ||
+      url.hostname === 'ssbb-media-prod.s3.us-east-1.amazonaws.com'
+    ) {
+      return url.pathname.replace(/^\/+/, '');
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
 interface GeneratePrintDesignParams {
   prompt: string;
   title: string;
@@ -77,6 +113,7 @@ export async function generateDesignPreview(params: {
  */
 export async function createProductFromPreview(params: {
   preview_url: string;
+  image_key?: string;
   title: string;
   description: string;
   product_type?: 'shirt' | 'poster' | 'letter';
@@ -97,6 +134,7 @@ export async function createProductFromPreview(params: {
       title: params.title,
       description: params.description,
       source_image_url: params.preview_url,
+      image_key: params.image_key,
       product_type: params.product_type || 'shirt',
       colors: params.colors || ['black'],
       retail_price: '29.99'
@@ -231,6 +269,8 @@ export async function generatePrintDesign(params: GeneratePrintDesignParams): Pr
  */
 export async function prepareImageForPrint(params: {
   source_image_url: string;
+  image_key?: string;
+  client_slug?: string;
   product_type?: 'shirt' | 'poster' | 'letter';
   remove_background?: boolean;
   upscale?: boolean;
@@ -261,33 +301,94 @@ export async function prepareImageForPrint(params: {
 
     const productType = params.product_type || 'shirt';
     const preset = PRINT_PRESETS[productType === 'shirt' ? 't-shirt' : productType === 'poster' ? 'poster-11x17' : 'letter'];
+    const sourceImageUrl = getPrintPrepSourceUrl(params.source_image_url, params.image_key);
 
     console.log('[phyllis] Preparing image for print:', {
-      source: params.source_image_url,
+      source: sourceImageUrl,
       productType,
       targetDimensions: preset
     });
 
-    const response = await fetch(`${phyllisBaseUrl}/api/print-prep/process`, {
+    const printPrepUrl = `${phyllisBaseUrl}/api/print-prep/process`;
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-API-Key': phyllisApiKey
+    };
+    const camelCasePayload = {
+      clientSlug: params.client_slug || 'discount-punk',
+      sourceImageUrl,
+      imageKey: params.image_key,
+      productType: productType,
+      targetWidth: preset.width,
+      targetHeight: preset.height,
+      removeBackground: params.remove_background ?? true,
+      upscale: params.upscale ?? true,
+      sharpen: params.sharpen ?? true
+    };
+
+    let response = await fetch(printPrepUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': phyllisApiKey
-      },
-      body: JSON.stringify({
-        clientSlug: 'discount-punk',
-        sourceImageUrl: params.source_image_url,
-        productType: productType,
-        targetWidth: preset.width,
-        targetHeight: preset.height,
-        removeBackground: params.remove_background ?? true,
-        upscale: params.upscale ?? true,
-        sharpen: params.sharpen ?? true
-      })
+      headers,
+      body: JSON.stringify(camelCasePayload)
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: 'Print prep failed' }));
+      let errorData = await response.json().catch(() => ({ error: 'Print prep failed' }));
+      const shouldTrySnakeCase = response.status === 400 && /invalid request/i.test(String(errorData.error || ''));
+
+      if (shouldTrySnakeCase) {
+        response = await fetch(printPrepUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            client_slug: params.client_slug || 'discount-punk',
+            source_image_url: sourceImageUrl,
+            image_key: params.image_key,
+            product_type: productType,
+            target_width: preset.width,
+            target_height: preset.height,
+            remove_background: params.remove_background ?? true,
+            upscale: params.upscale ?? true,
+            sharpen: params.sharpen ?? true
+          })
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+
+          if (!result.success || !result.qualityPassed) {
+            console.warn('[phyllis] Print prep quality check failed:', result.warnings);
+            return {
+              success: false,
+              error: `Image quality insufficient for print: ${result.warnings?.join(', ') || 'Unknown issue'}`,
+              warnings: result.warnings
+            };
+          }
+
+          console.log('[phyllis] Image prepared successfully:', {
+            printReadyUrl: result.printReadyUrl,
+            dimensions: `${result.width}×${result.height}`,
+            dpi: result.dpi
+          });
+
+          return {
+            success: true,
+            printReadyUrl: result.printReadyUrl,
+            width: result.width,
+            height: result.height,
+            dpi: result.dpi,
+            hasAlpha: result.hasAlpha,
+            qualityPassed: result.qualityPassed,
+            sourceWidth: result.sourceWidth,
+            sourceHeight: result.sourceHeight,
+            prepMethod: result.prepMethod,
+            warnings: result.warnings
+          };
+        }
+
+        errorData = await response.json().catch(() => ({ error: 'Print prep failed' }));
+      }
+
       throw new Error(`Phyllis print-prep rejected: ${errorData.error || response.statusText}`);
     }
 
@@ -414,6 +515,7 @@ export async function ensurePhyllisProduct(params: {
   title: string;
   description: string;
   source_image_url: string;
+  image_key?: string;
   product_type?: 'shirt' | 'poster' | 'letter';
   colors?: string[];
   retail_price?: string;
@@ -453,6 +555,7 @@ export async function ensurePhyllisProduct(params: {
 
     const prep = await prepareImageForPrint({
       source_image_url: params.source_image_url,
+      image_key: params.image_key,
       product_type: params.product_type || 'shirt',
       remove_background: true,
       upscale: true,
@@ -509,7 +612,10 @@ export async function createProductWithPhyllis(params: {
   title: string;
   description: string;
   colors?: string[];
-  source_image_url?: string; // For traceability: the preview/source that was approved
+  source_image_url?: string;
+  image_key?: string;
+  client_id?: string;          // defaults to 'discountpunk'
+  catalog_product_id?: number; // Printful catalog ID; Phyllis uses its default if omitted
 }): Promise<{
   success: boolean;
   printful_product_id?: number;
@@ -529,6 +635,32 @@ export async function createProductWithPhyllis(params: {
       throw new Error('PHYLLIS_API_KEY not configured');
     }
 
+    let designUrl = params.design_url;
+
+    const sourceImageUrl = params.source_image_url || params.design_url;
+    const imageKey = params.image_key || getS3ImageKey(sourceImageUrl);
+    const shouldPrepareBeforeCreate = !params.design_url.includes('/print-ready/');
+
+    if (shouldPrepareBeforeCreate) {
+      console.log('[phyllis] Preparing print-ready file before product creation:', sourceImageUrl);
+
+      const prep = await prepareImageForPrint({
+        source_image_url: sourceImageUrl,
+        image_key: imageKey,
+        product_type: 'shirt',
+        remove_background: true,
+        upscale: true,
+        sharpen: true
+      });
+
+      if (!prep.success || !prep.printReadyUrl || !prep.qualityPassed) {
+        throw new Error(`Print prep failed before product creation: ${prep.error || 'Quality check failed'}`);
+      }
+
+      designUrl = prep.printReadyUrl;
+      console.log('[phyllis] Using print-ready URL for product creation:', designUrl);
+    }
+
     console.log('[phyllis] Creating product with Phyllis Fills:', params.title);
 
     // Call Phyllis API
@@ -539,12 +671,13 @@ export async function createProductWithPhyllis(params: {
         'X-API-Key': phyllisApiKey
       },
       body: JSON.stringify({
-        design_url: params.design_url,
-        source_image_url: params.source_image_url, // For traceability
+        design_url: designUrl,
+        source_image_url: params.source_image_url || params.design_url,
         title: params.title,
         colors: params.colors || ['black'],
         description: params.description,
-        client_id: 'discountpunk'
+        client_id: params.client_id || 'discountpunk',
+        ...(params.catalog_product_id ? { catalog_product_id: params.catalog_product_id } : {})
       })
     });
 
@@ -561,6 +694,7 @@ export async function createProductWithPhyllis(params: {
 
           const prep = await prepareImageForPrint({
             source_image_url: params.source_image_url,
+            image_key: params.image_key,
             product_type: 'shirt', // Default to shirt
             remove_background: true,
             upscale: true,
@@ -586,7 +720,8 @@ export async function createProductWithPhyllis(params: {
               title: params.title,
               colors: params.colors || ['black'],
               description: params.description,
-              client_id: 'discountpunk'
+              client_id: params.client_id || 'discountpunk',
+              ...(params.catalog_product_id ? { catalog_product_id: params.catalog_product_id } : {})
             })
           });
 

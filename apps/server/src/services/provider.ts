@@ -25,8 +25,99 @@ type Context = {
   galleryIndex?: GalleryIndex;
 };
 
+function cleanS3ImageUrl(imageUrl: string, imageKey?: string): string {
+  if (imageKey) {
+    return `https://ssbb-media-prod.s3.amazonaws.com/${imageKey}`;
+  }
+
+  try {
+    const url = new URL(imageUrl);
+    url.search = '';
+
+    if (url.hostname === 'ssbb-media-prod.s3.us-east-1.amazonaws.com') {
+      url.hostname = 'ssbb-media-prod.s3.amazonaws.com';
+    }
+
+    return url.toString();
+  } catch {
+    return imageUrl;
+  }
+}
+
+function parseCanvasProductRequest(text: string): {
+  imageUrl: string;
+  imageKey?: string;
+  title: string;
+  productType: 'shirt' | 'poster' | 'letter';
+} | null {
+  if (!/create a real Discount Punk product from this exact approved Canvas Image/i.test(text)) {
+    return null;
+  }
+
+  const imageUrl = /image_url:\s*(https?:\/\/\S+?)(?=\s+image_key:|\s+client_slug:|\s+product_type:|\s+Rules:|$)/is.exec(text)?.[1];
+  if (!imageUrl) return null;
+
+  const imageKey = /image_key:\s*(\S+?)(?=\s+client_slug:|\s+product_type:|\s+Rules:|$)/is.exec(text)?.[1];
+  const rawTitle = /Image title:\s*(.+?)(?=\s+image_url:|$)/is.exec(text)?.[1]?.trim();
+  const productType = /product_type:\s*(shirt|poster|letter)/i.exec(text)?.[1]?.toLowerCase();
+
+  return {
+    imageUrl,
+    imageKey,
+    title: rawTitle || 'Discount Punk Canvas Tee',
+    productType: productType === 'poster' || productType === 'letter' ? productType : 'shirt'
+  };
+}
+
 export async function generateChatResponse(ctx: Context): Promise<string> {
   console.log('[provider] generateChatResponse called for', ctx.senderHandle);
+
+  const canvasProductRequest = parseCanvasProductRequest(ctx.text);
+  if (canvasProductRequest) {
+    const imageUrl = cleanS3ImageUrl(canvasProductRequest.imageUrl, canvasProductRequest.imageKey);
+    const title = canvasProductRequest.title.length > 80
+      ? `${canvasProductRequest.title.slice(0, 77).trim()}...`
+      : canvasProductRequest.title;
+    const description = `Discount Punk ${canvasProductRequest.productType} created from approved Canvas image.`;
+
+    console.log('[provider] direct canvas product workflow starting:', {
+      title,
+      imageUrl,
+      imageKey: canvasProductRequest.imageKey,
+      productType: canvasProductRequest.productType
+    });
+
+    try {
+      const result = await createProductFromPreview({
+        preview_url: imageUrl,
+        image_key: canvasProductRequest.imageKey,
+        title,
+        description,
+        product_type: canvasProductRequest.productType,
+        colors: ['black']
+      });
+
+      if (!result.success) {
+        throw new Error(result.error || 'Unknown error');
+      }
+
+      const product = await addProduct({
+        title,
+        price: '$29.99',
+        description
+      }, undefined, undefined);
+
+      if (result.mockup_urls?.[0]) {
+        product.image = result.mockup_urls[0];
+      }
+
+      return `Product created from approved Canvas image. "${title}" is now live on Discount Punk and ready for orders. Printful ID: ${result.printful_product_id}. Print-ready file: ${result.print_ready_url}`;
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[provider] direct canvas product workflow failed:', { error: errorMsg });
+      return `I tried the automatic Canvas-to-product workflow and it failed at the system step: ${errorMsg}`;
+    }
+  }
 
   // Show last 15 user facts (not just 3)
   const userFacts = ctx.memory.user?.facts ?? [];
@@ -216,6 +307,8 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     'Creates a REAL product from an EXISTING 300 DPI design that customers can order!',
     'Parameters:',
     '  • design_url: S3 URL of 300 DPI design (must already be uploaded)',
+    '  • source_image_url: (optional) original low-DPI source URL for print-prep retry',
+    '  • image_key: (optional) S3 key for the original source image',
     '  • title: Product name',
     '  • description: Product description',
     '  • colors: (optional) Array of colors, default ["black"]',
@@ -233,6 +326,7 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     'Creates a REAL product from an approved gallery image!',
     'Parameters:',
     '  • image_url: S3 URL of the gallery image',
+    '  • image_key: (optional) S3 key of the gallery image',
     '  • title: Product name',
     '  • description: Product description',
     '  • product_type: (optional) "shirt", "poster", or "letter"',
@@ -256,6 +350,7 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     '  • title: Product title',
     '  • description: Product description',
     '  • source_image_url: Web image URL (can be low-res, will be prepped)',
+    '  • image_key: (optional) S3 key for the source image',
     '  • product_type: (optional) "shirt", "poster", or "letter"',
     '  • retail_price: (optional) Price, default "29.99"',
     '',
@@ -392,14 +487,18 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
     },
     {
       name: 'create_product_with_phyllis',
-      description: 'Create a real product on Discount Punk using an existing 300 DPI design. Calls Phyllis Fills API to create a Printful product with mockups, then adds it to the shop. Use this when someone asks you to make a REAL product that customers can actually order (not fake merch). IMPORTANT: You must provide a design_url that points to a 300 DPI image already uploaded to S3.',
+      description: 'Create a real product using an existing 300 DPI design. Calls Phyllis Fills API to create a Printful product with mockups, then adds it to the shop. Use this when someone asks you to make a REAL product that customers can actually order. IMPORTANT: design_url should point to a 300 DPI image already uploaded to S3. If the original source was a low-DPI canvas/gallery image, also provide source_image_url and image_key so print-prep can repair and retry if Phyllis rejects it. Use store="250birthday-us" when creating products for 250birthday.us, and specify catalog_product_id for non-standard products (raglan=233, ringer tee=959, trucker hat=627, tank=537, all-over print tee=257, skater dress=1477, flag=490, youth tee=307, toddler tee=489).',
       inputSchema: {
         type: 'object',
         properties: {
-          design_url: { type: 'string', description: 'S3 URL of 300 DPI design (e.g., https://ssbb-media-prod.s3.amazonaws.com/discountpunk/images/design-300dpi.png)' },
+          design_url: { type: 'string', description: 'S3 URL of 300 DPI design' },
+          source_image_url: { type: 'string', description: 'Original source image URL for print-prep retry if design_url is rejected for DPI' },
+          image_key: { type: 'string', description: 'S3 object key for the original source image, used by print-prep when available' },
           title: { type: 'string', description: 'Product title' },
           description: { type: 'string', description: 'Product description' },
-          colors: { type: 'array', items: { type: 'string' }, description: 'Optional: shirt colors (default: ["black"])' }
+          colors: { type: 'array', items: { type: 'string' }, description: 'Optional: shirt colors (default: ["black"])' },
+          store: { type: 'string', enum: ['discountpunk', '250birthday-us'], description: 'Which store to add the product to (default: discountpunk)' },
+          catalog_product_id: { type: 'number', description: 'Printful catalog product ID for non-standard items (raglan=233, ringer=959, hat=627, tank=537, all-over tee=257, skater dress=1477, flag=490, youth tee=307, toddler=489)' }
         },
         required: ['design_url', 'title', 'description']
       }
@@ -422,6 +521,7 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
         type: 'object',
         properties: {
           image_url: { type: 'string', description: 'S3 URL of the approved gallery image' },
+          image_key: { type: 'string', description: 'S3 object key for the approved gallery image, used by print-prep when available' },
           title: { type: 'string', description: 'Product title' },
           description: { type: 'string', description: 'Product description' },
           product_type: { type: 'string', enum: ['shirt', 'poster', 'letter'], description: 'Product type (default: shirt)' }
@@ -438,6 +538,7 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
           title: { type: 'string', description: 'Product title to check/create' },
           description: { type: 'string', description: 'Product description' },
           source_image_url: { type: 'string', description: 'Web image URL (can be 72 DPI, will be prepped for print)' },
+          image_key: { type: 'string', description: 'S3 object key for the source image, used by print-prep when available' },
           product_type: { type: 'string', enum: ['shirt', 'poster', 'letter'], description: 'Product type (default: shirt)' },
           retail_price: { type: 'string', description: 'Price (default: "29.99")' }
         },
@@ -532,41 +633,54 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
 
       if (name === 'create_product_with_phyllis') {
         try {
-          const { design_url, title, description, colors } = input as any;
-          console.log('[provider] create_product_with_phyllis starting:', { title, design_url });
+          const { design_url, source_image_url, image_key, title, description, colors, store, catalog_product_id } = input as any;
+          const clientId = store === '250birthday-us' ? '250birthday-us' : 'discountpunk';
+          console.log('[provider] create_product_with_phyllis starting:', { title, design_url, source_image_url, image_key, store: clientId, catalog_product_id });
 
           const { createProductWithPhyllis } = await import('./phyllis.js');
           const result = await createProductWithPhyllis({
             design_url,
+            source_image_url,
+            image_key,
             title,
             description,
-            colors: colors || ['black']
+            colors: colors || ['black'],
+            client_id: clientId,
+            catalog_product_id: catalog_product_id ?? undefined
           });
 
           if (!result.success) {
             throw new Error(result.error || 'Unknown error');
           }
 
-          // Add product to Discount Punk website using the front mockup image URL directly
-          const product = await addProduct({
-            title,
-            price: '$29.99',
-            description
-          }, undefined, undefined);
+          const storeName = clientId === '250birthday-us' ? '250birthday.us' : 'Discount Punk';
+          const storeUrl = clientId === '250birthday-us' ? 'https://250birthday.us/shop.html' : undefined;
 
-          // Override the image with the mockup from Phyllis
-          if (result.mockups?.front) {
-            product.image = result.mockups.front;
+          // Only write to Discount Punk's content.json when targeting that store
+          if (clientId === 'discountpunk') {
+            const product = await addProduct({
+              title,
+              price: '$29.99',
+              description
+            }, undefined, undefined);
+            if (result.mockups?.front) {
+              product.image = result.mockups.front;
+            }
+            console.log('[provider] create_product_with_phyllis success:', {
+              title,
+              printful_id: result.printful_product_id,
+              product_link: product.link,
+              mockup: result.mockups?.front
+            });
+            return `Real product created! "${title}" is now live on ${storeName} and ready for actual orders. Printful product ID: ${result.printful_product_id}. Link: ${product.link}.`;
           }
 
           console.log('[provider] create_product_with_phyllis success:', {
             title,
             printful_id: result.printful_product_id,
-            product_link: product.link,
-            mockup: result.mockups?.front
+            store: clientId
           });
-
-          return `Real product created! "${title}" is now live on Discount Punk and ready for actual orders. Printful product ID: ${result.printful_product_id}. Link: ${product.link}. First 10 orders/month are free on Phyllis Fills!`;
+          return `Real product created! "${title}" is now live on ${storeName} and ready for actual orders. Printful product ID: ${result.printful_product_id}. Shop: ${storeUrl}`;
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : 'Unknown error';
           console.error('[provider] create_product_with_phyllis failed:', { error: errorMsg });
@@ -629,12 +743,13 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
 
       if (name === 'create_product_from_gallery_image') {
         try {
-          const { image_url, title, description, product_type } = input as any;
-          console.log('[provider] create_product_from_gallery_image starting:', { title, image_url });
+          const { image_url, image_key, title, description, product_type } = input as any;
+          console.log('[provider] create_product_from_gallery_image starting:', { title, image_url, image_key });
 
           const { createProductFromPreview } = await import('./phyllis.js');
           const result = await createProductFromPreview({
             preview_url: image_url,
+            image_key,
             title,
             description,
             product_type: product_type || 'shirt',
@@ -681,14 +796,15 @@ export async function generateChatResponse(ctx: Context): Promise<string> {
 
       if (name === 'ensure_product_exists') {
         try {
-          const { title, description, source_image_url, product_type, retail_price } = input as any;
-          console.log('[provider] ensure_product_exists starting:', { title, source_image_url });
+          const { title, description, source_image_url, image_key, product_type, retail_price } = input as any;
+          console.log('[provider] ensure_product_exists starting:', { title, source_image_url, image_key });
 
           const { ensurePhyllisProduct } = await import('./phyllis.js');
           const result = await ensurePhyllisProduct({
             title,
             description,
             source_image_url,
+            image_key,
             product_type: product_type || 'shirt',
             retail_price: retail_price || '29.99'
           });
