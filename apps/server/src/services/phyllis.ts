@@ -2,6 +2,7 @@ import sharp from 'sharp';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { hydratePhyllisConfig } from './secrets.js';
 import { readBuffer, writeBuffer } from './s3.js';
+import { config } from '../config.js';
 
 const s3 = new S3Client({ region: 'us-east-1' });
 
@@ -17,11 +18,13 @@ async function getPrintPrepSourceUrl(sourceImageUrl: string, imageKey?: string):
 
   if (key?.startsWith('canvas-assets/')) {
     // canvas-assets/ is private and Phyllis (Replit) can't access presigned URLs for it.
-    // Copy the image to the public discountpunk/images/print-prep/ path so Phyllis gets a plain URL.
+    // Read from whichever bucket the server actually uses (config.mediaBucket = ssbb-media-dev in prod),
+    // then write to the public discountpunk prefix in ssbb-media-prod so Phyllis gets a plain URL.
     const filename = key.split('/').pop() || `${Date.now()}.png`;
     const publicKey = `discountpunk/images/print-prep/${filename}`;
-    console.log('[phyllis] copying canvas-asset to public path:', { from: key, to: publicKey });
-    const { buffer, contentType } = await readBuffer('ssbb-media-prod', key);
+    const sourceBucket = config.mediaBucket || 'ssbb-media-prod';
+    console.log('[phyllis] copying canvas-asset to public path:', { sourceBucket, from: key, to: publicKey });
+    const { buffer, contentType } = await readBuffer(sourceBucket, key);
     await writeBuffer('ssbb-media-prod', publicKey, buffer, contentType || 'image/png');
     return `https://ssbb-media-prod.s3.amazonaws.com/${publicKey}`;
   }
